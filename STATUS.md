@@ -220,8 +220,7 @@ Current state:
 
 Next action:
 
-No immediate user-driven test. Finish repository validation and CI for the
-foreground-service reconnect fix, then leave the installed app alone. Repeated
+No immediate user-driven test. Leave the installed app alone. Repeated
 background, screen-off, Reader, and long-TTS acceptance can accumulate through
 ordinary future use rather than requiring an interactive phone pass now.
 
@@ -235,6 +234,8 @@ Validation completed:
 - `npm audit`: 0 vulnerabilities.
 - `cap sync android`: passed.
 - Android `assembleDebug` with Android Studio JDK 21: passed.
+- Private-repository CI run `30372499457` passed both the client and
+  server-plugin jobs for reconnect-fix commit `a786873`.
 - Capacitor sync registered `@capacitor/app` 8.1.1, and APK inspection confirms
   `com.capacitorjs.plugins.app.AppPlugin` plus the foreground-reconnect bundle.
 - Debug APK size: 5,496,505 bytes.
