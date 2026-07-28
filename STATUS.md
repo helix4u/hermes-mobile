@@ -206,26 +206,24 @@ Current state:
   install guide, explicit agent handoff contract, host verification script,
   runtime MagicDNS discovery, and focused client/server GitHub CI. The repo
   contains no session token, Tailnet hostname, or long-lived credential.
+- Android exit history captured the overnight failure at 08:59:48 as
+  `ForegroundServiceDidNotStartInTimeException` in
+  `HermesConnectionService`, not a Reader or WebView exception. A reconnect
+  reached an existing service object after it had removed foreground state, so
+  `onCreate()` did not rerun and Android's five-second promotion deadline
+  expired.
+- Every retain now reasserts foreground state before lease reconciliation.
+  Idle teardown keeps the notification until `onDestroy()`, uses
+  `stopSelfResult(startId)` so an older release cannot stop a newer retain, and
+  enters through `startForegroundService()` without relying on a racy
+  `serviceCreated` snapshot.
 
 Next action:
 
-Finish the live ADB background/foreground pass on the installed replacement APK
-while a session is idle and while a tool-using turn is running.
-Confirm there is no reconnect notice unless the connection actually failed,
-the ongoing notification remains present, and the app stays open. Then run a
-tool-using response that
-emits interim text. Confirm one final answer bubble, then confirm tool inputs
-and outputs remain present after the final answer. In collapsed mode, confirm
-every tool remains a readable card with status and bounded content previews,
-then tap one to inspect the full details. Exercise expanded, hidden, and
-long-detail scrolling. Continue the
-physical-phone acceptance pass with saved Tailnet/Cloud switching, Cloud
-availability text, project/cwd session browsing, live skin switching, multiline
-composer sizing, in-app and launcher Nous girl artwork, screen-off/background
-connection retention, STT, seamless buffered long TTS, normal voice selection,
-wrapped and buffered multivoice Reader playback with auto-scroll, manual scroll
-takeover, section restart, voice fallbacks, per-message Copy, remote file
-browsing, and the control surfaces.
+No immediate user-driven test. Finish repository validation and CI for the
+foreground-service reconnect fix, then leave the installed app alone. Repeated
+background, screen-off, Reader, and long-TTS acceptance can accumulate through
+ordinary future use rather than requiring an interactive phone pass now.
 
 Validation completed:
 
@@ -241,7 +239,7 @@ Validation completed:
   `com.capacitorjs.plugins.app.AppPlugin` plus the foreground-reconnect bundle.
 - Debug APK size: 5,496,505 bytes.
 - Debug APK SHA-256:
-  `BAF2DFD556387D851D11447AB15C3D458005F8083163BD585720278CCDD7571A`.
+  `B3A84C7F2DC79878C97F8B183A727BA8F460155237AF0FEFF8495C6BA5BE2D5B`.
 - Physical-device ADB identified three
   `ForegroundServiceDidNotStartInTimeException` crashes at 22:38, 01:34, and
   01:38, all naming `dev.hermes.mobile/.HermesConnectionService`.
@@ -261,8 +259,18 @@ Validation completed:
 - The final scroll and event-order APK installed successfully in place at
   02:22:36 and launched as PID 17819. Android reports
   `HermesConnectionService` as `isForeground=true`, notification ID 2201, and
-  service type `remoteMessaging`. Exit history records the prior PID stopping
-  for `PACKAGE UPDATED`, with no new application crash after launch so far.
+  service type `remoteMessaging`.
+- PID 17819 crashed at 08:59:48 after the overnight idle/resume path. Android's
+  exact exception was `ForegroundServiceDidNotStartInTimeException` naming
+  `dev.hermes.mobile/.HermesConnectionService`. The WebView renderer ended only
+  after the application process and was not the cause.
+- The first reconnect-corrected APK installed in place and launched as PID
+  26645. Android reported the service as `isForeground=true`, notification ID
+  2201, and service type `remoteMessaging`; it remained alive beyond the
+  five-second deadline with no new crash entry during the initial interval.
+- The final repository variant uses the foreground-service entry point for
+  every retain and passes Android `assembleDebug`. It has not been pushed onto
+  the phone because no further phone interaction is requested right now.
 - `scripts/test-mobile-server.ps1` verified the running scheduled task,
   loopback backend and proxy, authenticated `ok` health, `compatible` contract
   version 1, and configured Tailscale Serve without printing the credential.
@@ -351,10 +359,11 @@ Known constraints:
   focused client tests, manifest inspection, and a successful native build,
   but real screen-off timing, device-specific power management, and physical
   app switching still require the phone check.
-- The prior tab-return foreground-service crash and the separate unhandled
-  WebView renderer exit are both known and fixed. The current APK is installed
-  and under live ADB observation; complete the repeated background/foreground
-  plus long-TTS pass and compare Android exit history before final acceptance.
+- The prior tab-return foreground-service crash, the separate unhandled WebView
+  renderer exit, and the overnight reconnect promotion race are all fixed in
+  the repository. Repeated background, screen-off, and long-TTS evidence is
+  still required before final physical-device acceptance, but no immediate
+  user-driven test is requested.
 - Core `cron.manage` currently exposes structured list, add, pause, resume, and
   remove actions. Edit and run-now are not part of that RPC and are not claimed
   by the Milestone 5B client.

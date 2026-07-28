@@ -42,6 +42,11 @@ public class HermesConnectionService extends Service {
         }
         Intent intent = serviceIntent(context, ACTION_RETAIN, socketId);
         try {
+            // Always use the foreground-service entry point. serviceCreated can
+            // change between this thread reading it and Android delivering the
+            // intent, so choosing startService here would leave a teardown race
+            // where a background retain tries to recreate an ordinary service.
+            // onStartCommand reasserts foreground state for every retain.
             ContextCompat.startForegroundService(context, intent);
         } catch (RuntimeException error) {
             if (newlyRequested) {
@@ -86,7 +91,15 @@ public class HermesConnectionService extends Service {
         // any retain/release reconciliation can stop it. Doing this in
         // onStartCommand leaves a race where a fast release brings the service
         // down while Android is still waiting for startForeground.
-        promoteToForeground();
+        try {
+            promoteToForeground();
+        } catch (RuntimeException error) {
+            Log.e(
+                LOG_TAG,
+                "Could not initially promote the Hermes connection service",
+                error
+            );
+        }
         serviceCreated = true;
     }
 
@@ -95,6 +108,29 @@ public class HermesConnectionService extends Service {
         String action = intent == null ? "" : intent.getAction();
         String socketId =
             intent == null ? "" : intent.getStringExtra(EXTRA_SOCKET_ID);
+
+        if (ACTION_RETAIN.equals(action)) {
+            try {
+                // onCreate is not called when a new retain reaches a service
+                // instance that is still being torn down. Reassert foreground
+                // state for every retain before any release/idle logic can
+                // stop or demote the service.
+                promoteToForeground();
+            } catch (RuntimeException error) {
+                if (socketId != null && !socketId.isEmpty()) {
+                    requestedSocketIds.remove(socketId);
+                }
+                socketIds.clear();
+                releaseWakeLock();
+                Log.e(
+                    LOG_TAG,
+                    "Could not promote the Hermes connection service for a retain",
+                    error
+                );
+                stopSelfResult(startId);
+                return START_NOT_STICKY;
+            }
+        }
 
         if (
             (ACTION_RETAIN.equals(action) || ACTION_RELEASE.equals(action)) &&
@@ -117,10 +153,10 @@ public class HermesConnectionService extends Service {
                     "Could not retain the Hermes foreground connection",
                     error
                 );
-                stopSelf(startId);
+                stopSelfResult(startId);
             }
         } else {
-            stopWhenIdle();
+            stopWhenIdle(startId);
         }
         return START_NOT_STICKY;
     }
@@ -130,6 +166,7 @@ public class HermesConnectionService extends Service {
         serviceCreated = false;
         socketIds.clear();
         releaseWakeLock();
+        removeForegroundNotification();
         super.onDestroy();
     }
 
@@ -216,16 +253,23 @@ public class HermesConnectionService extends Service {
         wakeLock = null;
     }
 
-    private void stopWhenIdle() {
+    private void stopWhenIdle(int startId) {
         if (!socketIds.isEmpty() || !requestedSocketIds.isEmpty()) {
             return;
         }
         releaseWakeLock();
+        // Keep the service foreground until Android actually destroys it. A
+        // retain can arrive after this idle decision but before onDestroy; an
+        // early stopForeground would create a live-but-demoted service that
+        // misses the next startForegroundService deadline.
+        stopSelfResult(startId);
+    }
+
+    private void removeForegroundNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {
             stopForeground(true);
         }
-        stopSelf();
     }
 }

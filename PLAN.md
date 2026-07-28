@@ -520,6 +520,10 @@ Acceptance:
       reconcile socket leases against process-wide requested state, so a fast
       release cannot overtake a pending retain and crash the app with
       `ForegroundServiceDidNotStartInTimeException`.
+- [x] Re-promote the Android connection service on every retain, keep it
+      foreground until actual destruction, and make idle stops start-ID-safe so
+      a reconnect cannot land on a live-but-demoted service instance and miss
+      Android's foreground-service deadline.
 - [x] Disable Capacitor native callback payload logging, keep the primary
       WebView renderer at important priority while backgrounded, and recover
       both the application and sign-in WebViews through
@@ -633,12 +637,17 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
-Install and exercise the replacement Android debug APK:
+No immediate user action is required. The foreground-service reconnect crash
+captured after the overnight idle period is fixed in the repository, and the
+previous replacement build remains installed without requiring an interactive
+phone pass right now.
+
+Latest repository debug APK:
 
 `client\android\app\build\outputs\apk\debug\app-debug.apk`
 
 SHA-256:
-`BAF2DFD556387D851D11447AB15C3D458005F8083163BD585720278CCDD7571A`
+`B3A84C7F2DC79878C97F8B183A727BA8F460155237AF0FEFF8495C6BA5BE2D5B`
 
 The saved-connection, Cloud status, tool/reasoning, project/cwd, theme,
 multiline composer, Nous girl branding, focus-loss recovery, long TTS, normal
@@ -736,18 +745,30 @@ Then finish the remaining Milestone 5B physical checks:
 The authenticated live host already passed a synthetic TTS-to-STT provider loop.
 ADB confirmed that the reported tab-return exits were native
 `ForegroundServiceDidNotStartInTimeException` crashes in
-`HermesConnectionService`. The replacement APK promotes the service in
-`onCreate()` before lease reconciliation and is installed on the physical
+`HermesConnectionService`. The first replacement promoted the service in
+`onCreate()` before lease reconciliation and was installed on the physical
 phone. A subsequent device exit was traced separately to Android WebView
-renderer eviction during long audio and large gateway callbacks. The installed
-replacement now avoids full callback logging, retains important renderer
-priority, and recreates a terminated WebView. Finish repeated
-background/foreground and long-TTS acceptance against that installed build,
-including checking Android exit history for a new process exit after the test.
-The final scroll and event-order build was installed in place at
-2026-07-28 02:22:36 as PID 17819. Android reports its connection service as a
-foreground `remoteMessaging` service with notification ID 2201; the only new
-exit entry at installation time is the expected `PACKAGE UPDATED` stop of the
-previous process.
+renderer eviction during long audio and large gateway callbacks. That
+replacement avoids full callback logging, retains important renderer priority,
+and recreates a terminated WebView.
+
+The final scroll and event-order build installed at 2026-07-28 02:22:36 later
+crashed at 08:59:48 after the app resumed from the overnight idle period. Android
+recorded `ForegroundServiceDidNotStartInTimeException` for PID 17819. The old
+socket had stopped foreground presentation while its service object still
+existed; a reconnect reached `onStartCommand()` without rerunning `onCreate()`,
+and the service never re-promoted before Android's five-second deadline. Reader
+Play occurred during that deadline but did not throw the exception.
+
+The service now promotes for every retain, retains foreground state until
+`onDestroy()`, uses `stopSelfResult(startId)` so an older idle release cannot
+stop a newer retain, and always enters through `startForegroundService()` to
+avoid a teardown-time `serviceCreated` race. The first corrected APK installed
+in place and remained alive beyond the deadline as PID 26645 with Android
+reporting `isForeground=true`, notification ID 2201, and service type
+`remoteMessaging`; no new crash entry appeared in that initial interval. The
+repository build includes the final entry-point tightening above. Repeated
+overnight/background and long-TTS acceptance remains useful during ordinary
+future use, but is intentionally not blocking on an immediate user-driven test.
 After the APK is proven on-device, resume Milestone 3's revisioned event journal,
 snapshot watermark, replay, and idempotent mutation receipts.
