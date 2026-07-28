@@ -1,0 +1,20 @@
+{
+  "name": "hermes-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent server plugin and mobile client for Hermes Agent",
+  "workspaces": [
+    "client"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @hermes-mobile/client",
+    "build": "npm run build --workspace @hermes-mobile/client",
+    "typecheck": "npm run typecheck --workspace @hermes-mobile/client",
+    "test": "npm run test --workspace @hermes-mobile/client",
+    "test:server": "python -m unittest discover -s tests/server -v"
+  },
+  "engines": {
+    "node": ">=22",
+    "npm": ">=11"
+  }
+}

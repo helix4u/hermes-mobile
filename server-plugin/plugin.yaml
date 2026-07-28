@@ -1,0 +1,11 @@
+name: hermes-mobile
+version: "0.1.0"
+description: "Versioned server contract for the Hermes Mobile client."
+author: "Gille"
+hooks:
+  - on_session_start
+  - on_session_end
+  - on_session_finalize
+  - on_session_reset
+  - pre_approval_request
+  - post_approval_response
