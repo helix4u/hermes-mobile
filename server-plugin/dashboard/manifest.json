@@ -1,0 +1,14 @@
+{
+  "name": "hermes-mobile",
+  "label": "Hermes Mobile",
+  "description": "Versioned server API for the Hermes Mobile client",
+  "icon": "DeviceMobile",
+  "version": "0.1.0",
+  "tab": {
+    "path": "/hermes-mobile",
+    "hidden": true
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}
