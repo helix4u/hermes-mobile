@@ -69,6 +69,7 @@ interface HermesNativePlugin {
     method?: string
     body?: string
     headers?: Record<string, string>
+    timeoutMs?: number
   }): Promise<NativeHttpResponse>
   connectSocket(options: {
     connectionId: string

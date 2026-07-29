@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermes-qwen-tts-service"
+version = "0.1.0"
+description = "Loopback Qwen3-TTS voice cloning service for Hermes."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.116,<1",
+  "qwen-tts>=0.1,<0.3",
+  "soundfile>=0.13,<1",
+  "uvicorn>=0.35,<1",
+]
+
+[project.scripts]
+hermes-qwen-tts = "qwen_tts_service.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qwen_tts_service"]

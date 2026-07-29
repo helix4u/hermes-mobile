@@ -10,6 +10,7 @@ from .mobile_server.observers import (
     post_approval_response,
     pre_approval_request,
 )
+from .mobile_server.tts_adapter import register_local_tts_providers
 
 
 def register(ctx) -> None:
@@ -21,3 +22,4 @@ def register(ctx) -> None:
     ctx.register_hook("on_session_reset", on_session_reset)
     ctx.register_hook("pre_approval_request", pre_approval_request)
     ctx.register_hook("post_approval_response", post_approval_response)
+    register_local_tts_providers(ctx)

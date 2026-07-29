@@ -23,9 +23,14 @@ export interface HermesTransport {
   requestJson<T>(
     path: string,
     body?: Record<string, unknown>,
+    options?: HermesRequestOptions,
   ): Promise<T>
   connect(): Promise<void>
   disconnect(): void
+}
+
+export interface HermesRequestOptions {
+  timeoutMs?: number
 }
 
 export class NativeHermesTransport implements HermesTransport {
@@ -87,12 +92,14 @@ export class NativeHermesTransport implements HermesTransport {
   async requestJson<T>(
     path: string,
     body?: Record<string, unknown>,
+    options?: HermesRequestOptions,
   ): Promise<T> {
     await this.prepareCredential()
     const response = await HermesNative.httpRequest({
       connectionId: this.connection.id,
       url: buildPluginHttpUrl(this.connection.baseUrl, path),
       method: body ? 'POST' : 'GET',
+      ...(options?.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       ...(body
         ? {
             body: JSON.stringify(body),

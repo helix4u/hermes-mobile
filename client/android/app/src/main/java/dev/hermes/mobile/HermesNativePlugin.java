@@ -371,6 +371,15 @@ public class HermesNativePlugin extends Plugin {
 
         OkHttpClient requestClient =
             url.contains("/api/audio/") ? audioHttpClient : httpClient;
+        int requestedTimeoutMs = call.getInt("timeoutMs", 0);
+        if (requestedTimeoutMs > 0) {
+            int timeoutMs = Math.min(requestedTimeoutMs, 15 * 60 * 1000);
+            requestClient = requestClient.newBuilder()
+                .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                .build();
+        }
         requestClient.newCall(builder.build()).enqueue(new Callback() {
             @Override
             public void onFailure(Call request, java.io.IOException error) {

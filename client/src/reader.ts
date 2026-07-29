@@ -14,6 +14,8 @@ export interface VoiceSelection {
   provider: string
   voice: string
   speed: number
+  instruct?: string
+  language?: string
 }
 
 export const DEFAULT_READER_BUFFER_AHEAD = 3
@@ -214,20 +216,18 @@ export function readerSpeakers(
 
 export function voiceChoices(
   providers: string[],
-  dynamicElevenLabs: Array<{ label: string; voice_id: string }> = [],
+  dynamicVoices: Record<string, Array<{ id: string; label: string }>> = {},
 ): VoiceChoice[] {
   return providers.flatMap(provider => {
-    if (provider === 'elevenlabs') {
-      return dynamicElevenLabs.map(row => ({
-        provider,
-        voice: row.voice_id,
-        label: row.label,
-      }))
-    }
-    return (STATIC_VOICES[provider] ?? []).map(voice => ({
+    const dynamic = dynamicVoices[provider] ?? []
+    const staticVoices = STATIC_VOICES[provider] ?? []
+    const rows = new Map<string, string>()
+    for (const voice of staticVoices) rows.set(voice, voice)
+    for (const row of dynamic) rows.set(row.id, row.label)
+    return [...rows].map(([voice, label]) => ({
       provider,
       voice,
-      label: voice,
+      label,
     }))
   })
 }
@@ -241,7 +241,21 @@ export function ttsOverride(
   const voice = selection.voice.trim()
   const override: Record<string, unknown> = {
     provider,
-    ...(field && voice ? { [provider]: { [field]: voice } } : {}),
+    ...(field && voice
+      ? { [provider]: { [field]: voice } }
+      : voice
+      ? {
+          voice,
+          [provider]: { voice },
+          providers: { [provider]: { voice } },
+        }
+      : {}),
+    ...(selection.language?.trim()
+      ? { language: selection.language.trim() }
+      : {}),
+    ...(selection.instruct?.trim()
+      ? { instruct: selection.instruct.trim() }
+      : {}),
   }
   if (Math.abs(selection.speed - 1) >= 0.01) {
     override.speed = selection.speed
@@ -322,7 +336,13 @@ export function voiceSelectionKey(connectionId: string): string {
 }
 
 export function loadVoiceSelection(connectionId: string): VoiceSelection {
-  const fallback = { provider: '', voice: '', speed: 1 }
+  const fallback = {
+    provider: '',
+    voice: '',
+    speed: 1,
+    instruct: '',
+    language: '',
+  }
   if (typeof window === 'undefined') return fallback
   try {
     const raw = window.localStorage.getItem(voiceSelectionKey(connectionId))
@@ -333,6 +353,8 @@ export function loadVoiceSelection(connectionId: string): VoiceSelection {
       provider: String(value.provider ?? ''),
       voice: String(value.voice ?? ''),
       speed: Number.isFinite(speed) ? Math.max(0.7, Math.min(1.5, speed)) : 1,
+      instruct: String(value.instruct ?? ''),
+      language: String(value.language ?? ''),
     }
   } catch {
     return fallback
