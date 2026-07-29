@@ -67,6 +67,7 @@ import {
   createHermesTransport,
   type HermesTransport,
 } from './transport/hermes-transport'
+import { prepareDirectAuthentication } from './transport/direct-auth'
 import {
   reconcileForegroundConnection,
   shouldSurfaceGatewayStateError,
@@ -661,16 +662,22 @@ export function App() {
 
   async function connect(target = connection) {
     disconnect()
-    connectionRef.current = target
     setBusy(true)
     setError('')
     setCapabilities(null)
     setToolDetailMode('collapsed')
 
     try {
-      persistConnection(target)
+      const activeTarget = await prepareDirectAuthentication(
+        target,
+        nativeClient,
+        HermesNative,
+      )
+      connectionRef.current = activeTarget
+      setConnection(activeTarget)
+      persistConnection(activeTarget)
       setSavedConnections(loadConnections())
-      const transport = createHermesTransport(target)
+      const transport = createHermesTransport(activeTarget)
       transportRef.current = transport
       desiredConnectedRef.current = true
       const stopState = transport.gateway.onState((state, stateError) => {
@@ -716,19 +723,19 @@ export function App() {
         }
         clearReconnectTimer()
         reconnectAttemptRef.current = 0
-        if (transport.kind === 'native' && target.token) {
+        if (transport.kind === 'native' && activeTarget.token) {
           setConnection(current => ({ ...current, token: '' }))
         }
         setOrphanCredentialIds(current =>
-          current.filter(id => id !== target.id),
+          current.filter(id => id !== activeTarget.id),
         )
         await Promise.all([
-          refreshSessions(transport, target.profile),
+          refreshSessions(transport, activeTarget.profile),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
         ])
         setConnectionOpen(false)
-        setNotice(`Connected to ${target.name || 'Hermes'}`)
+        setNotice(`Connected to ${activeTarget.name || 'Hermes'}`)
       } catch (connectError) {
         throw connectError
       }

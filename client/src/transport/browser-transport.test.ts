@@ -6,7 +6,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('Cloud gateway compatibility', () => {
+describe('core gateway compatibility', () => {
   test('falls back to the core Hermes gateway when the mobile plugin is absent', async () => {
     const connect = vi.fn().mockResolvedValue(undefined)
     const gateway = {
@@ -44,6 +44,69 @@ describe('Cloud gateway compatibility', () => {
     expect(connect).toHaveBeenCalledWith(
       'wss://agent.example/hermes/api/ws?ticket=fresh',
     )
+  })
+
+  test('uses a standard core gateway for a direct Docker host without the plugin', async () => {
+    const connect = vi.fn().mockResolvedValue(undefined)
+    const gateway = {
+      connect,
+      disconnect: vi.fn(),
+    } as unknown as JsonRpcGatewayClient
+    const responses = [
+      new Response('{}', { status: 404 }),
+      new Response('{"ok":true,"version":"0.9.0"}', { status: 200 }),
+      new Response('{"ticket":"fresh","ttl_seconds":30}', { status: 200 }),
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(responses.shift())),
+    )
+
+    const transport = new BrowserHermesTransport(
+      {
+        id: 'docker-direct',
+        name: 'Docker Hermes',
+        baseUrl: 'https://docker.example',
+        profile: 'default',
+        token: 'session-token',
+        authMode: 'token',
+        connectionType: 'direct',
+      },
+      gateway,
+    )
+
+    const capabilities = await transport.capabilities()
+    await transport.connect()
+
+    expect(capabilities).toMatchObject({
+      hermes_version: '0.9.0',
+      plugin_version: 'core-gateway',
+      status: 'degraded',
+    })
+    expect(connect).toHaveBeenCalledWith(
+      'wss://docker.example/api/ws?ticket=fresh',
+    )
+  })
+
+  test('does not bypass an installed direct-host plugin that returns an error', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"detail":"plugin compatibility failed"}', { status: 500 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const transport = new BrowserHermesTransport({
+      id: 'docker-direct',
+      name: 'Docker Hermes',
+      baseUrl: 'https://docker.example',
+      profile: 'default',
+      token: 'session-token',
+      authMode: 'token',
+      connectionType: 'direct',
+    })
+
+    await expect(transport.capabilities()).rejects.toThrow(
+      'plugin compatibility failed',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
 

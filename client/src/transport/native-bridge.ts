@@ -85,6 +85,22 @@ interface HermesNativePlugin {
     connectionId: string
     socketId: string
   }): Promise<void>
+  gatewayStatus(options: {
+    connectionId: string
+    baseUrl: string
+  }): Promise<{
+    baseUrl: string
+    authRequired: boolean
+    signedIn: boolean
+    version: string
+  }>
+  gatewayLogin(options: {
+    connectionId: string
+    baseUrl: string
+  }): Promise<{
+    baseUrl: string
+    connected: boolean
+  }>
   cloudStatus(): Promise<{
     portalBaseUrl: string
     signedIn: boolean

@@ -144,6 +144,17 @@ with Nous`; the native sign-in window stores the portal and per-agent HttpOnly
 cookies outside JavaScript, lists the account's organizations and agents, and
 connects the selected agent through its ordinary Hermes JSON-RPC gateway.
 
+An existing Docker or remote Hermes dashboard can also be added as `Direct
+HTTPS`; it does not need the Mobile plugin for basic sessions and live chat.
+Android probes the public `/api/health` metadata before connecting. An unlocked
+gateway keeps the legacy session-token flow, while a gateway reporting
+`auth_required` opens that host's own password/OAuth sign-in and reuses its
+HttpOnly session cookies. If the Mobile plugin is absent, the app explicitly
+reports degraded core-gateway mode because replay and recoverable-request
+extensions are unavailable. Do not expose an unauthenticated dashboard or raw
+HTTP endpoint to the public internet; use trusted HTTPS plus Hermes's dashboard
+auth gate, preferably behind a VPN for username/password deployments.
+
 ## Security
 
 The browser client does not persist authentication tokens. Android credentials

@@ -10,6 +10,10 @@ import {
   NativeWebSocket,
 } from './native-bridge'
 import {
+  coreGatewayCapabilities,
+  shouldAttemptCoreGatewayFallback,
+} from './gateway-compatibility'
+import {
   buildPluginGatewayUrl,
   buildPluginHttpUrl,
   buildCoreWsUrl,
@@ -63,14 +67,25 @@ export class NativeHermesTransport implements HermesTransport {
       this.gatewayKind = 'plugin'
       return JSON.parse(response.body) as MobileCapabilities
     }
-    if (this.connection.connectionType === 'cloud') {
+    if (
+      shouldAttemptCoreGatewayFallback(
+        this.connection.connectionType,
+        response.status,
+      )
+    ) {
       const health = await HermesNative.httpRequest({
         connectionId: this.connection.id,
         url: buildPluginHttpUrl(this.connection.baseUrl, '/api/health'),
       })
       if (health.status >= 200 && health.status < 300) {
         this.gatewayKind = 'core'
-        return coreGatewayCapabilities()
+        let healthBody: Record<string, unknown> = {}
+        try {
+          healthBody = JSON.parse(health.body) as Record<string, unknown>
+        } catch {
+          // A successful legacy health endpoint may not return JSON.
+        }
+        return coreGatewayCapabilities(healthBody)
       }
     }
     {
@@ -147,32 +162,6 @@ export class NativeHermesTransport implements HermesTransport {
       }
     }
     this.credentialPrepared = true
-  }
-}
-
-function coreGatewayCapabilities(): MobileCapabilities {
-  return {
-    contract_version: 1,
-    plugin_version: 'core-gateway',
-    hermes_version: 'cloud',
-    status: 'degraded',
-    details: [
-      'Connected through the Hermes core gateway; mobile replay extensions are unavailable.',
-    ],
-    features: {
-      profiles: true,
-      stored_sessions: true,
-      live_sessions: true,
-      projects: true,
-      revisioned_events: false,
-      recoverable_approval: false,
-      recoverable_clarification: false,
-      recoverable_sudo: false,
-      recoverable_secret: false,
-      attachments: false,
-      device_pairing: false,
-      push_notifications: false,
-    },
   }
 }
 
