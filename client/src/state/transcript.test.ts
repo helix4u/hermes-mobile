@@ -231,6 +231,77 @@ describe('transcript projection', () => {
     expect(available[0].streaming).toBe(false)
   })
 
+  it('starts a fresh reasoning block after an intervening tool call', () => {
+    let transcript = reduceGatewayEvent(
+      [{ id: 'user-1', kind: 'user' as const, text: 'Inspect it.' }],
+      {
+        type: 'reasoning.delta',
+        payload: { text: 'I should inspect the file.' },
+      },
+    )
+    transcript = reduceGatewayEvent(transcript, {
+      type: 'tool.start',
+      payload: { tool_id: 'read-1', name: 'read_file' },
+    })
+    transcript = reduceGatewayEvent(transcript, {
+      type: 'tool.complete',
+      payload: { tool_id: 'read-1', name: 'read_file', result_text: 'contents' },
+    })
+    transcript = reduceGatewayEvent(transcript, {
+      type: 'reasoning.delta',
+      payload: { text: 'Now I can evaluate the contents.' },
+    })
+    transcript = reduceGatewayEvent(transcript, {
+      type: 'reasoning.available',
+      payload: { text: 'Now I can evaluate the contents completely.' },
+    })
+    transcript = reduceGatewayEvent(transcript, {
+      type: 'message.complete',
+      payload: { text: 'The file is correct.' },
+    })
+
+    expect(transcript.map(item => item.kind)).toEqual([
+      'user',
+      'reasoning',
+      'tool',
+      'reasoning',
+      'assistant',
+    ])
+    expect(transcript.filter(item => item.kind === 'reasoning').map(item => item.text)).toEqual([
+      'I should inspect the file.',
+      'Now I can evaluate the contents completely.',
+    ])
+  })
+
+  it('does not replace pre-tool reasoning with a later available block', () => {
+    let transcript = reduceGatewayEvent(
+      [{ id: 'user-1', kind: 'user' as const, text: 'Inspect it.' }],
+      {
+        type: 'reasoning.available',
+        payload: { text: 'First model step.' },
+      },
+    )
+    transcript = reduceGatewayEvent(transcript, {
+      type: 'tool.complete',
+      payload: { tool_id: 'read-1', name: 'read_file', result_text: 'contents' },
+    })
+    transcript = reduceGatewayEvent(transcript, {
+      type: 'reasoning.available',
+      payload: { text: 'Second model step.' },
+    })
+
+    expect(transcript.map(item => item.kind)).toEqual([
+      'user',
+      'reasoning',
+      'tool',
+      'reasoning',
+    ])
+    expect(transcript.filter(item => item.kind === 'reasoning').map(item => item.text)).toEqual([
+      'First model step.',
+      'Second model step.',
+    ])
+  })
+
   it('places late completed reasoning before the final answer', () => {
     const user = [
       { id: 'user-1', kind: 'user' as const, text: 'Check this.' },
