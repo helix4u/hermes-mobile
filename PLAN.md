@@ -538,6 +538,9 @@ Acceptance:
       bottom or on an explicit new send.
 - [x] Order late reasoning and tool lifecycle events before the current turn's
       final assistant response instead of appending them below the answer.
+- [x] Canonicalize already-present live reasoning and tool rows on completion and
+      lifecycle updates so a misplaced row is repaired immediately rather than
+      only after navigation-triggered history rehydration.
 
 ### Milestone 5C: Local custom TTS lab
 
@@ -706,10 +709,15 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
-Use the physical Android tailnet peer to connect through the verified macOS
-HTTPS MagicDNS address.
+Build the current transcript-ordering fix on an Android-capable host, install it
+in place with app data preserved, and confirm that an already-streaming thinking
+or tool block moves above the final assistant response without navigating away.
+The macOS checkout has the synchronized Capacitor assets, but this Mac currently
+has no Java runtime or Android Studio JDK, so it cannot produce the replacement
+APK locally.
 
-After that, install the latest debug APK, open Control, then Voice, and select Qwen3-TTS,
+Then use the physical Android tailnet peer to connect through the verified macOS
+HTTPS MagicDNS address. Open Control, then Voice, and select Qwen3-TTS,
 F5-TTS, or Kokoro. The Voice field should be a real picker populated by the
 provider catalog. With Qwen selected, use Custom voice library to create a
 clone from phone reference audio or a design from written instructions. The

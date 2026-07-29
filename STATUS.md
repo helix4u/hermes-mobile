@@ -214,6 +214,10 @@ Current state:
 - Late completed reasoning and tool lifecycle events are inserted before the
   current turn's final assistant response. Network arrival order no longer
   places thinking or tools below an already-rendered final answer.
+- Live transcript reduction now also canonicalizes already-present reasoning and
+  tool rows on completion and lifecycle updates. A row that has already landed
+  below the final answer is repaired immediately instead of waiting for session
+  history rehydration after navigation.
 - The private `helix4u/hermes-mobile` repository now has a credential-safe
   install guide, explicit agent handoff contract, host verification script,
   runtime MagicDNS discovery, and focused client/server GitHub CI. The repo
@@ -271,10 +275,13 @@ Current state:
 
 Next action:
 
-Connect the physical Android tailnet peer through the verified Mac HTTPS
-MagicDNS endpoint.
+Build the current transcript-ordering fix on an Android-capable host, install it
+in place with app data preserved, and reproduce the live late-thinking path.
+The Capacitor assets are synchronized on this Mac, but Gradle packaging is
+blocked because no Java runtime or Android Studio JDK is installed here.
 
-After that, install the latest debug APK and open Control, Voice. Select Qwen3-TTS,
+Then connect the physical Android tailnet peer through the verified Mac HTTPS
+MagicDNS endpoint and open Control, Voice. Select Qwen3-TTS,
 F5-TTS, and Kokoro and confirm each real Voice picker is populated. With Qwen
 selected, create a clone from phone audio and a design from instructions,
 confirm each new voice is selected after creation, and verify it remains
@@ -283,6 +290,16 @@ the regular shortcut as well.
 
 Validation completed:
 
+- Transcript-order regression test proved the prior in-place update left an
+  existing reasoning/tool row below the final response; the corrected focused
+  suite passes 25 tests.
+- Full Mobile client Vitest suite: 19 files and 92 tests passed.
+- Mobile TypeScript typecheck and Vite production build: passed.
+- Capacitor Android sync: passed and copied the corrected web bundle into the
+  native project.
+- Android `assembleDebug` could not run on this Mac because neither a system Java
+  runtime nor Android Studio's bundled JDK is installed; the existing APK was
+  not replaced and does not contain this latest ordering correction.
 - macOS cross-platform host focused tests: 9 passed.
 - macOS launchd agent `dev.hermes.mobile-server`: running.
 - Loopback backend `127.0.0.1:9129` and validating proxy

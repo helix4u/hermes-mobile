@@ -277,6 +277,69 @@ describe('transcript projection', () => {
     ])
   })
 
+  it('repairs an existing streamed reasoning row below the final answer', () => {
+    const misplaced = [
+      { id: 'user-1', kind: 'user' as const, text: 'Check this.' },
+      { id: 'assistant-1', kind: 'assistant' as const, text: 'Final answer.' },
+      {
+        id: 'reasoning-streaming',
+        kind: 'reasoning' as const,
+        text: 'Still working...',
+        streaming: true,
+      },
+    ]
+
+    const completed = reduceGatewayEvent(misplaced, {
+      type: 'reasoning.available',
+      payload: { text: 'Completed reasoning.' },
+    })
+
+    expect(completed.map(item => item.kind)).toEqual([
+      'user',
+      'reasoning',
+      'assistant',
+    ])
+    expect(completed[1]).toMatchObject({
+      text: 'Completed reasoning.',
+      streaming: false,
+    })
+  })
+
+  it('repairs an existing tool row below the final answer as it updates', () => {
+    const misplaced = [
+      { id: 'user-1', kind: 'user' as const, text: 'Run it.' },
+      { id: 'assistant-1', kind: 'assistant' as const, text: 'Finished.' },
+      {
+        id: 'tool-late-tool',
+        kind: 'tool' as const,
+        tool: {
+          toolId: 'late-tool',
+          name: 'terminal',
+          status: 'running' as const,
+        },
+      },
+    ]
+
+    const completed = reduceGatewayEvent(misplaced, {
+      type: 'tool.complete',
+      payload: {
+        tool_id: 'late-tool',
+        name: 'terminal',
+        result_text: 'done',
+      },
+    })
+
+    expect(completed.map(item => item.kind)).toEqual([
+      'user',
+      'tool',
+      'assistant',
+    ])
+    expect(completed[1].tool).toMatchObject({
+      status: 'complete',
+      result: 'done',
+    })
+  })
+
   it('seals already-streamed interim text without duplicating it', () => {
     const streamed = reduceGatewayEvent([], {
       type: 'message.delta',
