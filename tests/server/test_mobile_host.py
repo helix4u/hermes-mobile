@@ -102,10 +102,12 @@ class MobileHostTests(unittest.TestCase):
             Path("/tmp/dev.hermes.mobile-server.plist"),
             runner=runner,
             sleeper=sleeps.append,
+            uid=501,
         )
 
         self.assertEqual(bootstrap_attempts, 2)
         self.assertEqual(sleeps, [0.5])
+        self.assertTrue(any(command[2] == "gui/501" for command in calls if command[1] == "bootstrap"))
         self.assertTrue(any(command[1] == "kickstart" for command in calls))
 
     def test_systemd_unit_is_marked_and_restarts(self) -> None:

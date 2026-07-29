@@ -282,17 +282,21 @@ Current state:
 - The regular Desktop shortcut target has been repackaged and launched with
   the new TTS UI. The exact shortcut executable emitted
   `HERMES_BACKEND_READY` and completed Desktop startup.
+- Local Mobile `main` now contains private fix branch
+  `origin/codex/fix-live-transcript-order` at
+  `acc940c58a1605b04312d1acfdedc9ab6277e691`, four commits ahead of private
+  `origin/main` at `f58d77e0424f25262ca7c9fa75fd86a5e4dd31c7`.
+- The cross-platform host follow-up no longer evaluates `os.getuid()` on
+  Windows during injected launchd command tests; the focused server suite
+  passes on Windows with only the expected platform-specific skips.
 
 Next action:
 
-Build the current transcript-ordering and Docker direct-auth changes on an
-Android-capable host, install them in place with app data preserved, and
-reproduce thinking, tool activity, resumed thinking, then final response. When
-a Docker cloud instance is available, confirm its gated trusted-HTTPS URL opens
-host sign-in and connects through the core gateway without the Mobile plugin.
-The Capacitor assets are synchronized on this Mac, but Gradle compilation and
-packaging are blocked because no Java runtime or Android Studio JDK is installed
-here.
+Install the newly rebuilt Windows debug APK in place with app data preserved,
+then reproduce thinking, tool activity, resumed thinking, and the final
+response. When a Docker cloud instance is available, confirm its gated
+trusted-HTTPS URL opens host sign-in and connects through the core gateway
+without the Mobile plugin.
 
 Then connect the physical Android tailnet peer through the verified Mac HTTPS
 MagicDNS endpoint and open Control, Voice. Select Qwen3-TTS,
@@ -304,6 +308,52 @@ the regular shortcut as well.
 
 Validation completed:
 
+- The adjacent Windows/AppData Hermes checkout was pinned to upstream Nous
+  `main` at `bff22069727ae7b7f8ede8d7da110ab0f1558d69`, the latest fetched tip
+  selected for this reconciliation. Upstream advanced by six commits during
+  the run and was intentionally not chased after the replay/build baseline was
+  pinned.
+- Upstream TTS behavior was preserved during conflict reconciliation:
+  provider priority, MiniMax endpoint and credential resolution, scrubbed
+  subprocess credentials, streaming speech dispatch, and expanded built-in
+  voice/model catalogs remain present alongside plugin streaming and custom
+  provider support.
+- The exact reconciled Hermes/Desktop layer is recoverable from
+  `backup/final-latest-nous-reconciled-20260729-014153` at
+  `e0abf3b5e64b29a2db4535fda8428e5d805fe053`. Visible `main` remains on the
+  pinned upstream commit with 156 ordinary local changes, nothing staged, and
+  no unmerged paths.
+- Consolidated Desktop TypeScript typecheck passed. All 31 changed Desktop
+  Vitest files passed, 398 tests total, with four workers.
+- Changed Python source compiled through the Windows/AppData venv. A focused
+  import smoke confirmed the upstream provider-priority and MiniMax runtime
+  contracts plus the local plugin streamer and enhanced `speak_text` surface.
+- Desktop `npm run pack` passed and replaced the exact regular shortcut target.
+  `Hermes.exe` is 214,281,216 bytes with SHA-256
+  `988697015FF83469A9C394B3EBE2FC42D80668593EF4D5741F16FF7F1836925A`.
+- Launching `C:\Users\btgil\Desktop\Hermes.lnk` produced a visible packaged
+  process, emitted `HERMES_BACKEND_READY port=63214`, and returned HTTP 200
+  from both `/api/status` and `/api/health`. Dashboard and storage are healthy;
+  the overall degraded label only reflects the separately stopped messaging
+  gateway.
+- The exact Mobile follow-up layer is recoverable from
+  `backup/mobile-final-reconciled-20260729-014135` at
+  `d83382e97186b5d526a3bc27c250bd365526753a`. Visible Mobile `main` remains on
+  the private fix-branch tip with its four follow-up files left as ordinary
+  local changes.
+- Windows consolidation of private branch
+  `origin/codex/fix-live-transcript-order` at `acc940c58a1605b04312d1acfdedc9ab6277e691`:
+  fast-forwarded locally without pushing private `origin/main`.
+- Consolidated full Mobile client Vitest suite: 20 files and 100 tests passed.
+- Consolidated Mobile TypeScript typecheck: passed.
+- Consolidated focused server-plugin unittest suite on Windows: 19 tests run,
+  14 passed, and 5 platform-specific tests skipped.
+- Consolidated Python compile over `server-plugin`, `tests/server`,
+  `scripts/mobile_host.py`, and `qwen-service/src`: passed.
+- Consolidated Android `assembleDebug` with Android Studio JDK 21: passed.
+- Consolidated debug APK size: 5,496,505 bytes.
+- Consolidated debug APK SHA-256:
+  `6B35AA0544DF91D13ED2C8FB377A5FE0A762C071257DC0A3579BE89D458DBE3C`.
 - Transcript-order regression tests prove both prior failures: late activity
   could remain below the final response, and resumed thinking mutated the
   pre-tool reasoning block. The corrected focused suite passes 27 tests.

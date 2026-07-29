@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
 Project root: `F:\Symlinks\hermes-data\hermes\hermes-mobile`
 
@@ -718,13 +718,18 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
-Build the current transcript-ordering and Docker direct-auth fixes on an
-Android-capable host, install them in place with app data preserved, and confirm
-that thinking renders in separate inline blocks around an intervening tool call.
-Also confirm that an already-streaming thinking or tool block moves above the
-final assistant response without navigating away. The macOS checkout has the
-synchronized Capacitor assets, but this Mac currently has no Java runtime or
-Android Studio JDK, so it cannot produce the replacement APK locally.
+Install the newly rebuilt Windows debug APK in place with app data preserved,
+then confirm that thinking renders in separate inline blocks around an
+intervening tool call. Also confirm that an already-streaming thinking or tool
+block moves above the final assistant response without navigating away.
+
+The Windows consolidation used private branch
+`origin/codex/fix-live-transcript-order` at
+`acc940c58a1605b04312d1acfdedc9ab6277e691`, four commits ahead of private
+`origin/main` at `f58d77e0424f25262ca7c9fa75fd86a5e4dd31c7`. The consolidated
+tree passed 100 client tests, 19 focused server tests (14 passed and 5
+platform-specific skips on Windows), TypeScript typecheck, Python compile, and
+Android `assembleDebug` with Android Studio JDK 21.
 
 When a Docker cloud instance is available, add its trusted HTTPS dashboard URL
 as Direct HTTPS. Confirm `/api/health` discovery opens the host's password/OAuth
@@ -748,13 +753,15 @@ captured after the overnight idle period remains fixed in the repository, and
 the previous replacement mobile build remains installed without requiring an
 interactive phone pass right now.
 
-Latest previously built repository debug APK (does not contain the current
-transcript interleaving or Docker direct-auth changes):
+Latest rebuilt repository debug APK (contains the transcript interleaving,
+late-event reconciliation, direct-auth, and core-gateway fallback changes):
 
 `client\android\app\build\outputs\apk\debug\app-debug.apk`
 
+Size: `5,496,505` bytes
+
 SHA-256:
-`996ECD835E0FE70403AC6E780AA58E5EEC7BDE0C6254EA400D81495FDD41024E`
+`6B35AA0544DF91D13ED2C8FB377A5FE0A762C071257DC0A3579BE89D458DBE3C`
 
 The saved-connection, Cloud status, tool/reasoning, project/cwd, theme,
 multiline composer, Nous girl branding, focus-loss recovery, long TTS, normal
