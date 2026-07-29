@@ -1,5 +1,6 @@
 import { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
 import type { MobileCapabilities } from '../protocol/types'
+import type { HermesRequestOptions } from './hermes-transport'
 import {
   buildCoreWsUrl,
   buildPluginHttpUrl,
@@ -65,8 +66,9 @@ export class BrowserHermesTransport {
   async requestJson<T>(
     path: string,
     body?: Record<string, unknown>,
+    options?: HermesRequestOptions,
   ): Promise<T> {
-    return this.fetchJson<T>(path, body)
+    return this.fetchJson<T>(path, body, options)
   }
 
   disconnect(): void {
@@ -117,19 +119,34 @@ export class BrowserHermesTransport {
   private async fetchJson<T>(
     path: string,
     body?: Record<string, unknown>,
+    options?: HermesRequestOptions,
   ): Promise<T> {
-    const response = await fetch(
-      buildPluginHttpUrl(this.connection.baseUrl, path),
-      {
-        credentials: 'include',
-        method: body ? 'POST' : 'GET',
-        headers: {
-          ...this.authHeaders(),
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
+    const controller =
+      options?.timeoutMs && typeof AbortController !== 'undefined'
+        ? new AbortController()
+        : null
+    const timeoutId =
+      controller && options?.timeoutMs
+        ? globalThis.setTimeout(() => controller.abort(), options.timeoutMs)
+        : null
+    let response: Response
+    try {
+      response = await fetch(
+        buildPluginHttpUrl(this.connection.baseUrl, path),
+        {
+          credentials: 'include',
+          method: body ? 'POST' : 'GET',
+          headers: {
+            ...this.authHeaders(),
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
+          },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+          ...(controller ? { signal: controller.signal } : {}),
         },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      },
-    )
+      )
+    } finally {
+      if (timeoutId !== null) globalThis.clearTimeout(timeoutId)
+    }
 
     if (!response.ok) {
       let detail = ''

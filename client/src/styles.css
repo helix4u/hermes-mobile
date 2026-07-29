@@ -1605,6 +1605,113 @@ h3 {
   accent-color: var(--gold);
 }
 
+.voice-library {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  border-top: 1px solid var(--stroke);
+  padding-top: 0.8rem;
+}
+
+.voice-library-heading {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.voice-library-heading strong,
+.voice-library-list > strong {
+  color: var(--text);
+  font-size: 0.68rem;
+}
+
+.voice-library-heading small,
+.voice-library label small {
+  overflow-wrap: anywhere;
+  color: var(--muted-2);
+  font-size: 0.58rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.voice-library textarea {
+  min-height: 5.5rem;
+}
+
+.voice-library input[type="file"] {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.58rem;
+}
+
+.voice-library > .primary-button {
+  justify-self: stretch;
+}
+
+.voice-library-list {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  border-top: 1px solid var(--stroke);
+  padding-top: 0.7rem;
+}
+
+.voice-library-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  border-bottom: 1px solid var(--stroke);
+  padding: 0.55rem 0;
+}
+
+.voice-library-row:last-child {
+  border-bottom: 0;
+}
+
+.voice-library-select {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+}
+
+.voice-library-select strong,
+.voice-library-select small {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+}
+
+.voice-library-select strong {
+  font-size: 0.66rem;
+}
+
+.voice-library-select small {
+  color: var(--muted-2);
+  font-size: 0.56rem;
+  line-height: 1.4;
+}
+
+.voice-library .inline-error,
+.voice-library .inline-success {
+  margin: 0;
+}
+
+.inline-success {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, var(--stroke));
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+  padding: 0.6rem 0.7rem;
+  color: var(--success);
+  font-size: 0.62rem;
+}
+
 .section-help {
   color: var(--muted-2);
   font-size: 0.58rem;

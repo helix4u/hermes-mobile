@@ -2,8 +2,8 @@
 
 Last updated: 2026-07-28
 
-Current milestone: Milestone 5B implementation complete, physical-device
-acceptance pending
+Current milestone: Milestone 5C local custom TTS implementation complete,
+Desktop acceptance pending
 
 Current state:
 
@@ -27,7 +27,10 @@ Current state:
   in the repository.
 - Android now includes native Nous portal login, Cloud organization and agent
   discovery, silent per-agent OAuth, and core-gateway fallback.
-- No Hermes core files modified.
+- The initial Mobile connection path remains plugin-owned. Milestone 5C adds a
+  narrow generic TTS provider/catalog seam and Desktop UI to the adjacent local
+  Hermes checkout, while every concrete Kokoro, F5-TTS, and Qwen implementation
+  remains in this standalone repository.
 - Gateway inventory confirms the side project can use existing Hermes RPCs for
   session history, reasoning and tool events, slash commands, model switching,
   config, toolsets, and cron management without core changes.
@@ -217,15 +220,109 @@ Current state:
   `stopSelfResult(startId)` so an older release cannot stop a newer retain, and
   enters through `startForegroundService()` without relying on a racy
   `serviceCreated` snapshot.
+- The standalone plugin now registers real local Kokoro, F5-TTS, and Qwen3-TTS
+  providers through Hermes's generic TTS provider registry.
+- Provider discovery now exposes dynamic voices, models, and capabilities to
+  Desktop and Mobile without provider-specific UI fetches.
+- Qwen3-TTS runs as an isolated authenticated loopback service on port 9140
+  with its own Python 3.12 environment, CUDA 12.8 PyTorch runtime, scheduled
+  task, and reusable voice store under the Windows Hermes home.
+- Qwen clone mode accepts reference audio plus an optional transcript.
+  VoiceDesign mode accepts a natural-language voice instruction, creates a
+  reusable reference, then uses the smaller Base model for ordinary clone
+  synthesis.
+- Desktop Settings now includes a capability-driven Voice library for clone,
+  design, language, transcript, instruction, reusable voice selection, and
+  deletion.
+- Desktop Voice settings, Reader, Pet speech, Mobile normal TTS, and Mobile
+  Reader all consume the same live custom-provider catalogs.
+- Mobile now renders the selected provider's voices in a real `select`
+  control instead of relying on an Android WebView `datalist`. Partial
+  built-in live catalogs are merged with the complete bundled choices, while
+  provider-owned custom catalogs remain authoritative.
+- Mobile Voice now exposes the generic custom-provider capabilities: Qwen
+  clone from phone reference audio, instruction-based design, language,
+  transcript/sample text, automatic selection after creation, and deletion of
+  provider-owned voices. The client contains no Qwen-specific endpoint branch.
+- Reference audio remains only in component memory during the authenticated
+  request and is cleared after creation. Android voice creation can use a
+  bounded 15-minute native HTTP timeout so first model download or VoiceDesign
+  is not cut off by the ordinary audio-request timeout.
+- A partial live catalog for a built-in provider is merged with Desktop's
+  complete built-in voice list instead of replacing it with only the currently
+  configured voice. Dynamic plugin catalogs and account-owned ElevenLabs
+  catalogs remain provider-authoritative.
+- Plugin TTS dispatch now resolves voice, model, language, and instruction from
+  the selected provider's own configuration before considering generic root
+  values. A root Kokoro voice can no longer be sent to F5-TTS or Qwen when
+  previewing or playing those providers.
+- The regular Desktop shortcut target has been repackaged and launched with
+  the new TTS UI. The exact shortcut executable emitted
+  `HERMES_BACKEND_READY` and completed Desktop startup.
 
 Next action:
 
-No immediate user-driven test. Leave the installed app alone. Repeated
-background, screen-off, Reader, and long-TTS acceptance can accumulate through
-ordinary future use rather than requiring an interactive phone pass now.
+Install the latest debug APK and open Control, Voice. Select Qwen3-TTS,
+F5-TTS, and Kokoro and confirm each real Voice picker is populated. With Qwen
+selected, create a clone from phone audio and a design from instructions,
+confirm each new voice is selected after creation, and verify it remains
+available in normal Voice and Reader. Continue the Desktop preview checks from
+the regular shortcut as well.
 
 Validation completed:
 
+- The authenticated live Mobile host catalog returned six usable providers.
+  F5-TTS reported 12 voices, Kokoro reported 68 voices, and Qwen reported the
+  user's existing saved voice; the earlier empty Mobile picker was therefore
+  isolated to the Android WebView datalist presentation.
+- Mobile voice-picker/custom-library focused tests: 3 files and 9 tests passed.
+- Full Mobile client Vitest suite: 19 files and 90 tests passed.
+- Mobile TypeScript typecheck and Vite production build: passed.
+- Capacitor Android sync: passed with the new voice library bundle.
+- Android `assembleDebug` with Android Studio JDK 21: passed, including the
+  native per-request timeout support.
+- Voice-library debug APK size: 5,496,505 bytes.
+- Voice-library debug APK SHA-256:
+  `996ECD835E0FE70403AC6E780AA58E5EEC7BDE0C6254EA400D81495FDD41024E`.
+- Live generic catalog on the dedicated authenticated host returned 68 Kokoro
+  voices, 12 F5-TTS voices, and Qwen clone/design/delete capabilities.
+- Qwen clone smoke: created a reusable clone through Hermes from a 152,810-byte
+  Kokoro reference WAV, synthesized a 135,576-byte RIFF/WAV through
+  `/api/audio/speak`, and deleted the test voice.
+- Qwen VoiceDesign smoke: created a reusable designed voice from an instruction,
+  synthesized a 133,006-byte RIFF/WAV through `/api/audio/speak`, and deleted
+  the test voice.
+- Provider-scoped dispatch regression proof: with the stale Kokoro root voice
+  deliberately present, the configured F5-TTS `blitz` voice synthesized a
+  116,618-byte RIFF/WAV through `/api/audio/speak`.
+- Saved Qwen preview regression proof: with the same stale Kokoro root voice
+  deliberately present, the user's existing saved Qwen voice synthesized a
+  107,948-byte RIFF/WAV through `/api/audio/speak`. The saved voice remained in
+  the Qwen catalog and was not recreated or modified.
+- AppData logs contain no new F5-TTS 500 or Qwen 404 after those regression
+  requests. Both providers emitted successful `TTS audio saved` entries.
+- The exact regular `Hermes.lnk` target was restarted after the dispatch fix.
+  Its new packaged process spawned one Desktop backend and emitted a fresh
+  `HERMES_BACKEND_READY` marker.
+- Qwen runtime reports PyTorch 2.11.0+cu128, torchaudio 2.11.0+cu128, CUDA
+  available, and NVIDIA GeForce RTX 3080 Ti.
+- Desktop focused Vitest: 4 files and 76 tests passed.
+- Desktop built-in/custom voice-catalog regression suite: 4 files and 77 tests
+  passed after adding the partial-live-catalog merge case.
+- Desktop TypeScript typecheck: passed.
+- Focused Desktop TTS files lint with zero errors. The broader dirty tree still
+  has an unrelated pre-existing import-order lint error in
+  `pet-commentary-event.test.tsx`.
+- Desktop `npm run pack`: passed and produced the exact regular shortcut
+  target.
+- Desktop shortcut and packaged executable SHA-256 matched:
+  `C57AF906B4DE6D814103B50B1A09CED868C7E3E5E73867874F4306C685E49C9F`.
+- Shortcut launch resolved to
+  `C:\Users\btgil\AppData\Local\hermes\hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe`
+  and the backend reported ready on loopback.
+- The launched Desktop backend's custom-provider catalog route returned the
+  expected unauthenticated 401 rather than a missing-route 404, confirming the
+  packaged runtime exposes the new authenticated API.
 - `python -m unittest discover -s tests/server -v`: 10 passed.
 - `python -m compileall -q server-plugin tests/server`: passed.
 - `npm run typecheck`: passed.
@@ -240,7 +337,7 @@ Validation completed:
   `com.capacitorjs.plugins.app.AppPlugin` plus the foreground-reconnect bundle.
 - Debug APK size: 5,496,505 bytes.
 - Debug APK SHA-256:
-  `B3A84C7F2DC79878C97F8B183A727BA8F460155237AF0FEFF8495C6BA5BE2D5B`.
+  `996ECD835E0FE70403AC6E780AA58E5EEC7BDE0C6254EA400D81495FDD41024E`.
 - Physical-device ADB identified three
   `ForegroundServiceDidNotStartInTimeException` crashes at 22:38, 01:34, and
   01:38, all naming `dev.hermes.mobile/.HermesConnectionService`.
@@ -392,5 +489,12 @@ Known constraints:
   AccessibilityService observation is not part of the current app; any future
   accessibility integration must be tied to a concrete user-triggered
   assistive workflow and disclose window-content access separately.
+- Qwen's first use downloads and warms the selected model. VoiceDesign uses the
+  larger 1.7B model to create a reusable reference, then unloads it; normal
+  playback uses the 0.6B Base clone model. The first request is therefore much
+  slower than later playback.
+- The Qwen service and provider adapters are local experiments. They are
+  intentionally owned by this standalone repository and are not an upstream
+  Hermes product claim.
 - The machine default Java 25 is too new for Gradle 8.14.3; Android builds use
   Android Studio's bundled JDK 21.

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { VoiceSelection } from '../reader'
 import type { HermesTransport } from '../transport/hermes-transport'
+import { VoiceLibrary } from './VoiceLibrary'
 import { useVoiceCatalog } from './useVoiceCatalog'
 
 interface VoiceSettingsProps {
@@ -16,12 +17,19 @@ export function VoiceSettings({
   selection,
   transport,
 }: VoiceSettingsProps) {
-  const { choices, error, loading, providers } = useVoiceCatalog(
-    transport,
-    connected,
-  )
+  const {
+    catalog,
+    choices,
+    error,
+    loading,
+    providers,
+    refresh,
+  } = useVoiceCatalog(transport, connected)
   const selectedChoices = choices.filter(
     choice => choice.provider === selection.provider,
+  )
+  const selectedProvider = catalog.find(
+    provider => provider.id === selection.provider,
   )
 
   useEffect(() => {
@@ -30,7 +38,13 @@ export function VoiceSettings({
       providers.length > 0 &&
       !providers.includes(selection.provider)
     ) {
-      onChange({ ...selection, provider: '', voice: '' })
+      onChange({
+        ...selection,
+        provider: '',
+        voice: '',
+        instruct: '',
+        language: '',
+      })
     }
   }, [onChange, providers, selection])
 
@@ -52,41 +66,95 @@ export function VoiceSettings({
                 ...selection,
                 provider: event.target.value,
                 voice: '',
+                instruct: '',
+                language: '',
               })
             }
           >
             <option value="">Host default</option>
             {providers.map(provider => (
               <option key={provider} value={provider}>
-                {provider === 'xai' ? 'xAI' : provider}
+                {catalog.find(item => item.id === provider)?.display ??
+                  (provider === 'xai' ? 'xAI' : provider)}
               </option>
             ))}
           </select>
         </label>
 
+        {selectedProvider?.capabilities?.instruction_control && (
+          <label>
+            Voice instruction
+            <input
+              disabled={!connected}
+              placeholder="Tone, emotion, pace, or delivery"
+              value={selection.instruct ?? ''}
+              onChange={event =>
+                onChange({ ...selection, instruct: event.target.value })
+              }
+            />
+          </label>
+        )}
+
+        {(selectedProvider?.capabilities?.languages?.length ?? 0) > 0 && (
+          <label>
+            Language
+            <select
+              disabled={!connected}
+              value={selection.language || 'Auto'}
+              onChange={event =>
+                onChange({ ...selection, language: event.target.value })
+              }
+            >
+              {selectedProvider?.capabilities?.languages?.map(language => (
+                <option key={language} value={language}>
+                  {language}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
         <label>
           Voice
-          <input
-            disabled={!connected || !selection.provider}
-            list="normal-voice-options"
-            placeholder={
-              selection.provider ? 'Provider default or voice ID' : 'Host default'
-            }
-            value={selection.voice}
-            onChange={event =>
-              onChange({ ...selection, voice: event.target.value })
-            }
-          />
-          <datalist id="normal-voice-options">
-            {selectedChoices.map(choice => (
-              <option
-                key={`${choice.provider}:${choice.voice}`}
-                value={choice.voice}
-              >
-                {choice.label}
-              </option>
-            ))}
-          </datalist>
+          {selectedChoices.length > 0 ? (
+            <select
+              disabled={!connected || !selection.provider}
+              value={selection.voice}
+              onChange={event =>
+                onChange({ ...selection, voice: event.target.value })
+              }
+            >
+              <option value="">Provider default</option>
+              {selectedChoices.map(choice => (
+                <option
+                  key={`${choice.provider}:${choice.voice}`}
+                  value={choice.voice}
+                >
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              disabled={!connected || !selection.provider}
+              placeholder={
+                selection.provider
+                  ? 'No catalog reported; enter a voice ID'
+                  : 'Host default'
+              }
+              value={selection.voice}
+              onChange={event =>
+                onChange({ ...selection, voice: event.target.value })
+              }
+            />
+          )}
+          {selection.provider && (
+            <small>
+              {selectedChoices.length > 0
+                ? `${selectedChoices.length} voices available`
+                : 'This provider did not report a voice catalog.'}
+            </small>
+          )}
         </label>
 
         <label className="voice-speed-field">
@@ -114,6 +182,19 @@ export function VoiceSettings({
         Listen buttons and auto-speak use this connection-scoped voice. Host
         default follows the server’s own TTS configuration.
       </p>
+      {selectedProvider && (
+        <VoiceLibrary
+          connected={connected}
+          key={selectedProvider.id}
+          provider={selectedProvider}
+          selectedVoice={selection.voice}
+          transport={transport}
+          onRefresh={refresh}
+          onSelectVoice={voice =>
+            onChange({ ...selection, voice })
+          }
+        />
+      )}
       {error && <p className="inline-error">{error}</p>}
     </div>
   )

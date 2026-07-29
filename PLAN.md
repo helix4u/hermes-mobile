@@ -25,6 +25,10 @@ This project is not intended for inclusion in the upstream Hermes repository.
 It must not require modifications to the user's Hermes checkout for its initial
 release.
 
+Milestone 5C is an explicitly local experiment that also widens Hermes's
+generic TTS-provider seam and Desktop UI in the adjacent checkout. The provider
+implementations and Qwen runtime remain owned by this standalone project.
+
 ## Compaction and Resume Procedure
 
 After any context compaction, reconstruction, or new Codex session:
@@ -535,6 +539,49 @@ Acceptance:
 - [x] Order late reasoning and tool lifecycle events before the current turn's
       final assistant response instead of appending them below the answer.
 
+### Milestone 5C: Local custom TTS lab
+
+Current milestone: implementation complete, Desktop acceptance pending
+
+This milestone keeps experimental speech providers in the standalone Mobile
+plugin while widening the generic Hermes TTS provider contract just enough for
+every client surface to discover provider capabilities, voices, and reusable
+voice operations.
+
+Acceptance:
+
+- [x] Add local Kokoro and F5-TTS adapters using their existing loopback
+      services and real voice catalogs.
+- [x] Add an isolated Qwen3-TTS service with its own Python 3.12 environment,
+      CUDA PyTorch runtime, loopback-only authenticated API, scheduled task,
+      and provider-owned voice store.
+- [x] Support reusable Qwen voice clones from reference audio and optional
+      transcripts.
+- [x] Support instruction-driven Qwen VoiceDesign references that become
+      reusable clone prompts for normal synthesis.
+- [x] Add generic provider capability, voice, model, voice-create, and
+      voice-delete endpoints without Qwen-specific branches in Hermes core.
+- [x] Expose custom providers and their dynamic voices in Desktop Voice
+      settings, Reader, Pet speech, Mobile normal TTS, and Mobile Reader.
+- [x] Render Mobile provider voices in a native select control rather than an
+      Android WebView datalist, merging partial built-in live catalogs with the
+      complete bundled choices while keeping custom catalogs provider-owned.
+- [x] Add a generic Mobile custom-voice library for reference-audio cloning,
+      instruction-based design, language, transcript/sample text, immediate
+      selection of a created voice, and deletion where the provider allows it.
+- [x] Keep reference audio ephemeral in Mobile and give long-running native
+      voice-creation requests a bounded 15-minute timeout.
+- [x] Keep plugin-provider voice, model, language, and instruction overrides
+      provider-scoped so a stale root voice from another provider cannot leak
+      into F5-TTS or Qwen preview and playback requests.
+- [x] Add Desktop clone/design controls for reference audio, transcript,
+      language, instruction, reusable voice selection, and deletion.
+- [x] Prove Qwen clone creation, instruction-driven voice design, synthesis,
+      and deletion through the authenticated Hermes API on the local RTX
+      3080 Ti.
+- [x] Package the regular Desktop shortcut target with the custom-provider UI
+      and verify a backend-ready launch from `Hermes.lnk`.
+
 ### Milestone 6: Profiles, projects, and recoverable attention
 
 Acceptance:
@@ -637,17 +684,28 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
-No immediate user action is required. The foreground-service reconnect crash
-captured after the overnight idle period is fixed in the repository, and the
-previous replacement build remains installed without requiring an interactive
-phone pass right now.
+Install the latest debug APK, open Control, then Voice, and select Qwen3-TTS,
+F5-TTS, or Kokoro. The Voice field should be a real picker populated by the
+provider catalog. With Qwen selected, use Custom voice library to create a
+clone from phone reference audio or a design from written instructions. The
+created voice should become selected immediately and remain available in
+normal Voice and Reader.
+
+Continue the Desktop acceptance pass from the regular `Hermes.lnk` shortcut:
+preview the existing saved Qwen voice and an F5-TTS voice, and confirm the
+saved voice remains available in normal Voice, Reader, and Pet selectors.
+
+No immediate phone action is required. The foreground-service reconnect crash
+captured after the overnight idle period remains fixed in the repository, and
+the previous replacement mobile build remains installed without requiring an
+interactive phone pass right now.
 
 Latest repository debug APK:
 
 `client\android\app\build\outputs\apk\debug\app-debug.apk`
 
 SHA-256:
-`B3A84C7F2DC79878C97F8B183A727BA8F460155237AF0FEFF8495C6BA5BE2D5B`
+`996ECD835E0FE70403AC6E780AA58E5EEC7BDE0C6254EA400D81495FDD41024E`
 
 The saved-connection, Cloud status, tool/reasoning, project/cwd, theme,
 multiline composer, Nous girl branding, focus-loss recovery, long TTS, normal

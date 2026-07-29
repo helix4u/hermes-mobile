@@ -8,6 +8,7 @@ import {
   readerFallbackSelections,
   readerSpeakers,
   ttsOverride,
+  voiceChoices,
   voiceSelectionKey,
 } from './reader'
 
@@ -37,6 +38,37 @@ describe('reader helpers', () => {
       xai: { voice_id: 'eve' },
     })
     expect(ttsOverride({ provider: '', voice: '', speed: 1 })).toBeUndefined()
+  })
+
+  test('merges partial live built-in catalogs and keeps custom catalogs', () => {
+    const choices = voiceChoices(
+      ['openai', 'qwen'],
+      {
+        openai: [{ id: 'shimmer', label: 'Configured Shimmer' }],
+        qwen: [{ id: 'saved-clone', label: 'Saved Clone' }],
+      },
+    )
+
+    expect(
+      choices
+        .filter(choice => choice.provider === 'openai')
+        .map(choice => choice.voice),
+    ).toEqual(expect.arrayContaining(['alloy', 'cedar', 'shimmer']))
+    expect(
+      choices.find(
+        choice =>
+          choice.provider === 'openai' && choice.voice === 'shimmer',
+      )?.label,
+    ).toBe('Configured Shimmer')
+    expect(
+      choices.filter(choice => choice.provider === 'qwen'),
+    ).toEqual([
+      {
+        provider: 'qwen',
+        voice: 'saved-clone',
+        label: 'Saved Clone',
+      },
+    ])
   })
 
   test('scopes normal voice selection by connection', () => {
