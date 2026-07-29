@@ -3,62 +3,62 @@
 This guide installs the standalone Hermes Mobile server plugin and a persistent
 tailnet-only Hermes backend. It does not modify Hermes core.
 
-The automated path currently targets the Windows/AppData Hermes installation:
-
-```text
-%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\hermes.exe
-```
+The automated host manager supports Windows, macOS, and Linux. It detects the
+normal Hermes installation under `%LOCALAPPDATA%\hermes` on Windows or
+`~/.hermes` on macOS and Linux. A non-default installation can be selected with
+`--hermes-home` and `--hermes-executable`.
 
 ## What the installation creates
 
-- A junction at `%LOCALAPPDATA%\hermes\plugins\hermes-mobile` pointing to this
-  checkout's `server-plugin` directory.
+- A guarded plugin link under the active Hermes home's `plugins/hermes-mobile`
+  pointing to this checkout's `server-plugin` directory.
 - An enabled `hermes-mobile` plugin with tool overrides disabled.
-- A current-user scheduled task named `Hermes_Mobile_Server`.
+- A current-user service:
+  - Windows Scheduled Task: `Hermes_Mobile_Server`
+  - macOS launchd agent: `dev.hermes.mobile-server`
+  - Linux user-systemd unit: `hermes-mobile-server.service`
 - An authenticated Hermes backend on `127.0.0.1:9129`.
 - A host-validating proxy on `127.0.0.1:9130`.
-- A random session credential at
-  `%LOCALAPPDATA%\hermes\mobile-server\session-token`, readable only by the
-  current Windows user.
+- A random session credential at `<Hermes home>/mobile-server/session-token`,
+  readable only by the current user (`0600` with a `0700` state directory on
+  macOS/Linux; a current-user-only ACL in the Windows implementation).
 
 The two listeners remain loopback-only. Tailscale Serve publishes port 9130 to
 the user's tailnet over HTTPS.
 
 ## Prerequisites
 
-- A working Windows/AppData Hermes installation.
-- PowerShell 7 available as `pwsh.exe`.
+- A working Hermes installation.
+- Python 3.11 or later. The host manager uses Hermes's own virtual environment.
+- On Windows, PowerShell 7 available as `pwsh.exe`.
+- On macOS, a logged-in GUI session with per-user launchd available.
+- On Linux, a working `systemctl --user` session.
 - Tailscale installed, signed in, online, and using MagicDNS.
 - This repository cloned to a stable path that will not be moved while the
-  scheduled task is installed.
+  native service is installed.
 
 For the Android app build, Node.js 22, npm 11, Android Studio, Android SDK 36,
 and Android Studio's bundled JDK 21 are also required.
 
 ## Install or update the host plugin
 
-From this repository:
+From this repository on every supported operating system:
 
 ```text
-powershell -ExecutionPolicy Bypass -File .\scripts\link-plugin.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\install-mobile-server.ps1
+python scripts/mobile_host.py install
 ```
 
-The first command refuses to replace an unrelated plugin directory. The second
-command refuses to replace an unrelated scheduled task, stops an older matching
-task when necessary, registers the current checkout path, starts the backend,
-and waits for its loopback listener.
-
-Publish the validating proxy to the tailnet:
-
-```text
-tailscale serve --bg --yes 9130
-```
+The command refuses to replace an unrelated plugin link or native service,
+enables the plugin without tool overrides, creates the protected credential,
+installs or refreshes the platform-native user service, waits for both loopback
+listeners, publishes the validating proxy with Tailscale Serve, and performs an
+authenticated health check. Existing unrelated Tailscale Serve configuration
+is never replaced automatically.
 
 Verify the installation without printing the credential:
 
 ```text
-powershell -ExecutionPolicy Bypass -File .\scripts\test-mobile-server.ps1
+python scripts/mobile_host.py status
 ```
 
 The verification must report the scheduled task, both listeners, authenticated
@@ -67,10 +67,10 @@ health, and a compatible or explicitly degraded compatibility response.
 ## Put the connection on the phone
 
 The user should run this command locally. Agents and captured automation should
-not run it because it intentionally prints the credential:
+not run it because `--reveal-token` intentionally prints the credential:
 
 ```text
-powershell -ExecutionPolicy Bypass -File .\scripts\show-mobile-connection.ps1 -RevealToken
+python scripts/mobile_host.py show --reveal-token
 ```
 
 In Hermes Mobile:
@@ -125,13 +125,23 @@ credentials.
 Pull the desired revision, rerun focused validation, then rerun:
 
 ```text
-powershell -ExecutionPolicy Bypass -File .\scripts\link-plugin.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\install-mobile-server.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\test-mobile-server.ps1
+python scripts/mobile_host.py install
+python scripts/mobile_host.py status
 ```
 
-The plugin junction follows the checkout. Restarting the matching scheduled
-task is required so the Hermes process imports the updated plugin code.
+The plugin link follows the checkout. Reinstalling refreshes and restarts the
+matching native service so the Hermes process imports the updated plugin code.
+
+Remove the macOS or Linux native service definition with:
+
+```text
+python scripts/mobile_host.py uninstall
+```
+
+Uninstall intentionally leaves the credential, plugin link, and Tailscale Serve
+configuration in place. This avoids silently deleting reusable credentials or
+unrelated Serve routes. Windows service removal remains an explicit Task
+Scheduler operation.
 
 ## Agent handoff contract
 
@@ -139,7 +149,7 @@ An installation agent should report only:
 
 - Repository revision and checkout path.
 - Hermes executable and plugin junction path.
-- Whether `Hermes_Mobile_Server` is running.
+- Whether the platform-native user service is running.
 - Whether ports 9129 and 9130 are loopback listeners.
 - The authenticated health and compatibility result.
 - Whether Tailscale Serve maps HTTPS to port 9130.
@@ -149,7 +159,7 @@ It must not print or return the session token. The user performs the explicit
 
 ## Current limits
 
-- The automated persistent-host setup is Windows-specific.
+- Windows service removal remains manual.
 - Native mobile connections require HTTPS/WSS.
 - Tailscale Serve setup is tailnet-only, not public internet hosting.
 - The repository is an alpha side project and currently has no public release

@@ -582,6 +582,28 @@ Acceptance:
 - [x] Package the regular Desktop shortcut target with the custom-provider UI
       and verify a backend-ready launch from `Hermes.lnk`.
 
+### Milestone 5D: Cross-platform mobile host deployment
+
+Current milestone: implementation and macOS host verification complete,
+physical Android acceptance pending
+
+Acceptance:
+
+- [x] Preserve the Windows Scheduled Task deployment and its protected
+      credential contract.
+- [x] Add a guarded macOS launchd user-agent deployment.
+- [x] Add a guarded Linux user-systemd deployment.
+- [x] Use the same loopback-only Hermes backend, host-validating proxy, and
+      tailnet-only Tailscale Serve topology on every platform.
+- [x] Refuse to replace unrelated plugin links, native services, or Tailscale
+      Serve configuration.
+- [x] Add cross-platform status and explicit credential-display commands.
+- [x] Add focused tests for token permissions, Tailscale identity, and native
+      service definitions.
+- [x] Install the macOS launchd service and verify authenticated HTTPS and WSS
+      through its real Tailscale MagicDNS endpoint.
+- [ ] Connect through the physical Android tailnet peer.
+
 ### Milestone 6: Profiles, projects, and recoverable attention
 
 Acceptance:
@@ -684,7 +706,10 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
-Install the latest debug APK, open Control, then Voice, and select Qwen3-TTS,
+Use the physical Android tailnet peer to connect through the verified macOS
+HTTPS MagicDNS address.
+
+After that, install the latest debug APK, open Control, then Voice, and select Qwen3-TTS,
 F5-TTS, or Kokoro. The Voice field should be a real picker populated by the
 provider catalog. With Qwen selected, use Custom voice library to create a
 clone from phone reference audio or a design from written instructions. The

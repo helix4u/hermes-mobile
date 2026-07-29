@@ -2,14 +2,23 @@
 
 Last updated: 2026-07-28
 
-Current milestone: Milestone 5C local custom TTS implementation complete,
-Desktop acceptance pending
+Current milestone: Milestone 5D cross-platform mobile host implementation and
+macOS host verification complete, physical Android acceptance pending
 
 Current state:
 
 - Durable plan and compaction-resume procedure created.
 - Standalone Git repository and project scaffold created.
 - Server plugin linked and enabled in the Windows/AppData Hermes install.
+- A single cross-platform host manager now preserves the Windows Scheduled Task
+  path and adds guarded macOS launchd and Linux user-systemd services with the
+  same loopback-only backend, host-validating proxy, protected credential, and
+  tailnet-only Tailscale Serve topology.
+- Host installation, status, explicit credential display, and macOS/Linux
+  service removal are available through `scripts/mobile_host.py`.
+- The macOS launchd service is installed and running with protected loopback
+  listeners on ports 9129 and 9130. Tailscale Serve publishes the validating
+  proxy at the Mac's current MagicDNS hostname.
 - Server plugin reports compatible with Hermes `0.19.0`.
 - Authenticated REST health, capability, and observation routes are live.
 - Authenticated WebSocket delegates to the real Hermes gateway.
@@ -262,7 +271,10 @@ Current state:
 
 Next action:
 
-Install the latest debug APK and open Control, Voice. Select Qwen3-TTS,
+Connect the physical Android tailnet peer through the verified Mac HTTPS
+MagicDNS endpoint.
+
+After that, install the latest debug APK and open Control, Voice. Select Qwen3-TTS,
 F5-TTS, and Kokoro and confirm each real Voice picker is populated. With Qwen
 selected, create a clone from phone audio and a design from instructions,
 confirm each new voice is selected after creation, and verify it remains
@@ -271,6 +283,14 @@ the regular shortcut as well.
 
 Validation completed:
 
+- macOS cross-platform host focused tests: 9 passed.
+- macOS launchd agent `dev.hermes.mobile-server`: running.
+- Loopback backend `127.0.0.1:9129` and validating proxy
+  `127.0.0.1:9130`: listening.
+- Authenticated tailnet HTTPS health: `ok`; compatibility: `compatible`;
+  contract version: 1.
+- Authenticated one-use-ticket WSS probe emitted `gateway.ready` and returned
+  `session.list` successfully through the real MagicDNS endpoint.
 - The authenticated live Mobile host catalog returned six usable providers.
   F5-TTS reported 12 voices, Kokoro reported 68 voices, and Qwen reported the
   user's existing saved voice; the earlier empty Mobile picker was therefore
