@@ -19,17 +19,15 @@ public release or support guarantee yet.
 
 ## Install the plugin
 
-The supported automated host path is currently Windows with the AppData Hermes
-installation and Tailscale. Start with [INSTALL.md](./INSTALL.md).
+The automated host path supports Windows, macOS, and Linux Hermes installations
+with Tailscale. Start with [INSTALL.md](./INSTALL.md).
 
 An agent can safely perform the host installation from that guide without
 seeing the mobile session credential. The short path is:
 
 ```text
-powershell -ExecutionPolicy Bypass -File .\scripts\link-plugin.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\install-mobile-server.ps1
-tailscale serve --bg --yes 9130
-powershell -ExecutionPolicy Bypass -File .\scripts\test-mobile-server.ps1
+python scripts/mobile_host.py install
+python scripts/mobile_host.py status
 ```
 
 The final connection token is intentionally revealed only by a separate,
@@ -82,9 +80,10 @@ python -m unittest discover -s tests/server -v
 
 ## Server plugin
 
-On Windows, `scripts/link-plugin.ps1` creates a development junction at
-`%LOCALAPPDATA%\hermes\plugins\hermes-mobile`, refuses to replace an unrelated
-path, and enables the plugin without granting tool-override permission.
+`scripts/mobile_host.py install` creates a guarded plugin link under the active
+Hermes home, refuses to replace an unrelated path, and enables the plugin
+without granting tool-override permission. It delegates persistence to a
+Windows Scheduled Task, macOS launchd agent, or Linux user-systemd unit.
 
 The server API is mounted under:
 
@@ -96,11 +95,10 @@ The authenticated API exposes health, capability, observation, and one-use
 WebSocket-ticket routes. The gateway route delegates JSON-RPC to Hermes's real
 TUI gateway transport and dispatcher.
 
-The Windows installer creates the current-user `Hermes_Mobile_Server`
-scheduled task, stores a random 384-bit session credential in
-`%LOCALAPPDATA%\hermes\mobile-server\session-token` with a current-user-only
-ACL, discovers the workstation's current Tailscale MagicDNS name, and keeps
-these loopback services running:
+The host manager stores a random 384-bit session credential under
+`<Hermes home>/mobile-server/session-token` with current-user-only access,
+discovers the workstation's current Tailscale MagicDNS name, and keeps these
+loopback services running:
 
 ```text
 127.0.0.1:9129  authenticated hermes serve backend

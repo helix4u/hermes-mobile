@@ -3,7 +3,9 @@ param(
     [int]$Port = 9129,
     [int]$ProxyPort = 9130,
     [string]$TailnetHost = '',
-    [string]$TaskName = 'Hermes_Mobile_Server'
+    [string]$TaskName = 'Hermes_Mobile_Server',
+    [string]$HermesHome = (Join-Path $env:LOCALAPPDATA 'hermes'),
+    [string]$HermesExecutable = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,10 +53,15 @@ $arguments = @(
     '-Port',
     $Port.ToString(),
     '-ProxyPort',
-    $ProxyPort.ToString()
+    $ProxyPort.ToString(),
+    '-HermesHome',
+    "`"$HermesHome`""
 ) -join ' '
 if ($TailnetHost) {
     $arguments = "$arguments -TailnetHost `"$TailnetHost`""
+}
+if ($HermesExecutable) {
+    $arguments = "$arguments -HermesExecutable `"$HermesExecutable`""
 }
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -96,7 +103,7 @@ do {
 } while ([DateTimeOffset]::Now -lt $deadline)
 
 if (-not $listener) {
-    $stateDirectory = Join-Path $env:LOCALAPPDATA 'hermes\mobile-server'
+    $stateDirectory = Join-Path $HermesHome 'mobile-server'
     throw "Hermes Mobile server did not begin listening. Check $stateDirectory"
 }
 
