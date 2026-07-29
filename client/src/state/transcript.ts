@@ -408,6 +408,39 @@ function insertBeforeTurnFinal(
   ]
 }
 
+function orderCurrentTurnActivityBeforeFinal(
+  transcript: TranscriptItem[],
+): TranscriptItem[] {
+  const lastUserIndex = lastIndexWhere(
+    transcript,
+    row => row.kind === 'user',
+  )
+  const finalAssistantIndex = lastIndexWhere(
+    transcript,
+    (row, index) =>
+      index > lastUserIndex &&
+      row.kind === 'assistant' &&
+      !row.streaming &&
+      !row.interim,
+  )
+  if (finalAssistantIndex < 0) return transcript
+
+  const afterFinal = transcript.slice(finalAssistantIndex + 1)
+  const lateActivity = afterFinal.filter(
+    row => row.kind === 'reasoning' || row.kind === 'tool',
+  )
+  if (lateActivity.length === 0) return transcript
+
+  return [
+    ...transcript.slice(0, finalAssistantIndex),
+    ...lateActivity,
+    transcript[finalAssistantIndex],
+    ...afterFinal.filter(
+      row => row.kind !== 'reasoning' && row.kind !== 'tool',
+    ),
+  ]
+}
+
 function finishReasoning(
   transcript: TranscriptItem[],
   payload: Record<string, unknown>,
@@ -780,13 +813,19 @@ export function reduceGatewayEvent(
     return finalizeInterimAssistant(transcript, payload)
   }
   if (event.type === 'message.complete') {
-    return finishAssistant(transcript, payload)
+    return orderCurrentTurnActivityBeforeFinal(
+      finishAssistant(transcript, payload),
+    )
   }
   if (event.type === 'reasoning.delta') {
-    return appendStreaming(transcript, 'reasoning', asText(payload.text))
+    return orderCurrentTurnActivityBeforeFinal(
+      appendStreaming(transcript, 'reasoning', asText(payload.text)),
+    )
   }
   if (event.type === 'reasoning.available') {
-    return finishReasoning(transcript, payload)
+    return orderCurrentTurnActivityBeforeFinal(
+      finishReasoning(transcript, payload),
+    )
   }
   if (event.type === 'thinking.delta') {
     // Hermes uses this event for the transient kawaii spinner/status line.
@@ -798,13 +837,19 @@ export function reduceGatewayEvent(
     event.type === 'tool.progress' ||
     event.type === 'tool.generating'
   ) {
-    return upsertTool(transcript, payload, false)
+    return orderCurrentTurnActivityBeforeFinal(
+      upsertTool(transcript, payload, false),
+    )
   }
   if (event.type === 'tool.complete') {
-    return upsertTool(transcript, payload, true)
+    return orderCurrentTurnActivityBeforeFinal(
+      upsertTool(transcript, payload, true),
+    )
   }
   if (event.type === 'tool.output_risk') {
-    return upsertTool(transcript, payload, false)
+    return orderCurrentTurnActivityBeforeFinal(
+      upsertTool(transcript, payload, false),
+    )
   }
   if (event.type.endsWith('.request')) {
     const request = requestFromEvent(event.type, payload)
