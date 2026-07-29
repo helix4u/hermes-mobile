@@ -286,6 +286,7 @@ def reload_launchd_agent(
     *,
     runner: Callable[..., subprocess.CompletedProcess[str]] = run_checked,
     sleeper: Callable[[float], None] = time.sleep,
+    uid: int | None = None,
 ) -> None:
     """Replace a per-user launchd job, tolerating bootout's async teardown.
 
@@ -295,7 +296,7 @@ def reload_launchd_agent(
     processes or escalating to root.
     """
 
-    domain = f"gui/{os.getuid()}"
+    domain = f"gui/{os.getuid() if uid is None else uid}"
     service = f"{domain}/{LAUNCHD_LABEL}"
     runner(
         ["launchctl", "bootout", service],
