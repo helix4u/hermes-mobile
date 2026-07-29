@@ -408,6 +408,25 @@ function insertBeforeTurnFinal(
   ]
 }
 
+function sealStreamingReasoning(
+  transcript: TranscriptItem[],
+): TranscriptItem[] {
+  const streamingIndex = transcript.findIndex(
+    item => item.id === 'reasoning-streaming',
+  )
+  if (streamingIndex < 0) return transcript
+
+  return transcript.map((item, index) =>
+    index === streamingIndex
+      ? {
+          ...item,
+          id: makeId('reasoning'),
+          streaming: false,
+        }
+      : item,
+  )
+}
+
 function orderCurrentTurnActivityBeforeFinal(
   transcript: TranscriptItem[],
 ): TranscriptItem[] {
@@ -473,7 +492,11 @@ function finishReasoning(
     (item, index) =>
       index > lastUserIndex && item.kind === 'reasoning',
   )
-  if (reasoningIndex >= 0) {
+  const toolIndex = lastIndexWhere(
+    transcript,
+    (item, index) => index > lastUserIndex && item.kind === 'tool',
+  )
+  if (reasoningIndex >= 0 && reasoningIndex > toolIndex) {
     return transcript.map((item, index) =>
       index === reasoningIndex
         ? { ...item, text, streaming: false }
@@ -838,17 +861,17 @@ export function reduceGatewayEvent(
     event.type === 'tool.generating'
   ) {
     return orderCurrentTurnActivityBeforeFinal(
-      upsertTool(transcript, payload, false),
+      upsertTool(sealStreamingReasoning(transcript), payload, false),
     )
   }
   if (event.type === 'tool.complete') {
     return orderCurrentTurnActivityBeforeFinal(
-      upsertTool(transcript, payload, true),
+      upsertTool(sealStreamingReasoning(transcript), payload, true),
     )
   }
   if (event.type === 'tool.output_risk') {
     return orderCurrentTurnActivityBeforeFinal(
-      upsertTool(transcript, payload, false),
+      upsertTool(sealStreamingReasoning(transcript), payload, false),
     )
   }
   if (event.type.endsWith('.request')) {
