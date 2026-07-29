@@ -84,6 +84,14 @@ public class HermesNativePlugin extends Plugin {
     private static final String CORE_GATEWAY_PATH = "/api/ws";
     private static final String PORTAL_BASE_URL =
         "https://portal.nousresearch.com";
+    private static final String[] GATEWAY_SESSION_COOKIES = new String[] {
+        "__Host-hermes_session_at",
+        "__Secure-hermes_session_at",
+        "hermes_session_at",
+        "__Host-hermes_session_rt",
+        "__Secure-hermes_session_rt",
+        "hermes_session_rt"
+    };
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -641,6 +649,97 @@ public class HermesNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void gatewayStatus(PluginCall call) {
+        String connectionId = requireConnectionId(call);
+        String requestedUrl = call.getString("baseUrl", "").trim();
+        if (
+            connectionId == null ||
+            !requireSecureUrl(call, requestedUrl, false)
+        ) {
+            return;
+        }
+        String baseUrl = requestedUrl.replaceAll("/+$", "");
+
+        ioExecutor.execute(() -> {
+            try {
+                HttpUrl healthUrl = HttpUrl.get(baseUrl + "/api/health");
+                Request.Builder request = new Request.Builder()
+                    .url(healthUrl)
+                    .header("Accept", "application/json");
+                String cookies = cookiesFor(baseUrl);
+                if (!cookies.isEmpty()) {
+                    request.header("Cookie", cookies);
+                }
+                try (Response response = httpClient
+                    .newCall(request.build())
+                    .execute()) {
+                    storeResponseCookies(baseUrl, response);
+                    String body = responseBody(response.body());
+                    if (!response.isSuccessful()) {
+                        call.reject(
+                            "Hermes gateway health returned HTTP " +
+                            response.code()
+                        );
+                        return;
+                    }
+                    JSONObject parsed = new JSONObject(body);
+                    boolean authRequired = parsed.optBoolean(
+                        "auth_required",
+                        false
+                    );
+                    boolean signedIn = false;
+                    if (authRequired) {
+                        HttpUrl ticketUrl = HttpUrl.get(
+                            baseUrl + "/api/auth/ws-ticket"
+                        );
+                        signedIn = requestTicket(ticketUrl, null) != null;
+                    }
+                    JSObject result = new JSObject();
+                    result.put("baseUrl", baseUrl);
+                    result.put("authRequired", authRequired);
+                    result.put("signedIn", signedIn);
+                    result.put("version", parsed.optString("version", ""));
+                    call.resolve(result);
+                }
+            } catch (Exception error) {
+                call.reject(gatewayProbeFailure(baseUrl, error));
+            }
+        });
+    }
+
+    @PluginMethod
+    public void gatewayLogin(PluginCall call) {
+        String connectionId = requireConnectionId(call);
+        String requestedUrl = call.getString("baseUrl", "").trim();
+        if (
+            connectionId == null ||
+            !requireSecureUrl(call, requestedUrl, false)
+        ) {
+            return;
+        }
+        String baseUrl = requestedUrl.replaceAll("/+$", "");
+        mainHandler.post(() -> {
+            clearGatewaySessionCookies(baseUrl);
+            openAuthenticationWindow(
+                call,
+                baseUrl + "/",
+                baseUrl,
+                GATEWAY_SESSION_COOKIES,
+                "Sign in to Hermes gateway",
+                () -> {
+                    JSObject result = new JSObject();
+                    result.put("baseUrl", baseUrl);
+                    result.put(
+                        "connected",
+                        hasAnyCookie(baseUrl, GATEWAY_SESSION_COOKIES)
+                    );
+                    call.resolve(result);
+                }
+            );
+        });
+    }
+
+    @PluginMethod
     public void cloudLogin(PluginCall call) {
         openAuthenticationWindow(
             call,
@@ -739,20 +838,14 @@ public class HermesNativePlugin extends Plugin {
             call,
             baseUrl + "/",
             baseUrl,
-            new String[] { "hermes_session_at", "hermes_session_rt" },
+            GATEWAY_SESSION_COOKIES,
             "Connecting to Hermes Cloud agent",
             () -> {
                 JSObject result = new JSObject();
                 result.put("baseUrl", baseUrl);
                 result.put(
                     "connected",
-                    hasAnyCookie(
-                        baseUrl,
-                        new String[] {
-                            "hermes_session_at",
-                            "hermes_session_rt"
-                        }
-                    )
+                    hasAnyCookie(baseUrl, GATEWAY_SESSION_COOKIES)
                 );
                 call.resolve(result);
             }
@@ -858,6 +951,49 @@ public class HermesNativePlugin extends Plugin {
             }
         }
         return false;
+    }
+
+    private void clearGatewaySessionCookies(String url) {
+        CookieManager manager = CookieManager.getInstance();
+        for (String name : GATEWAY_SESSION_COOKIES) {
+            manager.setCookie(
+                url,
+                name + "=; Max-Age=0; Path=/; Secure; SameSite=Lax"
+            );
+        }
+        manager.flush();
+    }
+
+    private String gatewayProbeFailure(String baseUrl, Exception error) {
+        String host;
+        try {
+            host = URI.create(baseUrl).getHost();
+        } catch (IllegalArgumentException ignored) {
+            host = "the configured host";
+        }
+        if (host == null || host.isBlank()) {
+            host = "the configured host";
+        }
+        String kind = error.getClass().getSimpleName();
+        if ("UnknownHostException".equals(kind)) {
+            return "Could not resolve Hermes host " + host;
+        }
+        if (
+            "SSLHandshakeException".equals(kind) ||
+            "SSLPeerUnverifiedException".equals(kind)
+        ) {
+            return "Android rejected the HTTPS certificate for " + host;
+        }
+        if ("SocketTimeoutException".equals(kind)) {
+            return "Timed out reaching Hermes at " + host;
+        }
+        if ("ConnectException".equals(kind)) {
+            return "Connection refused by Hermes host " + host;
+        }
+        if (error instanceof JSONException) {
+            return "Hermes health response from " + host + " was not valid JSON";
+        }
+        return "Hermes gateway probe failed for " + host + " (" + kind + ")";
     }
 
     private void storeResponseCookies(String url, Response response) {

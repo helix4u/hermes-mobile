@@ -1,5 +1,9 @@
 import { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
 import type { MobileCapabilities } from '../protocol/types'
+import {
+  coreGatewayCapabilities,
+  shouldAttemptCoreGatewayFallback,
+} from './gateway-compatibility'
 import type { HermesRequestOptions } from './hermes-transport'
 import {
   buildCoreWsUrl,
@@ -21,6 +25,15 @@ export interface BrowserConnection {
 interface WsTicketResponse {
   ticket: string
   ttl_seconds: number
+}
+
+class HermesHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+  }
 }
 
 export class BrowserHermesTransport {
@@ -47,10 +60,18 @@ export class BrowserHermesTransport {
       this.gatewayKind = 'plugin'
       return capabilities
     } catch (error) {
-      if (this.connection.connectionType !== 'cloud') throw error
-      await this.fetchJson<Record<string, unknown>>('/api/health')
+      const status = error instanceof HermesHttpError ? error.status : undefined
+      if (
+        !shouldAttemptCoreGatewayFallback(
+          this.connection.connectionType,
+          status,
+        )
+      ) {
+        throw error
+      }
+      const health = await this.fetchJson<Record<string, unknown>>('/api/health')
       this.gatewayKind = 'core'
-      return coreGatewayCapabilities()
+      return coreGatewayCapabilities(health)
     }
   }
 
@@ -156,8 +177,9 @@ export class BrowserHermesTransport {
       } catch {
         // The status is enough when the response isn't JSON.
       }
-      throw new Error(
+      throw new HermesHttpError(
         detail || `${path} returned HTTP ${response.status}`,
+        response.status,
       )
     }
 
@@ -169,31 +191,5 @@ export class BrowserHermesTransport {
     return {
       Authorization: `Bearer ${this.connection.token}`,
     }
-  }
-}
-
-function coreGatewayCapabilities(): MobileCapabilities {
-  return {
-    contract_version: 1,
-    plugin_version: 'core-gateway',
-    hermes_version: 'cloud',
-    status: 'degraded',
-    details: [
-      'Connected through the Hermes core gateway; mobile replay extensions are unavailable.',
-    ],
-    features: {
-      profiles: true,
-      stored_sessions: true,
-      live_sessions: true,
-      projects: true,
-      revisioned_events: false,
-      recoverable_approval: false,
-      recoverable_clarification: false,
-      recoverable_sudo: false,
-      recoverable_secret: false,
-      attachments: false,
-      device_pairing: false,
-      push_notifications: false,
-    },
   }
 }

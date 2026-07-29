@@ -259,6 +259,7 @@ export function ConnectionSheet(props: ConnectionSheetProps) {
                 onChange={event =>
                   props.onConnectionChange({
                     ...connection,
+                    authMode: 'token',
                     baseUrl: event.target.value,
                   })
                 }
@@ -292,6 +293,12 @@ export function ConnectionSheet(props: ConnectionSheetProps) {
                   }
                 />
               </label>
+            )}
+            {connection.authMode === 'oauth' && (
+              <p className="compatibility-line wide-field">
+                This host uses gateway sign-in. Connect will reuse the protected
+                Android session or open the host's sign-in page when needed.
+              </p>
             )}
             </div>
             <div className="button-row">

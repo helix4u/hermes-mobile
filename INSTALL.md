@@ -83,6 +83,37 @@ In Hermes Mobile:
 The token is a secret. Do not paste it into chat, issue reports, screenshots,
 terminal transcripts, or repository files.
 
+## Connect an existing Docker or remote gateway
+
+Hermes Mobile can use a normal Hermes dashboard gateway without installing this
+repository's server plugin in the container. This core-gateway mode supports
+profiles, stored sessions, projects, and live sessions; the capability screen
+marks replay and recoverable-request extensions unavailable.
+
+The Android app requires a trusted HTTPS URL. Configure the Docker dashboard's
+canonical authentication gate and TLS/VPN exposure using the Hermes Docker and
+Web Dashboard documentation; do not publish an unauthenticated dashboard, use
+the removed/deprecated insecure bypass, or expose raw HTTP to the internet.
+Username/password auth is intended for trusted networks or VPNs, while a public
+internet deployment should use OAuth/OIDC.
+
+In Hermes Mobile:
+
+1. Add a `Direct HTTPS` connection and enter the externally reachable dashboard
+   URL, including any path prefix.
+2. Tap Connect. Android probes `/api/health` before attempting plugin or
+   WebSocket routes.
+3. If the gateway reports `auth_required`, complete its password/OAuth page in
+   the native sign-in window. Do not enter a legacy session token for this mode.
+4. If the gateway is not gated, enter its session token instead.
+
+The app validates an existing gated session by minting a one-use core WebSocket
+ticket and opens sign-in again when that session is absent or expired. Session
+cookies remain in Android's native cookie store and are never copied into web
+storage. A 404 from the Mobile plugin capability route falls back to the core
+gateway; any other plugin error still fails closed so an installed but
+incompatible plugin cannot be silently bypassed.
+
 ## Build and install the Android app
 
 Install dependencies and run validation:

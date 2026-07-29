@@ -541,6 +541,15 @@ Acceptance:
 - [x] Canonicalize already-present live reasoning and tool rows on completion and
       lifecycle updates so a misplaced row is repaired immediately rather than
       only after navigation-triggered history rehydration.
+- [x] Seal a live reasoning segment when tool activity begins so thinking that
+      resumes after the tool renders as a new inline block instead of mutating
+      the earlier pre-tool block.
+- [x] Probe direct/Tailnet Android hosts for canonical gateway authentication,
+      open the host's protected sign-in flow when `auth_required` is advertised,
+      and validate saved sessions with one-use WebSocket tickets.
+- [x] Fall back from a missing Mobile capability route to the standard core
+      gateway for direct Docker hosts while keeping installed plugin errors
+      fail-closed.
 
 ### Milestone 5C: Local custom TTS lab
 
@@ -709,12 +718,18 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
-Build the current transcript-ordering fix on an Android-capable host, install it
-in place with app data preserved, and confirm that an already-streaming thinking
-or tool block moves above the final assistant response without navigating away.
-The macOS checkout has the synchronized Capacitor assets, but this Mac currently
-has no Java runtime or Android Studio JDK, so it cannot produce the replacement
-APK locally.
+Build the current transcript-ordering and Docker direct-auth fixes on an
+Android-capable host, install them in place with app data preserved, and confirm
+that thinking renders in separate inline blocks around an intervening tool call.
+Also confirm that an already-streaming thinking or tool block moves above the
+final assistant response without navigating away. The macOS checkout has the
+synchronized Capacitor assets, but this Mac currently has no Java runtime or
+Android Studio JDK, so it cannot produce the replacement APK locally.
+
+When a Docker cloud instance is available, add its trusted HTTPS dashboard URL
+as Direct HTTPS. Confirm `/api/health` discovery opens the host's password/OAuth
+sign-in, the core gateway connects without the Mobile plugin, and an installed
+but incompatible plugin still surfaces its compatibility error.
 
 Then use the physical Android tailnet peer to connect through the verified macOS
 HTTPS MagicDNS address. Open Control, then Voice, and select Qwen3-TTS,
@@ -733,7 +748,8 @@ captured after the overnight idle period remains fixed in the repository, and
 the previous replacement mobile build remains installed without requiring an
 interactive phone pass right now.
 
-Latest repository debug APK:
+Latest previously built repository debug APK (does not contain the current
+transcript interleaving or Docker direct-auth changes):
 
 `client\android\app\build\outputs\apk\debug\app-debug.apk`
 

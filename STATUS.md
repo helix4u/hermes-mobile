@@ -1,6 +1,6 @@
 # Hermes Mobile Status
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
 Current milestone: Milestone 5D cross-platform mobile host implementation and
 macOS host verification complete, physical Android acceptance pending
@@ -36,6 +36,13 @@ Current state:
   in the repository.
 - Android now includes native Nous portal login, Cloud organization and agent
   discovery, silent per-agent OAuth, and core-gateway fallback.
+- Android direct and Tailnet setup now probes the canonical public gateway
+  health metadata before authentication. Gated Docker/remote hosts open their
+  own password/OAuth sign-in and validate native sessions with a one-use core
+  WebSocket ticket; ungated hosts retain Keystore-backed token mode.
+- Direct/Tailnet hosts with no Mobile plugin now fall back to the standard core
+  gateway on an explicit capability-route 404. Other plugin failures remain
+  fail-closed so an installed incompatible plugin is not silently bypassed.
 - The initial Mobile connection path remains plugin-owned. Milestone 5C adds a
   narrow generic TTS provider/catalog seam and Desktop UI to the adjacent local
   Hermes checkout, while every concrete Kokoro, F5-TTS, and Qwen implementation
@@ -74,6 +81,9 @@ Current state:
 - Tool rows remain readable before detail payloads arrive and consume Hermes's
   canonical `args_text` and `result_text` fields. Complete reasoning Markdown
   chunks are separated instead of being concatenated into malformed emphasis.
+- Tool activity now seals the current live reasoning segment. Reasoning that
+  resumes after a tool is inserted as a second inline block instead of editing
+  the pre-tool block in place.
 - Sessions can be searched and browsed by Hermes project, repository lane, cwd,
   branch, source, and model using the authoritative project gateway RPCs, with
   a flat-session fallback when project data is unavailable.
@@ -275,10 +285,14 @@ Current state:
 
 Next action:
 
-Build the current transcript-ordering fix on an Android-capable host, install it
-in place with app data preserved, and reproduce the live late-thinking path.
-The Capacitor assets are synchronized on this Mac, but Gradle packaging is
-blocked because no Java runtime or Android Studio JDK is installed here.
+Build the current transcript-ordering and Docker direct-auth changes on an
+Android-capable host, install them in place with app data preserved, and
+reproduce thinking, tool activity, resumed thinking, then final response. When
+a Docker cloud instance is available, confirm its gated trusted-HTTPS URL opens
+host sign-in and connects through the core gateway without the Mobile plugin.
+The Capacitor assets are synchronized on this Mac, but Gradle compilation and
+packaging are blocked because no Java runtime or Android Studio JDK is installed
+here.
 
 Then connect the physical Android tailnet peer through the verified Mac HTTPS
 MagicDNS endpoint and open Control, Voice. Select Qwen3-TTS,
@@ -290,16 +304,22 @@ the regular shortcut as well.
 
 Validation completed:
 
-- Transcript-order regression test proved the prior in-place update left an
-  existing reasoning/tool row below the final response; the corrected focused
-  suite passes 25 tests.
-- Full Mobile client Vitest suite: 19 files and 92 tests passed.
+- Transcript-order regression tests prove both prior failures: late activity
+  could remain below the final response, and resumed thinking mutated the
+  pre-tool reasoning block. The corrected focused suite passes 27 tests.
+- Direct-auth and core-gateway tests cover unlocked token mode, saved gated
+  sessions, native host sign-in, direct plugin-404 fallback, and fail-closed
+  plugin errors.
+- Full Mobile client Vitest suite: 20 files and 100 tests passed.
 - Mobile TypeScript typecheck and Vite production build: passed.
 - Capacitor Android sync: passed and copied the corrected web bundle into the
   native project.
-- Android `assembleDebug` could not run on this Mac because neither a system Java
-  runtime nor Android Studio's bundled JDK is installed; the existing APK was
-  not replaced and does not contain this latest ordering correction.
+- Focused server-plugin unittest suite: 19 tests passed.
+- Android native source passed a Java syntax parse after normalizing the file's
+  existing Java 9 try-with-resources shorthand for the Java 8 parser.
+- Android `compileDebugJavaWithJavac` could not start on this Mac because neither
+  a system Java runtime nor Android Studio's bundled JDK is installed; the
+  existing APK was not replaced and does not contain these latest changes.
 - macOS cross-platform host focused tests: 9 passed.
 - macOS launchd agent `dev.hermes.mobile-server`: running.
 - Loopback backend `127.0.0.1:9129` and validating proxy
@@ -478,11 +498,11 @@ Known constraints:
 - Complete cross-process run observation is outside the first milestone.
 - The browser client does not persist authentication tokens.
 - Native connections currently require HTTPS/WSS.
-- The replacement debug APK containing the usable control surface, Cloud
-  support, saved-host repair, project browsing, live skins, branding, STT, TTS,
-  foreground recovery, stable transcript follow, and late-event ordering is
-  installed on the physical phone. The long-output, long-TTS, screen-off, and
-  repeated app-switch acceptance pass still needs user-driven exercise.
+- The physical phone's currently installed APK predates the newest transcript
+  interleaving, live late-event reconciliation, and Docker direct-auth changes.
+  The current branch still needs to be pulled and built on the Android-capable
+  host, then installed in place with app data preserved. Long-output, long-TTS,
+  screen-off, and repeated app-switch acceptance also remain user-driven.
 - If the older singleton build already overwrote a Tailnet connection's stored
   URL, the URL cannot be reconstructed and must be entered once. The new build
   can recover a single orphaned Keystore credential association, and future
