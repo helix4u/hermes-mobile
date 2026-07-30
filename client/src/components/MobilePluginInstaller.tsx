@@ -4,6 +4,7 @@ import {
   inspectMobilePluginHost,
   installBundledMobilePlugin,
   MANAGED_FILE_UPLOAD_LIMIT_BYTES,
+  mobilePluginUploadUnavailableReason,
   type MobilePluginHostInspection,
   type MobilePluginInstallProgress,
   type MobilePluginInstallResult,
@@ -92,6 +93,9 @@ export function MobilePluginInstaller({
       : inspection
         ? 'Not installed'
         : 'Check, upload, and enable'
+  const uploadUnavailableReason = inspection
+    ? mobilePluginUploadUnavailableReason(inspection)
+    : ''
 
   return (
     <details className="control-section">
@@ -144,10 +148,9 @@ export function MobilePluginInstaller({
                 <code>{inspection.targetPath}</code>
               </>
             )}
-            {!inspection.canUpload && (
+            {uploadUnavailableReason && (
               <p className="inline-error">
-                {inspection.uploadUnavailableReason ||
-                  'This host does not expose managed file upload.'}
+                {uploadUnavailableReason}
               </p>
             )}
           </div>

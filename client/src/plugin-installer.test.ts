@@ -1,13 +1,75 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
   assertSafePluginFile,
+  inspectMobilePluginHost,
   installBundledMobilePlugin,
   joinManagedPath,
+  mobilePluginUploadUnavailableReason,
   resolveManagedPluginTarget,
 } from './plugin-installer'
 import type { HermesTransport } from './transport/hermes-transport'
 
 describe('mobile plugin upload installer', () => {
+  test('does not report upload policy as an error when the plugin is already active', async () => {
+    const requestJson = vi.fn()
+    const capabilities = vi.fn().mockResolvedValue({
+      contract_version: 1,
+      features: {},
+      hermes_version: '0.19.0',
+      plugin_version: '0.1.0',
+      status: 'compatible',
+    })
+    const transport = {
+      capabilities,
+      requestJson,
+    } as unknown as HermesTransport
+
+    const inspection = await inspectMobilePluginHost(transport)
+
+    expect(inspection).toMatchObject({
+      canUpload: false,
+      installed: true,
+      installedVersion: '0.1.0',
+      uploadUnavailableReason: '',
+    })
+    expect(requestJson).not.toHaveBeenCalled()
+    expect(mobilePluginUploadUnavailableReason(inspection)).toBe('')
+  })
+
+  test('keeps a missing locked root actionable when installation is needed', () => {
+    expect(
+      mobilePluginUploadUnavailableReason({
+        capabilities: {
+          contract_version: 1,
+          details: [],
+          features: {
+            attachments: false,
+            device_pairing: false,
+            live_sessions: true,
+            profiles: true,
+            projects: true,
+            push_notifications: false,
+            recoverable_approval: false,
+            recoverable_clarification: false,
+            recoverable_secret: false,
+            recoverable_sudo: false,
+            revisioned_events: false,
+            stored_sessions: true,
+          },
+          hermes_version: '0.19.0',
+          plugin_version: 'core-gateway',
+          status: 'degraded',
+        },
+        canUpload: false,
+        installed: false,
+        installedVersion: '',
+        managedRoot: '',
+        targetPath: '',
+        uploadUnavailableReason: 'Locked root unavailable',
+      }),
+    ).toBe('Locked root unavailable')
+  })
+
   test('resolves hosted and Windows managed plugin targets without guessing', () => {
     expect(
       resolveManagedPluginTarget({

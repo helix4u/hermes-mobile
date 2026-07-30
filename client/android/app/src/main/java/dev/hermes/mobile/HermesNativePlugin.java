@@ -2,18 +2,27 @@ package dev.hermes.mobile;
 
 import android.Manifest;
 import android.app.Activity;
+import android.os.BatteryManager;
+import android.os.Build;
+import android.os.PowerManager;
+import android.content.ActivityNotFoundException;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.app.Dialog;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.media.MediaRecorder;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
@@ -1384,6 +1393,184 @@ public class HermesNativePlugin extends Plugin {
                 call.resolve(result);
             }
         );
+    }
+
+    @PluginMethod
+    public void getMobileCompanionStatus(PluginCall call) {
+        Context context = getContext();
+        JSObject result = new JSObject();
+        result.put("platform", "android");
+        result.put("manufacturer", stringOrEmpty(Build.MANUFACTURER));
+        result.put("model", stringOrEmpty(Build.MODEL));
+        result.put("androidVersion", stringOrEmpty(Build.VERSION.RELEASE));
+        result.put("sdkInt", Build.VERSION.SDK_INT);
+
+        Intent battery = context.registerReceiver(
+            null,
+            new IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        );
+        int batteryPercent = -1;
+        boolean charging = false;
+        String powerSource = "unknown";
+        if (battery != null) {
+            int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+            int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+            if (level >= 0 && scale > 0) {
+                batteryPercent = Math.round((level * 100f) / scale);
+            }
+            int status = battery.getIntExtra(
+                BatteryManager.EXTRA_STATUS,
+                BatteryManager.BATTERY_STATUS_UNKNOWN
+            );
+            charging =
+                status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL;
+            int plugged = battery.getIntExtra(
+                BatteryManager.EXTRA_PLUGGED,
+                0
+            );
+            if ((plugged & BatteryManager.BATTERY_PLUGGED_AC) != 0) {
+                powerSource = "ac";
+            } else if (
+                (plugged & BatteryManager.BATTERY_PLUGGED_USB) != 0
+            ) {
+                powerSource = "usb";
+            } else if (
+                (plugged & BatteryManager.BATTERY_PLUGGED_WIRELESS) != 0
+            ) {
+                powerSource = "wireless";
+            } else if (plugged == 0) {
+                powerSource = "battery";
+            }
+        }
+        result.put(
+            "batteryPercent",
+            batteryPercent >= 0 ? batteryPercent : JSONObject.NULL
+        );
+        result.put("charging", charging);
+        result.put("powerSource", powerSource);
+
+        PowerManager powerManager =
+            (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        result.put(
+            "screenInteractive",
+            powerManager != null && powerManager.isInteractive()
+        );
+
+        boolean networkConnected = false;
+        boolean networkValidated = false;
+        String networkTransport = "none";
+        ConnectivityManager connectivityManager =
+            (ConnectivityManager) context.getSystemService(
+                Context.CONNECTIVITY_SERVICE
+            );
+        if (connectivityManager != null) {
+            Network activeNetwork = connectivityManager.getActiveNetwork();
+            NetworkCapabilities capabilities =
+                activeNetwork == null
+                    ? null
+                    : connectivityManager.getNetworkCapabilities(activeNetwork);
+            if (capabilities != null) {
+                networkConnected = capabilities.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_INTERNET
+                );
+                networkValidated = capabilities.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_VALIDATED
+                );
+                if (
+                    capabilities.hasTransport(
+                        NetworkCapabilities.TRANSPORT_VPN
+                    )
+                ) {
+                    networkTransport = "vpn";
+                } else if (
+                    capabilities.hasTransport(
+                        NetworkCapabilities.TRANSPORT_WIFI
+                    )
+                ) {
+                    networkTransport = "wifi";
+                } else if (
+                    capabilities.hasTransport(
+                        NetworkCapabilities.TRANSPORT_CELLULAR
+                    )
+                ) {
+                    networkTransport = "cellular";
+                } else if (
+                    capabilities.hasTransport(
+                        NetworkCapabilities.TRANSPORT_ETHERNET
+                    )
+                ) {
+                    networkTransport = "ethernet";
+                } else if (
+                    capabilities.hasTransport(
+                        NetworkCapabilities.TRANSPORT_BLUETOOTH
+                    )
+                ) {
+                    networkTransport = "bluetooth";
+                } else {
+                    networkTransport = "other";
+                }
+            }
+        }
+        result.put("networkTransport", networkTransport);
+        result.put("networkConnected", networkConnected);
+        result.put("networkValidated", networkValidated);
+        result.put(
+            "canOpenDebuggingSettings",
+            resolveSettingsIntent() != null
+        );
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void openWirelessDebuggingSettings(PluginCall call) {
+        Intent intent = resolveSettingsIntent();
+        if (intent == null) {
+            call.reject("Android did not expose its debugging settings");
+            return;
+        }
+        try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            JSObject result = new JSObject();
+            result.put("opened", true);
+            result.put(
+                "destination",
+                destinationForSettingsAction(intent.getAction())
+            );
+            call.resolve(result);
+        } catch (ActivityNotFoundException | SecurityException error) {
+            call.reject("Could not open Android debugging settings");
+        }
+    }
+
+    private Intent resolveSettingsIntent() {
+        String[] actions = new String[] {
+            "android.settings.WIRELESS_DEBUGGING_SETTINGS",
+            Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS,
+            Settings.ACTION_SETTINGS
+        };
+        for (String action : actions) {
+            Intent intent = new Intent(action);
+            if (
+                intent.resolveActivity(
+                    getContext().getPackageManager()
+                ) != null
+            ) {
+                return intent;
+            }
+        }
+        return null;
+    }
+
+    private String destinationForSettingsAction(String action) {
+        if ("android.settings.WIRELESS_DEBUGGING_SETTINGS".equals(action)) {
+            return "wireless-debugging";
+        }
+        if (Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS.equals(action)) {
+            return "developer-options";
+        }
+        return "settings";
     }
 
     @Override

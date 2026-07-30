@@ -948,6 +948,91 @@ Acceptance:
       `/opt/data/plugins/hermes-mobile` on the authenticated `mr mid tier`
       Cloud host, then enable the plugin without exposing account cookies or
       credentials to JavaScript or captured output.
+- [x] Treat an already-active compatible Mobile plugin as the terminal healthy
+      state even when a local workstation intentionally exposes an unlocked
+      file-browser policy. Skip the remote-upload preflight and never render
+      its missing locked-root guard as an active-plugin error.
+
+### Milestone 5L: Mobile Companion device foundation
+
+Current milestone: implementation, build, installation, and physical Android
+acceptance complete
+
+This milestone turns the useful parts of the Burner Phone concept into a
+privacy-bounded Hermes Mobile companion layer. Android remains authoritative
+for protected device settings. Hermes adds visibility, explicit entry points,
+and safe host-side discovery without copying prototype transport, security, or
+automation shortcuts.
+
+Phase 1, safe device foundation:
+
+- [x] Add a native Android status contract for manufacturer/model, Android
+      version and API level, battery/charging source, screen interactivity,
+      network transport, connectivity, and validation.
+- [x] Keep unique identifiers, serials, Android ID, MAC, SSID, IP addresses,
+      installed applications, notification content, and location out of the
+      status contract.
+- [x] Add a collapsed Mobile companion section to Control that remains useful
+      while disconnected and never writes host configuration.
+- [x] Open Android's Wireless debugging screen when the device exposes it,
+      falling back to Developer options or Settings without toggling protected
+      state.
+- [x] Add a checked-in PowerShell helper that discovers paired
+      `_adb-tls-connect._tcp` services, refuses ambiguous devices, connects
+      only the selected target, and verifies ADB's ready state.
+- [x] Document that mDNS discovery is local-link only, that a Tailnet address
+      does not make the rotating ADB port discoverable, and that the helper
+      does not pair, scan ports, or bypass Android power policy.
+- [x] Add focused presentation and disclosure tests, complete Mobile client
+      tests, TypeScript typecheck, Vite production build, Capacitor sync, Java
+      compilation, and Android debug assembly.
+- [x] Install the replacement APK in place on the explicitly authorized
+      Samsung device, open only Hermes Mobile and Android's debugging settings,
+      verify the safe status fields and settings destination, then return to
+      Hermes without changing a system toggle.
+
+Phase 2, permissioned device events:
+
+- [ ] Add a connection-independent device event journal for battery thresholds,
+      charging changes, connectivity transitions, and foreground/background
+      state with bounded retention and no unique identifiers.
+- [ ] Feed user-selected device events into pet commentary and sidechat through
+      a separate local capability lens, never into the main agent transcript by
+      default.
+- [ ] Evaluate an optional Android notification listener only behind a separate
+      system-granted permission, source allowlist, on-device redaction, visible
+      revocation, and content-off metadata mode.
+
+Phase 3, stable plugin and action bridge:
+
+- [ ] Expose device state through a service-gated `mobile_device` plugin tool
+      or MCP surface so its schema is absent when no enrolled phone exists.
+- [ ] Add an explicit device registry with separately revocable credentials,
+      capability grants, last-seen state, and fail-closed mutation approval.
+- [ ] Add user-triggered actions such as ring, speak, open a Hermes surface, or
+      request a capture only after a per-action confirmation and audit record.
+
+Phase 4, assistant and accessibility:
+
+- [ ] Implement the existing lightweight `ACTION_ASSIST` plan so the Android
+      assistant shortcut opens a voice-ready Hermes composer on the selected
+      connection.
+- [ ] Evaluate a lightweight `VoiceInteractionService` only after ACTION_ASSIST
+      is reliable and keep it isolated from the heavy WebView process.
+- [ ] Add AccessibilityService or MediaProjection only for a concrete
+      user-triggered assistive workflow with separate Android consent, visible
+      active state, bounded capture, and no ambient window observation.
+
+Phase 5, presence and experimental interaction:
+
+- [ ] Add explicit multi-device audio/presence routing on top of the existing
+      serialized speech queue, with one active output owner and no surprise
+      microphone capture.
+- [ ] Add opt-in local journal and goal suggestions derived from redacted
+      device events, with review before anything reaches Hermes memory.
+- [ ] Keep gaze, face tracking, or camera-driven pet reactions experimental,
+      foreground-only, and fully on-device until battery, privacy, and utility
+      are proven.
 
 ### Milestone 6: Profiles, projects, and recoverable attention
 
@@ -1050,6 +1135,46 @@ integration tests, not by optimistic version ranges.
    fallback handling.
 
 ## Current Next Action
+
+The active-plugin-state replacement APK is installed in place on the authorized
+Samsung SM-S918U. Android reports `lastUpdateTime=2026-07-30 14:12:09`;
+`adb install -r` preserved the existing application data and Android Keystore
+state. Open Control, Mobile server plugin and tap Check host on Workstation.
+The card should report Mobile plugin 0.1.0 active and compatible without the
+locked-root upload warning. Missing-plugin hosts still require an authoritative
+locked managed root before Mobile offers upload.
+
+Latest active-plugin-state replacement debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,259,697` bytes
+
+SHA-256:
+`40CD687F2E57707828BC03EA31B7D61E47B1A7960D9B6A66A619E1397252061F`
+
+Milestone 5L physical acceptance is complete. The replacement APK was installed
+in place on the authorized Samsung SM-S918U with app data and Keystore state
+preserved. Mobile companion reported Android 16/API 36, battery and wireless
+charging state, validated VPN connectivity, and interactive screen state. Its
+button opened Samsung's `DevelopmentSettingsActivity`; no setting was changed,
+Back returned to the same Hermes Mobile process, Refresh completed, and the
+foreground connection service remained active.
+
+Next implementation work begins with Phase 2's bounded device-event journal for
+battery, charging, connectivity, and app lifecycle changes. Keep notification
+access separate and opt-in, and do not widen into assistant, accessibility,
+MediaProjection, multi-device audio, journal, or gaze work until their explicit
+phase and permission boundary is implemented.
+
+Latest Mobile Companion foundation debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,259,690` bytes
+
+SHA-256:
+`C2921DBC54D6305079FC981EBC2134B58ECF1F79AC5681604673755D500631FA`
 
 The latest tool-evidence replacement APK is installed in place on the physical
 Samsung SM-S918U with app data and Android Keystore state preserved. Run a turn
@@ -1432,10 +1557,11 @@ Continue the Desktop acceptance pass from the regular `Hermes.lnk` shortcut:
 preview the existing saved Qwen voice and an F5-TTS voice, and confirm the
 saved voice remains available in normal Voice, Reader, and Pet selectors.
 
-No immediate phone action is required. The foreground-service reconnect crash
-captured after the overnight idle period remains fixed in the repository, and
-the previous replacement mobile build remains installed without requiring an
-interactive phone pass right now.
+The Mobile Companion replacement is now installed and physically accepted.
+The foreground-service reconnect crash captured after the overnight idle
+period remains fixed in the repository. Longer screen-off, long-output, and
+provider-specific acceptance checks continue during ordinary use instead of
+blocking this device-foundation milestone.
 
 Previous repository debug APK (contained the transcript interleaving,
 late-event reconciliation, direct-auth, core-gateway fallback, and workspace

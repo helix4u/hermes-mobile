@@ -2,12 +2,75 @@
 
 Last updated: 2026-07-30
 
-Current milestone: Milestone 5K in-app remote server-plugin installation built,
-installed, and exercised against Cloud; Cloud host restart and plugin-route
-acceptance pending
+Current milestone: Milestone 5L Mobile Companion device foundation implemented,
+built, installed, and physically accepted
 
 Current state:
 
+- Workstation plugin inspection now stops after confirming an active compatible
+  Mobile plugin. It no longer asks the intentionally unlocked local files
+  policy for a Cloud-style installation root.
+- The installer presentation independently suppresses upload-unavailable
+  messaging for an already-installed plugin. Hosts that still need the plugin
+  retain the strict locked-root requirement and actionable failure.
+- Active-plugin regression tests, the complete 44-file/194-test Mobile client
+  suite, TypeScript typecheck, Vite production build, Capacitor sync, Android
+  Java compilation, and Android debug assembly passed.
+- Active-plugin-state replacement APK size: 6,259,697 bytes. SHA-256:
+  `40CD687F2E57707828BC03EA31B7D61E47B1A7960D9B6A66A619E1397252061F`.
+- The replacement installed successfully with `adb install -r` on the
+  explicitly selected Samsung SM-S918U at `100.112.167.36:41577`. Android
+  reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 14:12:09`; the installation preserved app data
+  and Android Keystore state. No application content was opened or inspected.
+- Android now exposes a privacy-safe Mobile Companion status contract through
+  the existing Capacitor native bridge. It includes manufacturer/model,
+  Android version and API, battery/charging source, screen interactivity,
+  network transport, connectivity, and validation.
+- The contract intentionally excludes serials, Android ID, MAC, SSID, IP
+  addresses, installed applications, notification content, and location.
+- Control has a collapsed Mobile companion section while connected or
+  disconnected. It shows the safe device facts, refreshes on demand, and never
+  writes Hermes host configuration.
+- The native action opens Android's Wireless debugging activity when available,
+  then falls back to Developer options or Settings. It cannot and does not
+  toggle Wireless debugging or read Android's private rotating ADB port.
+- `scripts/connect-android-wireless.ps1` discovers paired
+  `_adb-tls-connect._tcp` services, filters by an explicitly selected IP when
+  supplied, refuses ambiguous results, invokes only `adb connect`, and verifies
+  that the target reaches ADB's ready state.
+- The helper found no mDNS advertisement for the phone's Tailnet address during
+  the live probe. This confirms the documented local-link boundary; the helper
+  does not compensate with an unsafe port scan.
+- Milestone 5L is split into later permissioned device events, a service-gated
+  plugin/action bridge, assistant/accessibility work, and experimental
+  presence/gaze phases. Those remain explicit unchecked work instead of being
+  silently bundled into the foundation APK.
+- The replacement APK installed successfully with `adb install -r` on the
+  explicitly authorized Samsung SM-S918U at `100.112.167.36:41577`. Android
+  reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 13:43:20`; existing app data and Android Keystore
+  state were preserved.
+- Physical Mobile companion acceptance reported `samsung SM-S918U`, Android
+  16/API 36, 76 to 77 percent battery while charging wirelessly, validated VPN
+  connectivity, and an interactive screen. Refresh completed without an
+  in-app error.
+- Open Wireless debugging resolved safely to Samsung's
+  `com.android.settings/.Settings$DevelopmentSettingsActivity`. No setting was
+  changed. Back returned to Hermes Mobile, and the final rebuilt package
+  relaunched as PID 13697 with `HermesConnectionService` remaining foreground
+  with notification ID 2201.
+- Filtered Logcat for the live Hermes process contained no matching fatal,
+  native-bridge, security, or activity-launch exception after the status,
+  refresh, Settings, and return path.
+- Complete Mobile client Vitest: 44 files and 192 tests passed. TypeScript
+  typecheck, Vite production build, Capacitor sync, Android Java compilation,
+  and `assembleDebug` with Android Studio JDK 21 passed.
+- The new PowerShell helper parses cleanly and its live no-advertisement path
+  failed closed without pairing or scanning. `git diff --check` passed with
+  only existing Windows line-ending conversion warnings.
+- Mobile Companion APK size: 6,259,690 bytes. SHA-256:
+  `C2921DBC54D6305079FC981EBC2134B58ECF1F79AC5681604673755D500631FA`.
 - Mobile no longer treats a provisional name-only tool row as the final observer
   evidence for that tool ID. The observer cursor now fingerprints the lifecycle
   status plus bounded argument and result contents, so the later authoritative
@@ -732,6 +795,12 @@ Current state:
   passes on Windows with only the expected platform-specific skips.
 
 Next action:
+
+Milestone 5L physical acceptance is complete. The next implementation slice is
+the bounded, local device-event journal for battery, charging, connectivity,
+and foreground/background changes. Notification access remains a separate
+explicit opt-in phase; assistant, accessibility, MediaProjection, multi-device
+audio, journal suggestions, and gaze remain later permissioned work.
 
 The latest tool-evidence APK is installed in place with app data and Android
 Keystore state preserved. Run a `terminal` call and another argument-bearing
@@ -1523,11 +1592,10 @@ Known constraints:
 - Complete cross-process run observation is outside the first milestone.
 - The browser client does not persist authentication tokens.
 - Native connections currently require HTTPS/WSS.
-- The physical phone's currently installed APK predates the newest transcript
-  interleaving, live late-event reconciliation, and Docker direct-auth changes.
-  The current branch still needs to be pulled and built on the Android-capable
-  host, then installed in place with app data preserved. Long-output, long-TTS,
-  screen-off, and repeated app-switch acceptance also remain user-driven.
+- The physical phone now has the current repository APK, including transcript
+  interleaving, late-event reconciliation, Docker direct auth, pet repairs, and
+  the Mobile Companion foundation. Long-output, long-TTS, screen-off, and
+  repeated app-switch acceptance remain user-driven during ordinary use.
 - If the older singleton build already overwrote a Tailnet connection's stored
   URL, the URL cannot be reconstructed and must be entered once. The new build
   can recover a single orphaned Keystore credential association, and future

@@ -70,6 +70,7 @@ describe('mobile Control settings disclosures', () => {
     )
 
     expect(html).toContain('Session workspace')
+    expect(html).toContain('Mobile companion')
     expect(html).toContain('Rich link embeds')
     expect(html).not.toMatch(/<details[^>]*\sopen(?:=|>)/)
   })

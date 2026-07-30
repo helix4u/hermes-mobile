@@ -16,6 +16,7 @@ import { formatDisplayValue, redactDisplayValue } from '../state/transcript'
 import type { HermesTransport } from '../transport/hermes-transport'
 import type { VoicePhase } from '../voice'
 import { configPatch, HostSettings } from './HostSettings'
+import { MobileCompanionSettings } from './MobileCompanionSettings'
 import { MobilePluginInstaller } from './MobilePluginInstaller'
 import { PetSettings } from './PetSettings'
 import { VoiceSettings } from './VoiceSettings'
@@ -542,6 +543,7 @@ export function ControlPanel({
           onThemeSelectionChange={onThemeSelectionChange}
           themeSelection={themeSelection}
         />
+        <MobileCompanionSettings onNotice={onNotice} />
         <PetSettings
           catalog={pet.catalog}
           desktopSpeech={pet.desktopSpeech}
@@ -680,6 +682,8 @@ export function ControlPanel({
         onThemeSelectionChange={onThemeSelectionChange}
         themeSelection={themeSelection}
       />
+
+      <MobileCompanionSettings onNotice={onNotice} />
 
       <PetSettings
         catalog={pet.catalog}

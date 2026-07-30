@@ -151,6 +151,35 @@ adb -s <device-serial> install -r client\android\app\build\outputs\apk\debug\app
 `-r` preserves the app's stored connection registry and Android Keystore
 credentials.
 
+## Reconnect a paired Wireless debugging device
+
+Android owns the Wireless debugging switch and rotates its ADB TLS port. A
+normal application cannot silently enable that protected setting or read the
+private port. Hermes Mobile's collapsed `Mobile companion` control opens
+Android's own Wireless debugging or Developer options screen.
+
+While that screen is open, the workstation can discover the current paired
+port and connect without typing it:
+
+```text
+pwsh -File scripts/connect-android-wireless.ps1
+```
+
+When more than one paired phone is visible, select the intended device by its
+already-known IP address:
+
+```text
+pwsh -File scripts/connect-android-wireless.ps1 -DeviceIp <phone-ip>
+```
+
+The helper uses ADB's `_adb-tls-connect._tcp` mDNS service, never pairs a new
+device, and refuses ambiguous results. `-ListOnly` prints the candidates
+without connecting. mDNS is local-link discovery and normally does not traverse
+Tailscale; a Tailnet IP shown by Android therefore does not reveal the rotating
+port to this helper. Android may also stop advertising Wireless debugging while
+the screen is off, after a reboot, or under device-specific power policy; the
+app does not scan ports or bypass those OS controls.
+
 ## Update an existing checkout
 
 Pull the desired revision, rerun focused validation, then rerun:
