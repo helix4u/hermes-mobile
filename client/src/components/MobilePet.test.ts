@@ -9,6 +9,7 @@ import {
   nextPetRoamStep,
   petPositionAtAnimationTime,
   petPositionFromPointer,
+  settlePetRoamAnimation,
 } from './MobilePet'
 
 describe('mobile pet roaming', () => {
@@ -80,6 +81,22 @@ describe('mobile pet roaming', () => {
         10_000,
       ),
     ).toEqual({ x: 220, y: 240 })
+  })
+
+  it('commits and removes a finished fill-forwards animation before the rest window', () => {
+    const calls: string[] = []
+    const animation = {
+      cancel: () => calls.push('cancel'),
+      onfinish: () => undefined,
+    }
+    const destination = { x: 164, y: 208 }
+
+    settlePetRoamAnimation(animation, destination, point => {
+      calls.push(`commit:${point.x},${point.y}`)
+    })
+
+    expect(calls).toEqual(['commit:164,208', 'cancel'])
+    expect(animation.onfinish).toBeNull()
   })
 
   it('keeps the sidechat action hidden until the pet is tapped', () => {

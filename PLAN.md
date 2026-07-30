@@ -759,8 +759,9 @@ Acceptance:
 
 ### Milestone 5I: Pet sidechat and reliable companion motion
 
-Current milestone: implementation, Windows host refresh, and Mobile
-send/observer repair complete; physical-device acceptance pending
+Current milestone: implementation, Windows host refresh, Mobile send/observer
+repair, and rest-window drag repair complete; replacement APK physical
+acceptance pending
 
 Acceptance:
 
@@ -851,6 +852,10 @@ Acceptance:
       capture. During roam rescheduling, freeze layout only when a real Web
       Animation is active so an effect cleanup cannot restore the pre-drag
       composited frame after the new coordinates were already persisted.
+- [x] Commit every completed roam destination to the inline transform and
+      remove its `fill: forwards` Web Animation before the rest window. A drag
+      that begins while the pet is resting must update the rendered sprite as
+      well as the saved connection-scoped coordinates.
 - [x] Remount the complete pet overlay when the saved connection changes so a
       server swap cannot retain the prior host's animation, gesture listeners,
       or position refs. Preserve each connection's own persisted drop point.

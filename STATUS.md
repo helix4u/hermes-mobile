@@ -7,6 +7,31 @@ built, installed, and physically accepted
 
 Current state:
 
+- Live Android/WebView instrumentation isolated an intermittent rest-window
+  drag failure. Physical `touchstart`, `touchmove`, and `touchend` events reached
+  Alien Child and the new coordinates persisted, but the rendered rect remained
+  pinned by the preceding completed roam animation.
+- `MobilePet` created each roam animation with `fill: forwards`, then cleared
+  its animation ref at completion without cancelling the filled animation. A
+  later drag during the rest period therefore changed the inline transform
+  underneath an animation that still won the CSS cascade.
+- Completed roam legs now commit their destination first and immediately
+  cancel the filled animation. Drag start also clears any defensively retained
+  finished animation before manipulating the pet.
+- The focused MobilePet regression suite passes with 9 tests, including the
+  required commit-before-cancel ordering. TypeScript typecheck, Vite production
+  build, Capacitor Android sync, and Android debug assembly pass.
+- Rest-window drag replacement APK size: 6,259,777 bytes. SHA-256:
+  `84CB5CE18C434F443C54CC7E99E02C7A8B9556269811F77F6E5263EE96B8B9FE`.
+- The replacement APK installed successfully with `adb install -r` on the
+  explicitly selected Samsung SM-S918U at `100.112.167.36:41577`; existing app
+  data and Android Keystore state were preserved. Android reports
+  `lastUpdateTime=2026-07-30 15:25:02`.
+- A live Android input test waited until the rebuilt pet had no active Web
+  Animation, then dragged him during that exact rest window. The rendered rect
+  moved from x=288 to x=188.318, the inline and computed transforms matched,
+  no finished animation remained, and the Workstation position persisted as
+  `{x:188.31771850585938,y:84.11428833007812}`.
 - Workstation plugin inspection now stops after confirming an active compatible
   Mobile plugin. It no longer asks the intentionally unlocked local files
   policy for a Cloud-style installation root.
@@ -816,10 +841,11 @@ personality, and auxiliary-model controls without an unknown-method banner.
 Tap Alien Child and test optional host-default pet speech. Switch back to
 Workstation and confirm the complete stored pet controls return.
 
-Physical finger-drag acceptance is complete on the installed build. Continue
-ordinary use across Chat, Sessions, Reader, Files, and Control; any future pet
-gesture issue should be evaluated separately from the now-accepted native touch
-and stale-frame correction.
+Install the rest-window drag replacement APK in place. Let Alien Child finish a
+walk and visibly enter a rest, then drag him with a finger. Confirm the sprite
+follows the finger immediately and remains at the dropped point instead of only
+saving coordinates under the completed roam frame. Repeat once during an active
+walk and once after switching tabs.
 
 Restart the `mr mid tier` Hermes host through the Nous Cloud lifecycle surface,
 then reconnect and use Control, Mobile server plugin, Check host. Confirm the

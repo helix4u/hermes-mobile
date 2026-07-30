@@ -26,7 +26,7 @@ interface MobilePetProps {
   onSidechat: () => void
 }
 
-interface Point {
+export interface Point {
   x: number
   y: number
 }
@@ -80,6 +80,22 @@ export function petPositionAtAnimationTime(
     x: from.x + (destination.x - from.x) * progress,
     y: from.y + (destination.y - from.y) * progress,
   }
+}
+
+export function settlePetRoamAnimation(
+  animation: Pick<Animation, 'cancel' | 'onfinish'>,
+  destination: Point,
+  commit: (point: Point) => void,
+) {
+  /*
+   * A finished Web Animation with fill: "forwards" continues to override the
+   * element's inline transform. Commit the destination first, then remove that
+   * filled animation so a direct drag during the following rest window can
+   * visibly update the pet instead of only changing persisted coordinates.
+   */
+  animation.onfinish = null
+  commit(destination)
+  animation.cancel()
 }
 
 export function nextPetRoamStep(
@@ -338,6 +354,15 @@ export function MobilePet({
   const freezeAtRenderedPosition = useCallback(() => {
     const active = animationRef.current
     if (!active) {
+      /*
+       * Defensively clear any completed fill-forwards animation left by an
+       * interrupted render. The committed inline transform already contains
+       * its destination, while the stale animation would mask finger drags.
+       */
+      petRef.current
+        ?.getAnimations()
+        .filter(animation => animation.playState === 'finished')
+        .forEach(animation => animation.cancel())
       setWalking(false)
       return
     }
@@ -549,7 +574,7 @@ export function MobilePet({
         animation.onfinish = () => {
           if (animationRef.current?.animation !== animation) return
           animationRef.current = null
-          setPoint(step.destination)
+          settlePetRoamAnimation(animation, step.destination, setPoint)
           setWalking(false)
           if (!stopped) schedule(step.restMs)
         }
