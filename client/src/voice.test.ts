@@ -4,6 +4,7 @@ import {
   applySpeechPlaybackRate,
   createSerialSpeechTaskQueue,
   completedAssistantText,
+  maintainSpeechPlaybackRate,
   normalizeSpeechSequenceBufferAhead,
   runBufferedSpeechQueue,
   SPEECH_REQUEST_TIMEOUT_MS,
@@ -118,6 +119,36 @@ describe('voice helpers', () => {
       playbackRate: 1.5,
       preservesPitch: true,
     })
+  })
+
+  test('reapplies 1.5x pet speech when Android media readiness resets the element', () => {
+    const listeners = new Map<string, () => void>()
+    const audio = {
+      defaultPlaybackRate: 1,
+      playbackRate: 1,
+      preservesPitch: false,
+      addEventListener: vi.fn((name: string, listener: EventListenerOrEventListenerObject) => {
+        listeners.set(name, listener as () => void)
+      }),
+      removeEventListener: vi.fn((name: string) => {
+        listeners.delete(name)
+      }),
+    }
+    const release = maintainSpeechPlaybackRate(
+      audio as unknown as HTMLAudioElement,
+      1.5,
+    )
+
+    expect(audio.playbackRate).toBe(1.5)
+    audio.playbackRate = 1
+    listeners.get('loadedmetadata')?.()
+    expect(audio.playbackRate).toBe(1.5)
+    audio.playbackRate = 1
+    listeners.get('playing')?.()
+    expect(audio.playbackRate).toBe(1.5)
+
+    release()
+    expect(listeners.size).toBe(0)
   })
 
   test('buffers synthesis ahead while preserving playback order', async () => {

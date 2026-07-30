@@ -8,6 +8,36 @@ acceptance pending
 
 Current state:
 
+- Mobile no longer treats a provisional name-only tool row as the final observer
+  evidence for that tool ID. The observer cursor now fingerprints the lifecycle
+  status plus bounded argument and result contents, so the later authoritative
+  `tool.complete` update becomes fresh evidence.
+- Tool-evidence commentary waits for a new completed or failed tool snapshot.
+  A provisional `tool.generating` or argument-free start cannot trigger an
+  aside about a bare `terminal` row before its real command and output arrive.
+- Companion commentary and pet sidechat context now include bounded,
+  client-redacted tool arguments and useful results. Bare tool rows with no
+  concrete evidence are omitted, and the server still applies its authoritative
+  force-redaction and tighter model-facing evidence limits.
+- The pet overlay now has a connection-owned lifetime. Switching saved servers
+  remounts Alien Child's gesture and animation state, then loads only that
+  connection's persisted drop point instead of carrying touch refs or a live
+  walk from the previous host.
+- Interrupted roaming no longer asks Android WebView for a composited DOM
+  rectangle. It derives the exact current point from the animation timeline,
+  start, destination, and duration before cancelling the animation, preventing
+  busy/reasoning/tool state changes from teleporting the sprite during a turn.
+- The roaming speed floor is now twelve pixels per second instead of seven.
+  Short and long walk variety plus the existing rest windows remain intact.
+- Pet commentary, sidechat, and Desktop speech-profile requests capture their
+  connection identity and discard late results after a server switch. A late
+  response can no longer overwrite the new host's pet voice or speak with the
+  previous host's settings.
+- Pet speech reads the latest selected profile when the text is ready rather
+  than the profile captured when auxiliary generation began. Android playback
+  now reapplies the selected rate on metadata, readiness, playback start, and
+  the resolved `play()` promise, covering WebView resets that made an intended
+  1.50x response sound like 1.00x.
 - Physical Android acceptance passed for the corrected pet drag path. Alien
   Child now follows the finger and remains draggable on the installed build.
 - Pet server features are now capability-gated per saved connection. A vanilla
@@ -703,6 +733,14 @@ Current state:
 
 Next action:
 
+The latest tool-evidence APK is installed in place with app data and Android
+Keystore state preserved. Run a `terminal` call and another argument-bearing
+tool with Tool evidence selected. Confirm Alien Child waits for the completed or
+failed update and comments from the supplied command and result without
+complaining that the arguments are missing. Repeat under Companion and in
+sidechat, then continue the server-swap, mid-turn motion, and 1.50x pet-speech
+checks from the prior build.
+
 On the installed build, connect to `mr mid tier`, open Pet companion, and
 confirm the visual-only explanation replaces unsupported commentary, sidechat,
 personality, and auxiliary-model controls without an unknown-method banner.
@@ -831,6 +869,39 @@ the regular shortcut as well.
 
 Validation completed:
 
+- The tool-evidence replacement APK installed successfully with
+  `adb install -r` on the explicitly selected Samsung SM-S918U at
+  `100.112.167.36:36879`. Android reports package `dev.hermes.mobile`,
+  versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 12:28:30`. Existing app data and Android Keystore
+  state were preserved. No phone screen or application content was inspected.
+- Tool-evidence focused Mobile Vitest: 3 files and 19 tests passed.
+- Complete Mobile client Vitest after the tool-evidence repair: 43 files and
+  189 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Focused `git diff --check` passed with only existing Windows line-ending
+  conversion warnings.
+- Tool-evidence replacement APK size: 6,258,583 bytes.
+- Tool-evidence replacement APK SHA-256:
+  `0B51134548282FF829D8E7004496855CD9343E15F827D89C0448CC49AC93F06F`.
+- The server-swap, stable-motion, and pet-speed replacement APK installed
+  successfully with `adb install -r` on the explicitly selected Samsung
+  SM-S918U at `100.112.167.36:36879`. Android reports package
+  `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 12:20:32`. Existing app data and Android Keystore
+  state were preserved. No phone screen or application content was inspected.
+- Server-swap, stable-motion, and pet-speed focused Vitest: 5 files and 37
+  tests passed.
+- Complete Mobile client Vitest after the repair: 43 files and 187 tests
+  passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Focused `git diff --check` passed with only existing Windows line-ending
+  conversion warnings.
+- Server-swap, stable-motion, and pet-speed APK size: 6,258,270 bytes.
+- Server-swap, stable-motion, and pet-speed APK SHA-256:
+  `0F41FD1868FDFC14B2021F3AEAD180B2F93D1C975D694DF913F4FC2B329F106C`.
 - A real 360 by 800 Chromium touch run reproduced the remaining failure:
   storage changed while the rendered sprite snapped to the pre-drag frame.
   After the correction, a native `touchstart`/`touchmove`/`touchend` gesture

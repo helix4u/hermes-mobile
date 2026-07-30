@@ -2019,6 +2019,7 @@ export function App() {
               bubble={pet.bubble}
               connectionId={connection.id}
               info={pet.info}
+              key={connection.id}
               roam={pet.preferences.roam}
               sidechatAvailable={pet.hostCapabilities.sidechat}
               state={pet.state}

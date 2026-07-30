@@ -851,6 +851,22 @@ Acceptance:
       capture. During roam rescheduling, freeze layout only when a real Web
       Animation is active so an effect cleanup cannot restore the pre-drag
       composited frame after the new coordinates were already persisted.
+- [x] Remount the complete pet overlay when the saved connection changes so a
+      server swap cannot retain the prior host's animation, gesture listeners,
+      or position refs. Preserve each connection's own persisted drop point.
+- [x] Freeze interrupted roaming from the Web Animation timeline rather than a
+      WebView-composited DOM rectangle, preventing reasoning/tool state changes
+      from snapping the sprite to a stale frame during a turn.
+- [x] Raise the roaming movement floor from seven to twelve pixels per second
+      while retaining short walks, long walks, and varied rest windows.
+- [x] Reject late pet commentary, sidechat, and Desktop speech-profile results
+      from a previously selected server. Read the current pet speech profile
+      when a response actually arrives and reapply the selected client playback
+      rate through Android media readiness and playback events.
+- [x] Fingerprint Mobile tool-observer evidence by lifecycle state plus bounded,
+      redacted arguments and results instead of consuming a tool forever when
+      its early name-only placeholder arrives. Wait for settled Tool-evidence
+      rows and include concrete tool details in companion and sidechat context.
 - [x] Pass focused and complete Mobile client tests, TypeScript typecheck, Vite
       production build, Capacitor sync, Android debug assembly, Desktop focused
       pet tests, Desktop typecheck, and Desktop packaging.
@@ -1034,6 +1050,35 @@ integration tests, not by optimistic version ranges.
    fallback handling.
 
 ## Current Next Action
+
+The latest tool-evidence replacement APK is installed in place on the physical
+Samsung SM-S918U with app data and Android Keystore state preserved. Run a turn
+containing `terminal` and at least one other tool with Tool evidence selected.
+Confirm Alien Child waits for completed or failed evidence, then comments from
+the bounded, redacted command arguments and useful result instead of describing
+a name-only `terminal` call or complaining that arguments are missing. Repeat
+with Companion selected and in sidechat to confirm recent tool context also
+carries its concrete details.
+
+Then move Alien Child, switch between Workstation and another saved server, and
+drag him immediately on each host to confirm each connection restores its own
+position. During one long reasoning/tool turn, confirm state changes no longer
+teleport him and every walking leg stays at or above the new
+twelve-pixel-per-second floor. Set pet speech to 1.50x, allow a generated comment
+or sidechat reply to finish after a server or speech-setting change, and confirm
+playback remains at 1.50x instead of reverting to 1.00x.
+
+Latest tool-evidence, server-swap, stable-motion, and pet-speed debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,258,583` bytes
+
+SHA-256:
+`0B51134548282FF829D8E7004496855CD9343E15F827D89C0448CC49AC93F06F`
+
+Android reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1,
+and `lastUpdateTime=2026-07-30 12:28:30` after the successful in-place install.
 
 The newest pet-capability and cross-tab drag APK is installed in place on the
 physical Samsung SM-S918U with saved connection and Keystore state preserved.
