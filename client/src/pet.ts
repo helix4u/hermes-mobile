@@ -548,14 +548,41 @@ export function petContextFromTranscript(
   const toolLimit = Math.max(0, Math.min(20, Math.round(toolTurns)))
   const toolContext = toolLimit
     ? transcript
-        .filter(item => item.kind === 'tool' && item.tool)
+        .filter(
+          item =>
+            item.kind === 'tool' &&
+            item.tool &&
+            (item.tool.args !== undefined ||
+              item.tool.result !== undefined ||
+              Boolean(item.tool.summary?.trim()) ||
+              Boolean(item.tool.progress?.trim())),
+        )
         .slice(-toolLimit)
-        .map(item => ({
-          role: 'assistant' as const,
-          content: `Live tool activity: ${item.tool?.name || 'tool'} ${
-            item.tool?.status === 'complete' ? 'completed' : item.tool?.status
-          }.`,
-        }))
+        .map(item => {
+          const args = clippedEvidence(item.tool?.args, 2_000)
+          const result = clippedEvidence(
+            item.tool?.result ?? item.tool?.summary ?? item.tool?.progress,
+            3_000,
+          )
+          return {
+            role: 'assistant' as const,
+            content: [
+              `Live tool activity: ${item.tool?.name || 'tool'} ${
+                item.tool?.status === 'complete'
+                  ? 'completed'
+                  : item.tool?.status
+              }.`,
+              args.text
+                ? `Arguments${args.truncated ? ' [clipped]' : ''}:\n${args.text}`
+                : '',
+              result.text
+                ? `Result${result.truncated ? ' [clipped]' : ''}:\n${result.text}`
+                : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          }
+        })
     : []
   return [...conversation, ...toolContext]
 }
@@ -589,6 +616,31 @@ function clippedEvidence(value: unknown, limit: number): {
   }
 }
 
+function observerTextHash(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+function toolObserverCursor(
+  item: TranscriptItem,
+  args: ReturnType<typeof clippedEvidence>,
+  result: ReturnType<typeof clippedEvidence>,
+): string {
+  return [
+    item.id,
+    item.tool?.name || 'tool',
+    observerStatus(item),
+    observerTextHash(args.text),
+    args.truncated ? 'args-clipped' : 'args-complete',
+    observerTextHash(result.text),
+    result.truncated ? 'result-clipped' : 'result-complete',
+  ].join(':')
+}
+
 export function petObserverFramesFromTranscript(
   transcript: TranscriptItem[],
   toolTurns: number,
@@ -601,27 +653,34 @@ export function petObserverFramesFromTranscript(
         .filter(item => item.kind === 'tool' && item.tool)
         .slice(-toolLimit)
     : []
-  const ids = tools.map(item => item.id)
-  const newEventIds = ids.filter(id => !seen.has(id))
   const userDirections = transcript.filter(
     item => item.kind === 'user' && Boolean(item.text?.trim()),
   )
-  const toolRows = tools.map(item => {
+  const preparedTools = tools.map(item => {
     const args = clippedEvidence(item.tool?.args, 8_000)
     const result = clippedEvidence(
       item.tool?.result ?? item.tool?.summary ?? item.tool?.progress,
       12_000,
     )
     return {
-      id: item.id,
-      name: item.tool?.name || 'tool',
-      status: observerStatus(item),
-      arguments: args.text,
-      result: result.text,
-      argumentsTruncated: args.truncated,
-      resultTruncated: result.truncated,
+      cursor: toolObserverCursor(item, args, result),
+      item,
+      row: {
+        id: item.id,
+        name: item.tool?.name || 'tool',
+        status: observerStatus(item),
+        arguments: args.text,
+        result: result.text,
+        argumentsTruncated: args.truncated,
+        resultTruncated: result.truncated,
+      },
     }
   })
+  const ids = preparedTools.map(tool => tool.cursor)
+  const newEventIds = preparedTools
+    .filter(tool => !seen.has(tool.cursor))
+    .map(tool => tool.item.id)
+  const toolRows = preparedTools.map(tool => tool.row)
   const phase = transcript.some(
     item => item.kind === 'reasoning' && item.streaming,
   )
@@ -651,6 +710,17 @@ export function petObserverFramesFromTranscript(
       tools: toolRows,
     },
   }
+}
+
+export function petToolObserverHasSettledNewEvidence(
+  frame: PetObserverFrames['tool'],
+): boolean {
+  const newIds = new Set(frame.newEventIds)
+  return frame.tools.some(
+    tool =>
+      newIds.has(tool.id) &&
+      (tool.status === 'completed' || tool.status === 'failed'),
+  )
 }
 
 export function petRowForState(

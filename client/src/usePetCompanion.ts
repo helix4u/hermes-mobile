@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { isMissingCapabilityError } from './capability-errors'
 import { resolvePetCapabilityProbe } from './pet-host-capabilities'
 import type { JsonRpcGatewayClient } from './protocol/json-rpc-client'
@@ -18,6 +25,7 @@ import {
   persistPetPreferences,
   petContextFromTranscript,
   petSpeechProfileFromConfig,
+  petToolObserverHasSettledNewEvidence,
   randomPetLine,
   resolvePetRuntimeSession,
   type MobilePetInfo,
@@ -70,6 +78,8 @@ export function usePetCompanion({
   const [preferences, setPreferences] = useState(() =>
     loadPetPreferences(connectionId),
   )
+  const preferencesRef = useRef(preferences)
+  preferencesRef.current = preferences
   const [info, setInfo] = useState<MobilePetInfo>(BUILTIN_ALIEN_CHILD_INFO)
   const [catalog, setCatalog] = useState<PetPersonalitySummary[]>([
     BUILTIN_ALIEN_CHILD_SUMMARY,
@@ -105,9 +115,13 @@ export function usePetCompanion({
   const generateCommentaryRef = useRef<(force?: boolean) => Promise<void>>(
     async () => {},
   )
+  const activeConnectionIdRef = useRef(connectionId)
+  activeConnectionIdRef.current = connectionId
 
-  useEffect(() => {
-    setPreferences(loadPetPreferences(connectionId))
+  useLayoutEffect(() => {
+    const nextPreferences = loadPetPreferences(connectionId)
+    preferencesRef.current = nextPreferences
+    setPreferences(nextPreferences)
     setInfo(BUILTIN_ALIEN_CHILD_INFO)
     setCatalog([BUILTIN_ALIEN_CHILD_SUMMARY])
     setPersonality(BUILTIN_ALIEN_CHILD_PERSONALITY)
@@ -119,6 +133,9 @@ export function usePetCompanion({
     recentRef.current = []
     observerIdsRef.current = []
     observerSignatureRef.current = ''
+    generatingRef.current = false
+    sidechatBusyRef.current = false
+    setSidechatBusy(false)
     setDesktopSpeech(null)
     setSidechatMessages([])
     setSidechatError('')
@@ -184,6 +201,8 @@ export function usePetCompanion({
     () => effectivePetSpeech(preferences, desktopSpeech),
     [desktopSpeech, preferences],
   )
+  const speechRef = useRef(speech)
+  speechRef.current = speech
 
   const publish = useCallback(
     (text: string, source: 'generated' | 'interaction') => {
@@ -191,12 +210,12 @@ export function usePetCompanion({
       if (!clean) return
       showBubble(clean)
       recentRef.current = [...recentRef.current.filter(row => row !== clean), clean].slice(-12)
-      if (preferences.speakCommentary) {
-        void speak(clean, `pet-${source}`, speech.config)
+      if (preferencesRef.current.speakCommentary) {
+        void speak(clean, `pet-${source}`, speechRef.current.config)
       }
       void record(clean, source)
     },
-    [preferences.speakCommentary, record, showBubble, speak, speech.config],
+    [record, showBubble, speak],
   )
 
   const refreshDesktopSpeech = useCallback(async () => {
@@ -206,6 +225,7 @@ export function usePetCompanion({
       return
     }
     setDesktopSpeechStatus('loading')
+    const requestedConnectionId = connectionId
     const query =
       profile && profile !== 'default'
         ? `?profile=${encodeURIComponent(profile)}`
@@ -214,14 +234,16 @@ export function usePetCompanion({
       const config = await transport.requestJson<Record<string, unknown>>(
         `/api/config${query}`,
       )
+      if (activeConnectionIdRef.current !== requestedConnectionId) return
       const configured = petSpeechProfileFromConfig(config)
       setDesktopSpeech(configured)
       setDesktopSpeechStatus(configured ? 'ready' : 'missing')
     } catch {
+      if (activeConnectionIdRef.current !== requestedConnectionId) return
       setDesktopSpeech(null)
       setDesktopSpeechStatus('missing')
     }
-  }, [connected, profile, transport])
+  }, [connected, connectionId, profile, transport])
 
   useEffect(() => {
     void refreshDesktopSpeech()
@@ -406,11 +428,14 @@ export function usePetCompanion({
       !force &&
       lens !== 'companion' &&
       (!frames.progress.newEventIds.length ||
-        observerSignature === observerSignatureRef.current)
+        observerSignature === observerSignatureRef.current ||
+        (lens === 'tool' &&
+          !petToolObserverHasSettledNewEvidence(frames.tool)))
     ) {
       return
     }
     generatingRef.current = true
+    const requestedConnectionId = connectionId
     try {
       const result = await gateway.request<{ ok: boolean; text: string }>(
         'pet.commentary.generate',
@@ -441,22 +466,27 @@ export function usePetCompanion({
         },
         { timeoutMs: 60_000 },
       )
+      if (activeConnectionIdRef.current !== requestedConnectionId) return
       if (result.ok && result.text) {
         observerIdsRef.current = frames.ids
         observerSignatureRef.current = observerSignature
         publish(result.text, 'generated')
       }
     } catch (commentaryError) {
+      if (activeConnectionIdRef.current !== requestedConnectionId) return
       setError(
         commentaryError instanceof Error
           ? commentaryError.message
           : String(commentaryError),
       )
     } finally {
-      generatingRef.current = false
+      if (activeConnectionIdRef.current === requestedConnectionId) {
+        generatingRef.current = false
+      }
     }
   }, [
     gateway,
+    connectionId,
     hostCapabilities.commentary,
     personality,
     preferences.commentaryHistory,
@@ -585,8 +615,8 @@ export function usePetCompanion({
       randomPetLine(personality?.interactions?.click) ||
       `Hey. ${personality?.displayName || info.displayName || 'Your pet'} is here.`
     showBubble(line)
-    void speak(line, 'pet-voice-preview', speech.config)
-  }, [info.displayName, personality, showBubble, speak, speech.config])
+    void speak(line, 'pet-voice-preview', speechRef.current.config)
+  }, [info.displayName, personality, showBubble, speak])
 
   const loadSidechat = useCallback(async () => {
     if (!hostCapabilities.sidechat) {
@@ -631,6 +661,7 @@ export function usePetCompanion({
       return false
     }
     sidechatBusyRef.current = true
+    const requestedConnectionId = connectionId
     setSidechatBusy(true)
     setSidechatError('')
     const optimistic = {
@@ -666,6 +697,7 @@ export function usePetCompanion({
         text,
         turnId: `mobile-${eventId()}`,
       }, { timeoutMs: 180_000 })
+      if (activeConnectionIdRef.current !== requestedConnectionId) return false
       const stored = result.messages ?? [
         optimistic,
         {
@@ -681,8 +713,8 @@ export function usePetCompanion({
       const reply = result.reply || stored.find(message => message.role === 'assistant')?.text
       if (reply) {
         showBubble(compactPetBubbleText(reply))
-        if (preferences.speakCommentary) {
-          void speak(reply, 'pet-sidechat', speech.config)
+        if (preferencesRef.current.speakCommentary) {
+          void speak(reply, 'pet-sidechat', speechRef.current.config)
         }
       }
       return true
@@ -693,24 +725,25 @@ export function usePetCompanion({
       setSidechatError(sendError instanceof Error ? sendError.message : String(sendError))
       return false
     } finally {
-      sidechatBusyRef.current = false
-      setSidechatBusy(false)
+      if (activeConnectionIdRef.current === requestedConnectionId) {
+        sidechatBusyRef.current = false
+        setSidechatBusy(false)
+      }
     }
   }, [
     ensureSession,
+    connectionId,
     gateway,
     hostCapabilities.sidechat,
     info.displayName,
     personality,
     preferences.contextTurns,
     preferences.personalitySlug,
-    preferences.speakCommentary,
     preferences.toolTurns,
     profile,
     runtimeSessionId,
     showBubble,
     speak,
-    speech.config,
     transcript,
   ])
 

@@ -13,6 +13,7 @@ import {
   petSidechatPrompt,
   petShouldTravel,
   petSpeechProfileFromConfig,
+  petToolObserverHasSettledNewEvidence,
   petTurnActiveAfterEvent,
   resolvePetRuntimeSession,
 } from './pet'
@@ -213,6 +214,82 @@ describe('mobile pet companion state', () => {
     expect(frames.tool.tools[0].arguments).toContain('[redacted]')
     expect(frames.tool.tools[0].arguments).not.toContain('do-not-leak')
     expect(frames.tool.tools[0].result).not.toContain('do-not-leak-either')
+  })
+
+  it('treats arguments and results arriving on the same tool row as new evidence', () => {
+    const provisional = petObserverFramesFromTranscript(
+      [
+        { id: 'u', kind: 'user', text: 'check the directory' },
+        {
+          id: 't',
+          kind: 'tool',
+          tool: {
+            name: 'terminal',
+            status: 'running',
+            toolId: 'tool-1',
+          },
+        },
+      ],
+      4,
+    )
+
+    expect(provisional.tool.newEventIds).toEqual(['t'])
+    expect(petToolObserverHasSettledNewEvidence(provisional.tool)).toBe(false)
+
+    const completed = petObserverFramesFromTranscript(
+      [
+        { id: 'u', kind: 'user', text: 'check the directory' },
+        {
+          id: 't',
+          kind: 'tool',
+          tool: {
+            args: { command: 'Get-ChildItem', token: 'do-not-leak' },
+            name: 'terminal',
+            result: { output: 'one.txt', api_key: 'do-not-leak-either' },
+            status: 'complete',
+            toolId: 'tool-1',
+          },
+        },
+      ],
+      4,
+      provisional.ids,
+    )
+
+    expect(completed.tool.newEventIds).toEqual(['t'])
+    expect(petToolObserverHasSettledNewEvidence(completed.tool)).toBe(true)
+    expect(completed.tool.tools[0].arguments).toContain('Get-ChildItem')
+    expect(completed.tool.tools[0].arguments).not.toContain('do-not-leak')
+    expect(completed.tool.tools[0].result).toContain('one.txt')
+    expect(completed.tool.tools[0].result).not.toContain(
+      'do-not-leak-either',
+    )
+  })
+
+  it('includes bounded redacted tool arguments and results in companion context', () => {
+    const context = petContextFromTranscript(
+      [
+        { id: 'u', kind: 'user', text: 'inspect it' },
+        {
+          id: 't',
+          kind: 'tool',
+          tool: {
+            args: { command: 'pwd', token: 'do-not-leak' },
+            name: 'terminal',
+            result: { output: 'C:\\workspace', api_key: 'also-secret' },
+            status: 'complete',
+            toolId: 'tool-1',
+          },
+        },
+      ],
+      2,
+      2,
+    )
+
+    expect(context[1].content).toContain('terminal completed')
+    expect(context[1].content).toContain('"command": "pwd"')
+    expect(context[1].content).toContain('C:\\\\workspace')
+    expect(context[1].content).not.toContain('do-not-leak')
+    expect(context[1].content).not.toContain('also-secret')
   })
 
   it('omits tool evidence when tool observations are disabled', () => {

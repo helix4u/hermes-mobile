@@ -7,11 +7,12 @@ import {
   MIN_PET_ROAM_SPEED,
   MobilePet,
   nextPetRoamStep,
+  petPositionAtAnimationTime,
   petPositionFromPointer,
 } from './MobilePet'
 
 describe('mobile pet roaming', () => {
-  it('mixes short and long walks with slower travel and real rest windows', () => {
+  it('mixes distinct short and long walks with real rest windows', () => {
     const shortValues = [0.2, 0.2, 0.9, 0.5, 0.25]
     const longValues = [0.9, 0.9, 0.5, 0.5]
     const short = nextPetRoamStep(
@@ -25,7 +26,8 @@ describe('mobile pet roaming', () => {
       () => longValues.shift() ?? 0.5,
     )
 
-    expect(short.durationMs).toBeGreaterThanOrEqual(7_000)
+    expect(short.durationMs).toBeGreaterThanOrEqual(3_000)
+    expect(short.durationMs).toBeLessThanOrEqual(7_000)
     expect(short.restMs).toBeGreaterThanOrEqual(4_500)
     expect(long.durationMs).toBeGreaterThanOrEqual(10_000)
     expect(Math.abs(long.destination.x - 40)).toBeGreaterThan(
@@ -59,6 +61,25 @@ describe('mobile pet roaming', () => {
     expect((distance / step.durationMs) * 1_000).toBeGreaterThanOrEqual(
       MIN_PET_ROAM_SPEED - 0.01,
     )
+  })
+
+  it('freezes an interrupted walk from animation time instead of a stale DOM rect', () => {
+    expect(
+      petPositionAtAnimationTime(
+        { x: 20, y: 200 },
+        { x: 220, y: 240 },
+        2_500,
+        10_000,
+      ),
+    ).toEqual({ x: 70, y: 210 })
+    expect(
+      petPositionAtAnimationTime(
+        { x: 20, y: 200 },
+        { x: 220, y: 240 },
+        15_000,
+        10_000,
+      ),
+    ).toEqual({ x: 220, y: 240 })
   })
 
   it('keeps the sidechat action hidden until the pet is tapped', () => {

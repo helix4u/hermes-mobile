@@ -35,7 +35,7 @@ type PetGestureInput = 'pointer' | 'touch'
 
 const PET_SIZE = 72
 const DRAG_SLOP = 4
-export const MIN_PET_ROAM_SPEED = 7
+export const MIN_PET_ROAM_SPEED = 12
 const BUBBLE_GAP = 8
 const BUBBLE_MARGIN = 12
 const BUBBLE_MAX_WIDTH = 224
@@ -63,6 +63,22 @@ export function petPositionFromPointer(
   return {
     x: pointer.x - stageOrigin.x - dragOffset.x,
     y: pointer.y - stageOrigin.y - dragOffset.y,
+  }
+}
+
+export function petPositionAtAnimationTime(
+  from: Point,
+  destination: Point,
+  elapsedMs: number,
+  durationMs: number,
+): Point {
+  const progress = Math.max(
+    0,
+    Math.min(1, durationMs > 0 ? elapsedMs / durationMs : 1),
+  )
+  return {
+    x: from.x + (destination.x - from.x) * progress,
+    y: from.y + (destination.y - from.y) * progress,
   }
 }
 
@@ -246,7 +262,13 @@ export function MobilePet({
   const stageRef = useRef<HTMLDivElement | null>(null)
   const petRef = useRef<HTMLDivElement | null>(null)
   const pointRef = useRef<Point>({ x: 12, y: 220 })
-  const animationRef = useRef<Animation | null>(null)
+  const animationRef = useRef<{
+    animation: Animation
+    destination: Point
+    durationMs: number
+    from: Point
+    startedAtMs: number
+  } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const actionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dragRef = useRef<{
@@ -314,14 +336,26 @@ export function MobilePet({
   }, [bounds, connectionId])
 
   const freezeAtRenderedPosition = useCallback(() => {
-    const stage = stageRef.current
-    const pet = petRef.current
-    if (!stage || !pet) return
-    const stageRect = stage.getBoundingClientRect()
-    const petRect = pet.getBoundingClientRect()
-    animationRef.current?.cancel()
+    const active = animationRef.current
+    if (!active) {
+      setWalking(false)
+      return
+    }
+    const animationTime = Number(active.animation.currentTime)
+    const elapsedMs =
+      Number.isFinite(animationTime) && animationTime >= 0
+        ? animationTime
+        : Math.max(0, performance.now() - active.startedAtMs)
+    const rendered = petPositionAtAnimationTime(
+      active.from,
+      active.destination,
+      elapsedMs,
+      active.durationMs,
+    )
+    active.animation.onfinish = null
+    active.animation.cancel()
     animationRef.current = null
-    setPoint({ x: petRect.left - stageRect.left, y: petRect.top - stageRect.top })
+    setPoint(rendered)
     setWalking(false)
   }, [setPoint])
 
@@ -505,8 +539,15 @@ export function MobilePet({
           ],
           { duration: step.durationMs, easing: 'linear', fill: 'forwards' },
         )
-        animationRef.current = animation
+        animationRef.current = {
+          animation,
+          destination: step.destination,
+          durationMs: step.durationMs,
+          from,
+          startedAtMs: performance.now(),
+        }
         animation.onfinish = () => {
+          if (animationRef.current?.animation !== animation) return
           animationRef.current = null
           setPoint(step.destination)
           setWalking(false)

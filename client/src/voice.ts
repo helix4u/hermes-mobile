@@ -183,6 +183,32 @@ export function applySpeechPlaybackRate(
   audio.preservesPitch = true
 }
 
+interface PlaybackRateAudio
+  extends Pick<
+    HTMLAudioElement,
+    | 'addEventListener'
+    | 'defaultPlaybackRate'
+    | 'playbackRate'
+    | 'preservesPitch'
+    | 'removeEventListener'
+  > {}
+
+export function maintainSpeechPlaybackRate(
+  audio: PlaybackRateAudio,
+  rate: number,
+): () => void {
+  const apply = () => applySpeechPlaybackRate(audio, rate)
+  apply()
+  audio.addEventListener('loadedmetadata', apply)
+  audio.addEventListener('canplay', apply)
+  audio.addEventListener('playing', apply)
+  return () => {
+    audio.removeEventListener('loadedmetadata', apply)
+    audio.removeEventListener('canplay', apply)
+    audio.removeEventListener('playing', apply)
+  }
+}
+
 interface PreparedSpeech<T> {
   value?: T
   error?: unknown
@@ -675,7 +701,7 @@ export function useVoice({
     ): Promise<void> => {
       if (generation !== speechGenerationRef.current) return
       const audio = new Audio(dataUrl)
-      applySpeechPlaybackRate(audio, playbackRate)
+      const releasePlaybackRate = maintainSpeechPlaybackRate(audio, playbackRate)
       audioRef.current = audio
       await new Promise<void>((resolve, reject) => {
         let settled = false
@@ -687,6 +713,7 @@ export function useVoice({
           }
           audio.removeEventListener('ended', onEnded)
           audio.removeEventListener('error', onAudioError)
+          releasePlaybackRate()
           if (audioRef.current === audio) audioRef.current = null
           if (error) reject(error)
           else resolve()
@@ -700,6 +727,7 @@ export function useVoice({
         void audio
           .play()
           .then(() => {
+            applySpeechPlaybackRate(audio, playbackRate)
             if (generation === speechGenerationRef.current) {
               setPhase('speaking')
             }
