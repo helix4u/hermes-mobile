@@ -41,6 +41,16 @@ export interface MobilePluginInstallResult {
   restartRequired: boolean
 }
 
+export function mobilePluginUploadUnavailableReason(
+  inspection: MobilePluginHostInspection,
+): string {
+  if (inspection.installed || inspection.canUpload) return ''
+  return (
+    inspection.uploadUnavailableReason ||
+    'This host does not expose managed file upload.'
+  )
+}
+
 interface ManagedFileUploadResponse {
   ok?: boolean
   path?: string
@@ -134,15 +144,17 @@ export async function inspectMobilePluginHost(
   let targetPath = ''
   let uploadUnavailableReason = ''
 
-  try {
-    const listing =
-      await transport.requestJson<ManagedFilesListing>('/api/files')
-    const resolved = resolveManagedPluginTarget(listing)
-    managedRoot = resolved.managedRoot
-    targetPath = resolved.targetPath
-  } catch (error) {
-    uploadUnavailableReason =
-      error instanceof Error ? error.message : 'Managed upload is unavailable'
+  if (!installed) {
+    try {
+      const listing =
+        await transport.requestJson<ManagedFilesListing>('/api/files')
+      const resolved = resolveManagedPluginTarget(listing)
+      managedRoot = resolved.managedRoot
+      targetPath = resolved.targetPath
+    } catch (error) {
+      uploadUnavailableReason =
+        error instanceof Error ? error.message : 'Managed upload is unavailable'
+    }
   }
 
   return {

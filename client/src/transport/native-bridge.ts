@@ -55,6 +55,34 @@ export interface SharedContent {
   mimeType: string
 }
 
+export interface MobileCompanionStatus {
+  platform: 'android'
+  manufacturer: string
+  model: string
+  androidVersion: string
+  sdkInt: number
+  batteryPercent: number | null
+  charging: boolean
+  powerSource: 'ac' | 'usb' | 'wireless' | 'battery' | 'unknown'
+  screenInteractive: boolean
+  networkTransport:
+    | 'wifi'
+    | 'cellular'
+    | 'ethernet'
+    | 'bluetooth'
+    | 'vpn'
+    | 'other'
+    | 'none'
+  networkConnected: boolean
+  networkValidated: boolean
+  canOpenDebuggingSettings: boolean
+}
+
+export interface WirelessDebuggingSettingsResult {
+  opened: boolean
+  destination: 'wireless-debugging' | 'developer-options' | 'settings'
+}
+
 interface HermesNativePlugin {
   setCredential(options: { connectionId: string; token: string }): Promise<void>
   hasCredential(options: {
@@ -136,6 +164,8 @@ interface HermesNativePlugin {
     baseUrl: string
     connected: boolean
   }>
+  getMobileCompanionStatus(): Promise<MobileCompanionStatus>
+  openWirelessDebuggingSettings(): Promise<WirelessDebuggingSettingsResult>
   addListener(
     eventName: 'socketMessage',
     listener: (event: NativeSocketMessage) => void,
