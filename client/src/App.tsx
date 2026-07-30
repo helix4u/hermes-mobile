@@ -12,6 +12,8 @@ import { EmbedPreferencesProvider } from './embeds'
 import { ConnectionSheet } from './components/ConnectionSheet'
 import { ControlPanel } from './components/ControlPanel'
 import { FilesView } from './components/FilesView'
+import { MobilePet } from './components/MobilePet'
+import { PetSidechatSheet } from './components/PetSidechatSheet'
 import { ReaderView } from './components/ReaderView'
 import { ShareSheet } from './components/ShareSheet'
 import { SessionsView } from './components/SessionsView'
@@ -44,8 +46,15 @@ import {
   loadDraft,
   persistConnection,
   persistDraft,
+  removeConnection,
 } from './state/connection'
 import { aliasCommand, commandParts } from './state/commands'
+import {
+  cloudAgentConnectable,
+  cloudAgentStatus,
+  isNousCloudAgentUrl,
+  resolveNousCloudAgent,
+} from './state/cloud'
 import { projectSessionRows } from './state/sessions'
 import {
   sharedImageAttachParams,
@@ -98,6 +107,8 @@ import {
   useVoice,
 } from './voice'
 import { markdownToSpeechText } from './markdown'
+import { petTurnActiveAfterEvent } from './pet'
+import { usePetCompanion } from './usePetCompanion'
 
 type AppTab = 'chat' | 'sessions' | 'reader' | 'files' | 'control'
 const MAX_RECONNECT_ATTEMPTS = 5
@@ -231,11 +242,14 @@ export function App() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [turnActive, setTurnActive] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('chat')
   const [controlVisit, setControlVisit] = useState(0)
   const [connectionOpen, setConnectionOpen] = useState(
     !nativeClient || !initialConnection.baseUrl,
   )
+  const [petSidechatOpen, setPetSidechatOpen] = useState(false)
+  const petSidechatTranscriptRef = useRef<((text: string) => void) | null>(null)
   const [commandCatalog, setCommandCatalog] = useState<Array<[string, string]>>(
     [],
   )
@@ -336,6 +350,10 @@ export function App() {
     [voiceSelection],
   )
   const appendVoiceTranscript = useCallback((text: string) => {
+    if (petSidechatTranscriptRef.current) {
+      petSidechatTranscriptRef.current(text)
+      return
+    }
     setDraft(current => {
       const existing = current.trimEnd()
       return existing ? `${existing} ${text}` : text
@@ -357,9 +375,27 @@ export function App() {
     onError: setError,
     onTranscript: appendVoiceTranscript,
   })
+  const pet = usePetCompanion({
+    connected,
+    connectionId: connection.id,
+    ensureSession: () => ensureSession(),
+    gateway: transportRef.current?.gateway ?? null,
+    profile: connection.profile,
+    runtimeSessionId,
+    speak,
+    transcript,
+    transport: transportRef.current,
+    turnActive,
+  })
+  useEffect(() => {
+    if (!pet.hostCapabilities.sidechat) setPetSidechatOpen(false)
+  }, [pet.hostCapabilities.sidechat])
 
   const appendEvent = useCallback(
     (event: GatewayEvent) => {
+      setTurnActive(current =>
+        petTurnActiveAfterEvent(current, event.type),
+      )
       if (event.type === 'gateway.ready') {
         const payload =
           event.payload && typeof event.payload === 'object'
@@ -408,6 +444,7 @@ export function App() {
     setConnectionState('disconnected')
     runtimeSessionIdRef.current = ''
     setRuntimeSessionId('')
+    setTurnActive(false)
   }, [])
 
   useEffect(() => () => disconnect(), [disconnect])
@@ -723,6 +760,17 @@ export function App() {
 
   async function connect(target = connection) {
     disconnect()
+    if (
+      target.connectionType !== 'cloud' &&
+      isNousCloudAgentUrl(target.baseUrl)
+    ) {
+      if (!nativeClient) {
+        setError('Nous Cloud connections require the Android app')
+        return false
+      }
+      return connectNousCloudUrl(target.baseUrl)
+    }
+
     setBusy(true)
     setError('')
     setCapabilities(null)
@@ -959,10 +1007,39 @@ export function App() {
     }
   }
 
-  async function connectCloudAgent(agent: CloudAgent) {
+  async function connectNousCloudUrl(value: string): Promise<boolean> {
+    setBusy(true)
+    setError('')
+    try {
+      const resolved = await resolveNousCloudAgent(value, HermesNative)
+      setCloudSignedIn(true)
+      setCloudAgents(resolved.agents)
+      setCloudOrgs(resolved.organizations)
+      setCloudOrg(
+        resolved.selectedOrganization?.slug ||
+          resolved.selectedOrganization?.id ||
+          '',
+      )
+      if (!cloudAgentConnectable(resolved.agent)) {
+        throw new Error(
+          `${resolved.agent.name} is ${cloudAgentStatus(resolved.agent)} and is not ready to connect yet`,
+        )
+      }
+      return await connectCloudAgent(resolved.agent)
+    } catch (cloudError) {
+      setError(
+        cloudError instanceof Error ? cloudError.message : String(cloudError),
+      )
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function connectCloudAgent(agent: CloudAgent): Promise<boolean> {
     if (!agent.dashboardUrl) {
       setError('This Cloud agent does not have a dashboard URL yet')
-      return
+      return false
     }
     setBusy(true)
     setError('')
@@ -985,11 +1062,12 @@ export function App() {
       }
       nextConnection.baseUrl = signedIn.baseUrl
       prepareConnectionView(nextConnection)
-      await connect(nextConnection)
+      return await connect(nextConnection)
     } catch (cloudError) {
       setError(
         cloudError instanceof Error ? cloudError.message : String(cloudError),
       )
+      return false
     } finally {
       setBusy(false)
     }
@@ -1071,6 +1149,47 @@ export function App() {
     }
   }
 
+  function editSavedConnection(saved: BrowserConnection) {
+    prepareConnectionView({ ...saved, token: '' })
+    setError('')
+    setNotice('')
+  }
+
+  function saveEditedConnection() {
+    persistConnection(connection)
+    setSavedConnections(loadConnections())
+    setNotice(`${connection.name || 'Hermes host'} saved`)
+  }
+
+  async function deleteSavedConnection(saved: BrowserConnection) {
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(`Delete the saved connection "${saved.name}"?`)
+    ) {
+      return
+    }
+    if (nativeClient) {
+      await HermesNative.removeCredential({ connectionId: saved.id })
+      setOrphanCredentialIds(current =>
+        current.filter(connectionId => connectionId !== saved.id),
+      )
+    }
+    const remaining = removeConnection(saved.id)
+    setSavedConnections(remaining)
+    if (connectionRef.current.id === saved.id) {
+      prepareConnectionView(
+        remaining[0] ??
+          createConnection({
+            name: 'My Hermes',
+            baseUrl: '',
+            authMode: 'token',
+            connectionType: 'direct',
+          }),
+      )
+    }
+    setNotice(`${saved.name || 'Hermes host'} deleted`)
+  }
+
   async function selectSession(session: SessionSummary): Promise<string> {
     const transport = transportRef.current
     if (!transport) throw new Error('Connect to Hermes first')
@@ -1127,9 +1246,38 @@ export function App() {
   }
 
   async function ensureSession(preview = ''): Promise<string> {
-    if (runtimeSessionId) return runtimeSessionId
+    const activeRuntimeId = runtimeSessionIdRef.current
+    if (activeRuntimeId) return activeRuntimeId
     const transport = transportRef.current
     if (!transport) throw new Error('Connect to Hermes first')
+    const storedSessionId = selectedStoredIdRef.current
+    if (storedSessionId) {
+      const resumed = await transport.gateway.request<SessionCreateResult>(
+        'session.resume',
+        {
+          session_id: storedSessionId,
+          profile:
+            connectionRef.current.profile === 'default'
+              ? ''
+              : connectionRef.current.profile,
+          cols: 100,
+        },
+      )
+      const storedId = resumed.stored_session_id || storedSessionId
+      runtimeSessionIdRef.current = resumed.session_id
+      selectedStoredIdRef.current = storedId
+      setRuntimeSessionId(resumed.session_id)
+      setSelectedStoredId(storedId)
+      setSessionCwd(
+        resumed.info?.cwd || preferredWorkspace,
+      )
+      if (resumed.messages?.length) {
+        setTranscript(current =>
+          mergeResumedTranscript(current, resumed.messages ?? []),
+        )
+      }
+      return resumed.session_id
+    }
     const created = await transport.gateway.request<SessionCreateResult>(
       'session.create',
       sessionCreateParams({
@@ -1161,10 +1309,16 @@ export function App() {
   async function submitPrompt(text: string, sessionId: string) {
     const transport = transportRef.current
     if (!transport) throw new Error('Connect to Hermes first')
-    await transport.gateway.request('prompt.submit', {
-      session_id: sessionId,
-      text,
-    })
+    setTurnActive(true)
+    try {
+      await transport.gateway.request('prompt.submit', {
+        session_id: sessionId,
+        text,
+      })
+    } catch (submitError) {
+      setTurnActive(false)
+      throw submitError
+    }
     void refreshSessions(transport)
   }
 
@@ -1323,6 +1477,7 @@ export function App() {
       await transport.gateway.request('session.interrupt', {
         session_id: runtimeSessionId,
       })
+      setTurnActive(false)
       appendSystem('Interrupt requested.')
     } catch (stopError) {
       setError(
@@ -1370,8 +1525,11 @@ export function App() {
   function startDraft() {
     stopPlayback()
     transcriptFollowRef.current = true
+    selectedStoredIdRef.current = ''
+    runtimeSessionIdRef.current = ''
     setSelectedStoredId('')
     setRuntimeSessionId('')
+    setTurnActive(false)
     setSessionCwd('')
     setTranscript([])
     setError('')
@@ -1627,6 +1785,7 @@ export function App() {
             >
               <Transcript
                 activeSpeechId={activeSpeechId}
+                connectionId={connection.id}
                 items={transcript}
                 toolDetailMode={toolDetailMode}
                 transport={transportRef.current}
@@ -1762,6 +1921,7 @@ export function App() {
             }`}
           >
             <ReaderView
+              active={activeTab === 'reader'}
               connected={connected}
               connectionId={connection.id}
               latestText={latestAssistantText}
@@ -1829,6 +1989,21 @@ export function App() {
               transport={transportRef.current}
               voiceSelection={voiceSelection}
               voicePhase={voicePhase}
+              pet={{
+                catalog: pet.catalog,
+                desktopSpeech: pet.desktopSpeech,
+                desktopSpeechStatus: pet.desktopSpeechStatus,
+                error: pet.error,
+                hostCapabilities: pet.hostCapabilities,
+                info: pet.info,
+                personality: pet.personality,
+                preferences: pet.preferences,
+                status: pet.status,
+                onPreferences: pet.updatePreferences,
+                onPreviewVoice: pet.previewVoice,
+                onRefreshDesktopSpeech: pet.refreshDesktopSpeech,
+                onTest: pet.generateCommentary,
+              }}
               onAutoSpeakChange={changeAutoSpeak}
               onThemeSelectionChange={changeThemeSelection}
               onNotice={setNotice}
@@ -1838,6 +2013,19 @@ export function App() {
               onVoiceSelectionChange={changeVoiceSelection}
             />
           </section>
+
+          {pet.preferences.visible && (
+            <MobilePet
+              bubble={pet.bubble}
+              connectionId={connection.id}
+              info={pet.info}
+              roam={pet.preferences.roam}
+              sidechatAvailable={pet.hostCapabilities.sidechat}
+              state={pet.state}
+              onClick={pet.interact}
+              onSidechat={() => setPetSidechatOpen(true)}
+            />
+          )}
         </div>
 
         <nav className="bottom-nav" aria-label="Primary">
@@ -1927,12 +2115,32 @@ export function App() {
           }}
           onConnectionChange={setConnection}
           onDisconnect={disconnect}
+          onDeleteConnection={deleteSavedConnection}
+          onEditConnection={editSavedConnection}
           onNewDirect={newDirectConnection}
+          onSaveConnection={saveEditedConnection}
           onSavedConnection={async saved => {
             await switchSavedConnection(saved)
           }}
         />
       </main>
+      <PetSidechatSheet
+        busy={pet.sidechat.busy}
+        error={pet.sidechat.error}
+        messages={pet.sidechat.messages}
+        name={pet.personality?.displayName || pet.info.displayName || 'Pet'}
+        open={petSidechatOpen}
+        onClose={() => setPetSidechatOpen(false)}
+        onLoad={pet.sidechat.load}
+        onReset={pet.sidechat.reset}
+        onSend={pet.sidechat.send}
+        onSendToHermes={text => setDraft(text)}
+        onToggleRecording={toggleRecording}
+        onTranscriptTarget={target => {
+          petSidechatTranscriptRef.current = target
+        }}
+        voicePhase={voicePhase}
+      />
     </EmbedPreferencesProvider>
   )
 }

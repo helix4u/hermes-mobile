@@ -7,6 +7,60 @@ import {
 } from './transcript'
 
 describe('transcript projection', () => {
+  it('hydrates durable pet commentary as a distinct transcript row', () => {
+    const result = historyToTranscript([
+      {
+        id: 'pet-commentary:alien-1',
+        role: 'system',
+        content: 'The tiny alien has opinions.',
+        display_kind: 'pet_commentary',
+        display_metadata: {
+          event_id: 'alien-1',
+          personality_id: 'alien-child',
+          personality_name: 'Alien Child',
+          source: 'generated',
+        },
+      },
+    ])
+
+    expect(result).toEqual([
+      {
+        id: 'pet-commentary:alien-1',
+        kind: 'pet',
+        text: 'The tiny alien has opinions.',
+        pet: {
+          lens: undefined,
+          personalityId: 'alien-child',
+          personalityName: 'Alien Child',
+          source: 'generated',
+        },
+      },
+    ])
+  })
+
+  it('upserts a repeated live pet commentary event instead of duplicating it', () => {
+    const event = {
+      type: 'pet.commentary.recorded',
+      payload: {
+        commentary_id: 'alien-2',
+        text: 'I am helping.',
+        display_metadata: {
+          personality_id: 'alien-child',
+          personality_name: 'Alien Child',
+        },
+      },
+    }
+    const first = reduceGatewayEvent([], event)
+    const repeated = reduceGatewayEvent(first, event)
+
+    expect(repeated).toHaveLength(1)
+    expect(repeated[0]).toMatchObject({
+      id: 'pet-commentary:alien-2',
+      kind: 'pet',
+      text: 'I am helping.',
+    })
+  })
+
   it('hydrates reasoning, messages, and stored tool rows', () => {
     const result = historyToTranscript([
       { role: 'user', text: 'hello' },

@@ -1,6 +1,7 @@
 import { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
 import type { MobileCapabilities } from '../protocol/types'
 import {
+  CORE_GATEWAY_METADATA_PATHS,
   coreGatewayCapabilities,
   shouldAttemptCoreGatewayFallback,
 } from './gateway-compatibility'
@@ -69,9 +70,24 @@ export class BrowserHermesTransport {
       ) {
         throw error
       }
-      const health = await this.fetchJson<Record<string, unknown>>('/api/health')
-      this.gatewayKind = 'core'
-      return coreGatewayCapabilities(health)
+      const failures: string[] = []
+      for (const path of CORE_GATEWAY_METADATA_PATHS) {
+        try {
+          const metadata =
+            await this.fetchJson<Record<string, unknown>>(path)
+          this.gatewayKind = 'core'
+          return coreGatewayCapabilities(metadata)
+        } catch (metadataError) {
+          failures.push(
+            metadataError instanceof Error
+              ? metadataError.message
+              : String(metadataError),
+          )
+        }
+      }
+      throw new Error(
+        `Hermes core gateway discovery failed: ${failures.join('; ')}`,
+      )
     }
   }
 

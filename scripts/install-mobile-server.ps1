@@ -11,8 +11,52 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $runner = Join-Path $PSScriptRoot 'run-mobile-server.ps1'
+$proxyScript = Join-Path $PSScriptRoot 'mobile_proxy.py'
 if (-not (Test-Path -LiteralPath $runner)) {
     throw "Mobile server runner not found: $runner"
+}
+
+function Stop-HermesMobileListener {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ListenerPort,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('server', 'proxy')]
+        [string]$Role
+    )
+
+    $listeners = @(
+        Get-NetTCPConnection `
+            -LocalAddress 127.0.0.1 `
+            -LocalPort $ListenerPort `
+            -State Listen `
+            -ErrorAction SilentlyContinue
+    )
+    foreach ($listener in $listeners) {
+        $process = Get-CimInstance `
+            -ClassName Win32_Process `
+            -Filter "ProcessId = $($listener.OwningProcess)" `
+            -ErrorAction SilentlyContinue
+        if (-not $process) {
+            continue
+        }
+
+        $commandLine = [string]$process.CommandLine
+        $owned = if ($Role -eq 'server') {
+            $commandLine -match '(?i)(?:^|\s)serve(?:\s|$)' -and
+            $commandLine -match '(?i)--host\s+127\.0\.0\.1(?:\s|$)' -and
+            $commandLine -match "(?i)--port\s+$ListenerPort(?:\s|$)"
+        } else {
+            $commandLine.Contains($proxyScript, [StringComparison]::OrdinalIgnoreCase) -and
+            $commandLine -match "(?i)--port\s+$ListenerPort(?:\s|$)" -and
+            $commandLine -match "(?i)--upstream\s+http://127\.0\.0\.1:$Port(?:\s|$)"
+        }
+        if (-not $owned) {
+            throw "Refusing to stop unrelated process $($process.ProcessId) listening on 127.0.0.1:$ListenerPort"
+        }
+
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+    }
 }
 
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -37,6 +81,32 @@ if ($existing) {
             throw "Timed out stopping existing scheduled task: $TaskName"
         }
     }
+}
+
+# Stop-ScheduledTask terminates the scheduled PowerShell process, but Windows
+# does not reliably keep Start-Process children in the task's job object. A
+# refresh could therefore leave the old backend and proxy listening while the
+# replacement task crash-looped against their occupied ports. Retire only
+# listeners whose command lines match this Mobile server's exact loopback
+# roles, then require both ports to be free before registering the replacement.
+$cleanupDeadline = [DateTimeOffset]::Now.AddSeconds(20)
+do {
+    Stop-HermesMobileListener -ListenerPort $Port -Role server
+    Stop-HermesMobileListener -ListenerPort $ProxyPort -Role proxy
+    $remainingListeners = @(
+        Get-NetTCPConnection `
+            -LocalAddress 127.0.0.1 `
+            -LocalPort $Port, $ProxyPort `
+            -State Listen `
+            -ErrorAction SilentlyContinue
+    )
+    if ($remainingListeners.Count -eq 0) {
+        break
+    }
+    Start-Sleep -Milliseconds 250
+} while ([DateTimeOffset]::Now -lt $cleanupDeadline)
+if ($remainingListeners.Count -ne 0) {
+    throw "Timed out retiring the previous Hermes Mobile listeners on ports $Port and $ProxyPort"
 }
 
 $powerShell = (Get-Command pwsh.exe -ErrorAction Stop).Source
@@ -94,20 +164,26 @@ Start-ScheduledTask -TaskName $TaskName
 
 $deadline = [DateTimeOffset]::Now.AddSeconds(45)
 do {
-    $listener = Get-NetTCPConnection `
+    $backendListener = Get-NetTCPConnection `
         -LocalAddress 127.0.0.1 `
         -LocalPort $Port `
         -State Listen `
         -ErrorAction SilentlyContinue
-    if ($listener) {
+    $proxyListener = Get-NetTCPConnection `
+        -LocalAddress 127.0.0.1 `
+        -LocalPort $ProxyPort `
+        -State Listen `
+        -ErrorAction SilentlyContinue
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($backendListener -and $proxyListener -and $task.State -eq 'Running') {
         break
     }
     Start-Sleep -Milliseconds 500
 } while ([DateTimeOffset]::Now -lt $deadline)
 
-if (-not $listener) {
+if (-not $backendListener -or -not $proxyListener -or $task.State -ne 'Running') {
     $stateDirectory = Join-Path $HermesHome 'mobile-server'
-    throw "Hermes Mobile server did not begin listening. Check $stateDirectory"
+    throw "Hermes Mobile server did not stabilize on ports $Port and $ProxyPort. Check $stateDirectory"
 }
 
-Write-Host "Hermes Mobile server is listening on 127.0.0.1:$Port"
+Write-Host "Hermes Mobile server is listening on 127.0.0.1:$Port with proxy 127.0.0.1:$ProxyPort"

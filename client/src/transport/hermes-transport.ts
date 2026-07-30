@@ -10,6 +10,7 @@ import {
   NativeWebSocket,
 } from './native-bridge'
 import {
+  CORE_GATEWAY_METADATA_PATHS,
   coreGatewayCapabilities,
   shouldAttemptCoreGatewayFallback,
 } from './gateway-compatibility'
@@ -80,26 +81,33 @@ export class NativeHermesTransport implements HermesTransport {
         response.status,
       )
     ) {
-      const health = await HermesNative.httpRequest({
-        connectionId: this.connection.id,
-        url: buildPluginHttpUrl(this.connection.baseUrl, '/api/health'),
-      })
-      if (health.status >= 200 && health.status < 300) {
-        this.gatewayKind = 'core'
-        let healthBody: Record<string, unknown> = {}
-        try {
-          healthBody = JSON.parse(health.body) as Record<string, unknown>
-        } catch {
-          // A successful legacy health endpoint may not return JSON.
+      const failures: string[] = []
+      for (const path of CORE_GATEWAY_METADATA_PATHS) {
+        const metadata = await HermesNative.httpRequest({
+          connectionId: this.connection.id,
+          url: buildPluginHttpUrl(this.connection.baseUrl, path),
+        })
+        if (metadata.status >= 200 && metadata.status < 300) {
+          this.gatewayKind = 'core'
+          let metadataBody: Record<string, unknown> = {}
+          try {
+            metadataBody = JSON.parse(
+              metadata.body,
+            ) as Record<string, unknown>
+          } catch {
+            // A successful legacy metadata endpoint may not return JSON.
+          }
+          return coreGatewayCapabilities(metadataBody)
         }
-        return coreGatewayCapabilities(healthBody)
+        failures.push(`${path} returned HTTP ${metadata.status}`)
       }
-    }
-    {
       throw new Error(
-        `The mobile capability endpoint returned HTTP ${response.status}`,
+        `Hermes core gateway discovery failed: ${failures.join('; ')}`,
       )
     }
+    throw new Error(
+      `The mobile capability endpoint returned HTTP ${response.status}`,
+    )
   }
 
   async connect(): Promise<void> {

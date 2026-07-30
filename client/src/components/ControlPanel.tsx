@@ -2,12 +2,22 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { useEmbedPreferences } from '../embeds'
 import type { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
 import type { VoiceSelection } from '../reader'
+import type {
+  MobilePetInfo,
+  PetHostCapabilities,
+  PetPersonalityData,
+  PetPersonalitySummary,
+  PetPreferences,
+  PetSpeechProfile,
+} from '../pet'
 import { modelConfigValue, nextRunLabel } from '../state/control'
 import { MOBILE_THEME_OPTIONS, type MobileThemeSelection } from '../state/theme'
 import { formatDisplayValue, redactDisplayValue } from '../state/transcript'
 import type { HermesTransport } from '../transport/hermes-transport'
 import type { VoicePhase } from '../voice'
 import { configPatch, HostSettings } from './HostSettings'
+import { MobilePluginInstaller } from './MobilePluginInstaller'
+import { PetSettings } from './PetSettings'
 import { VoiceSettings } from './VoiceSettings'
 
 interface ModelProvider {
@@ -56,6 +66,21 @@ interface ControlPanelProps {
   transport: HermesTransport | null
   voiceSelection: VoiceSelection
   voicePhase: VoicePhase
+  pet: {
+    catalog: PetPersonalitySummary[]
+    desktopSpeech: PetSpeechProfile | null
+    desktopSpeechStatus: 'idle' | 'loading' | 'ready' | 'missing'
+    error: string
+    hostCapabilities: PetHostCapabilities
+    info: MobilePetInfo
+    personality: PetPersonalityData | null
+    preferences: PetPreferences
+    status: 'idle' | 'loading' | 'ready' | 'unavailable'
+    onPreferences: (patch: Partial<PetPreferences>) => void
+    onPreviewVoice: () => void
+    onRefreshDesktopSpeech: () => void | Promise<void>
+    onTest: () => void | Promise<void>
+  }
   onAutoSpeakChange: (enabled: boolean) => void
   onThemeSelectionChange: (selection: MobileThemeSelection) => void
   onNotice: (message: string) => void
@@ -179,6 +204,7 @@ export function ControlPanel({
   onThemeSelectionChange,
   onToolDetailModeChange,
   onVoiceSelectionChange,
+  pet,
   runtimeSessionId,
   profile,
   sessionCwd,
@@ -516,6 +542,24 @@ export function ControlPanel({
           onThemeSelectionChange={onThemeSelectionChange}
           themeSelection={themeSelection}
         />
+        <PetSettings
+          catalog={pet.catalog}
+          desktopSpeech={pet.desktopSpeech}
+          desktopSpeechStatus={pet.desktopSpeechStatus}
+          error={pet.error}
+          gateway={gateway}
+          hostCapabilities={pet.hostCapabilities}
+          info={pet.info}
+          personality={pet.personality}
+          preferences={pet.preferences}
+          profile={profile}
+          status={pet.status}
+          transport={transport}
+          onPreferences={pet.onPreferences}
+          onPreviewVoice={pet.onPreviewVoice}
+          onRefreshDesktopSpeech={pet.onRefreshDesktopSpeech}
+          onTest={pet.onTest}
+        />
       </div>
     )
   }
@@ -635,6 +679,25 @@ export function ControlPanel({
         activeSkinName={activeSkinName}
         onThemeSelectionChange={onThemeSelectionChange}
         themeSelection={themeSelection}
+      />
+
+      <PetSettings
+        catalog={pet.catalog}
+        desktopSpeech={pet.desktopSpeech}
+        desktopSpeechStatus={pet.desktopSpeechStatus}
+        error={pet.error}
+        gateway={gateway}
+        hostCapabilities={pet.hostCapabilities}
+        info={pet.info}
+        personality={pet.personality}
+        preferences={pet.preferences}
+        profile={profile}
+        status={pet.status}
+        transport={transport}
+        onPreferences={pet.onPreferences}
+        onPreviewVoice={pet.onPreviewVoice}
+        onRefreshDesktopSpeech={pet.onRefreshDesktopSpeech}
+        onTest={pet.onTest}
       />
 
       <details className="control-section">
@@ -866,6 +929,14 @@ export function ControlPanel({
           </div>
         </div>
       </details>
+
+      {transport && (
+        <MobilePluginInstaller
+          connected={connected}
+          transport={transport}
+          onNotice={onNotice}
+        />
+      )}
 
       {transport && (
         <details className="control-section">

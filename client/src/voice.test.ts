@@ -1,11 +1,15 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { GatewayEvent } from './protocol/types'
 import {
+  applySpeechPlaybackRate,
+  createSerialSpeechTaskQueue,
   completedAssistantText,
   normalizeSpeechSequenceBufferAhead,
   runBufferedSpeechQueue,
   SPEECH_REQUEST_TIMEOUT_MS,
   speechConfigAttempts,
+  speechItemForInteractivePlayback,
+  speechPlaybackRate,
   splitSpeechText,
   synthesizeSpeechItem,
   voicePreferenceKey,
@@ -78,6 +82,44 @@ describe('voice helpers', () => {
     ])
   })
 
+  test('applies one clamped client playback rate and removes it from interactive synthesis', () => {
+    const item = {
+      id: 'normal-listen',
+      text: 'Hello',
+      ttsConfig: {
+        provider: 'qwen',
+        qwen: { voice: 'saved-clone' },
+        speed: 1.35,
+      },
+      fallbackTtsConfigs: [
+        { provider: 'openai', speed: 1.35 },
+        { speed: 1.35 },
+      ],
+    }
+
+    expect(speechPlaybackRate(item)).toBe(1.35)
+    expect(speechItemForInteractivePlayback(item)).toEqual({
+      ...item,
+      ttsConfig: {
+        provider: 'qwen',
+        qwen: { voice: 'saved-clone' },
+      },
+      fallbackTtsConfigs: [{ provider: 'openai' }, undefined],
+    })
+
+    const audio = {
+      defaultPlaybackRate: 1,
+      playbackRate: 1,
+      preservesPitch: false,
+    }
+    applySpeechPlaybackRate(audio, 2)
+    expect(audio).toEqual({
+      defaultPlaybackRate: 1.5,
+      playbackRate: 1.5,
+      preservesPitch: true,
+    })
+  })
+
   test('buffers synthesis ahead while preserving playback order', async () => {
     function deferred<T>() {
       let resolve!: (value: T) => void
@@ -114,6 +156,57 @@ describe('voice helpers', () => {
     gates[3].resolve('three')
     await expect(playback).resolves.toBe(true)
     expect(plays).toEqual([0, 1, 2, 3])
+  })
+
+  test('queues separate speech requests without interrupting active playback', async () => {
+    let releaseFirst!: () => void
+    const firstFinished = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+    const starts: string[] = []
+    const queue = createSerialSpeechTaskQueue()
+
+    const first = queue.enqueue(async () => {
+      starts.push('first')
+      await firstFinished
+    })
+    const second = queue.enqueue(async () => {
+      starts.push('second')
+    })
+
+    await Promise.resolve()
+    expect(starts).toEqual(['first'])
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(starts).toEqual(['first', 'second'])
+  })
+
+  test('clears waiting speech without disrupting queue reuse', async () => {
+    let releaseFirst!: () => void
+    const firstFinished = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+    const starts: string[] = []
+    const queue = createSerialSpeechTaskQueue()
+
+    const first = queue.enqueue(async () => {
+      starts.push('first')
+      await firstFinished
+    })
+    const discarded = queue.enqueue(async () => {
+      starts.push('discarded')
+    })
+    await Promise.resolve()
+    queue.clear()
+    const replacement = queue.enqueue(async () => {
+      starts.push('replacement')
+    })
+
+    await Promise.resolve()
+    expect(starts).toEqual(['first', 'replacement'])
+    releaseFirst()
+    await Promise.all([first, discarded, replacement])
+    expect(starts).toEqual(['first', 'replacement'])
   })
 
   test('retries a failed prefetched item once when it becomes active', async () => {

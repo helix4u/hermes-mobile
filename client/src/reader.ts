@@ -236,7 +236,12 @@ export function ttsOverride(
   selection: VoiceSelection,
 ): Record<string, unknown> | undefined {
   const provider = selection.provider.trim()
-  if (!provider) return undefined
+  const speed =
+    Number.isFinite(selection.speed) &&
+    Math.abs(selection.speed - 1) >= 0.01
+      ? Math.max(0.7, Math.min(1.5, selection.speed))
+      : undefined
+  if (!provider) return speed === undefined ? undefined : { speed }
   const field = VOICE_FIELD[provider]
   const voice = selection.voice.trim()
   const override: Record<string, unknown> = {
@@ -257,8 +262,8 @@ export function ttsOverride(
       ? { instruct: selection.instruct.trim() }
       : {}),
   }
-  if (Math.abs(selection.speed - 1) >= 0.01) {
-    override.speed = selection.speed
+  if (speed !== undefined) {
+    override.speed = speed
   }
   return override
 }
@@ -329,6 +334,17 @@ export function persistReaderBufferAhead(
     readerBufferKey(connectionId),
     String(normalizeReaderBufferAhead(value)),
   )
+}
+
+export function reconcileReaderProviders(
+  selected: string[],
+  available: string[],
+  preferred = '',
+): string[] {
+  const valid = selected.filter(provider => available.includes(provider))
+  if (valid.length > 0) return valid
+  if (available.length === 0) return []
+  return [preferred && available.includes(preferred) ? preferred : available[0]]
 }
 
 export function voiceSelectionKey(connectionId: string): string {
