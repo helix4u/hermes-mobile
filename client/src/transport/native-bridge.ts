@@ -47,11 +47,16 @@ export interface CloudDiscoverResult {
   orgs?: CloudOrganization[]
 }
 
+export interface SharedContent {
+  id: string
+  kind: 'image' | 'text'
+  text: string
+  name: string
+  mimeType: string
+}
+
 interface HermesNativePlugin {
-  setCredential(options: {
-    connectionId: string
-    token: string
-  }): Promise<void>
+  setCredential(options: { connectionId: string; token: string }): Promise<void>
   hasCredential(options: {
     connectionId: string
   }): Promise<{ present: boolean }>
@@ -63,6 +68,22 @@ interface HermesNativePlugin {
     mimeType: string
     durationMs: number
   }>
+  downloadFile(options: {
+    connectionId: string
+    url: string
+    filename: string
+    mimeType?: string
+  }): Promise<{ saved: boolean; filename?: string }>
+  saveDataFile(options: {
+    dataUrl: string
+    filename: string
+    mimeType?: string
+  }): Promise<{ saved: boolean; filename?: string }>
+  getPendingShare(): Promise<{ share?: SharedContent }>
+  readSharedImage(options: { shareId: string }): Promise<{
+    dataUrl: string
+  }>
+  discardShare(options: { shareId: string }): Promise<void>
   httpRequest(options: {
     connectionId: string
     url: string
@@ -85,19 +106,13 @@ interface HermesNativePlugin {
     connectionId: string
     socketId: string
   }): Promise<void>
-  gatewayStatus(options: {
-    connectionId: string
-    baseUrl: string
-  }): Promise<{
+  gatewayStatus(options: { connectionId: string; baseUrl: string }): Promise<{
     baseUrl: string
     authRequired: boolean
     signedIn: boolean
     version: string
   }>
-  gatewayLogin(options: {
-    connectionId: string
-    baseUrl: string
-  }): Promise<{
+  gatewayLogin(options: { connectionId: string; baseUrl: string }): Promise<{
     baseUrl: string
     connected: boolean
   }>
@@ -129,10 +144,13 @@ interface HermesNativePlugin {
     eventName: 'socketState',
     listener: (event: NativeSocketState) => void,
   ): Promise<PluginListenerHandle>
+  addListener(
+    eventName: 'shareReceived',
+    listener: (event: SharedContent) => void,
+  ): Promise<PluginListenerHandle>
 }
 
-export const HermesNative =
-  registerPlugin<HermesNativePlugin>('HermesNative')
+export const HermesNative = registerPlugin<HermesNativePlugin>('HermesNative')
 
 export function isNativeHermesClient(): boolean {
   return Capacitor.isNativePlatform()
@@ -145,10 +163,7 @@ export function nativeSocketEventMatches(
   socketId: string,
   event: Pick<NativeSocketState, 'connectionId' | 'socketId'>,
 ): boolean {
-  return (
-    event.connectionId === connectionId &&
-    event.socketId === socketId
-  )
+  return event.connectionId === connectionId && event.socketId === socketId
 }
 
 export class NativeWebSocket extends EventTarget implements WebSocketLike {
@@ -163,8 +178,7 @@ export class NativeWebSocket extends EventTarget implements WebSocketLike {
     url: string,
   ) {
     super()
-    this.socketId =
-      `${this.connectionId}:${Date.now()}:${++nativeSocketSequence}`
+    this.socketId = `${this.connectionId}:${Date.now()}:${++nativeSocketSequence}`
     void this.open(url)
   }
 
@@ -193,23 +207,17 @@ export class NativeWebSocket extends EventTarget implements WebSocketLike {
     try {
       const listenerHandles = await Promise.all([
         HermesNative.addListener('socketMessage', event => {
-          if (!nativeSocketEventMatches(
-            this.connectionId,
-            this.socketId,
-            event,
-          )) {
+          if (
+            !nativeSocketEventMatches(this.connectionId, this.socketId, event)
+          ) {
             return
           }
-          this.dispatchEvent(
-            new MessageEvent('message', { data: event.data }),
-          )
+          this.dispatchEvent(new MessageEvent('message', { data: event.data }))
         }),
         HermesNative.addListener('socketState', event => {
-          if (!nativeSocketEventMatches(
-            this.connectionId,
-            this.socketId,
-            event,
-          )) {
+          if (
+            !nativeSocketEventMatches(this.connectionId, this.socketId, event)
+          ) {
             return
           }
           if (event.state === 'open') {

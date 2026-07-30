@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { isMissingCapabilityError } from '../capability-errors'
 import { voiceChoices, type VoiceChoice } from '../reader'
 import type { HermesTransport } from '../transport/hermes-transport'
 
@@ -29,18 +30,24 @@ interface VoiceProviderResponse {
   providers?: VoiceProviderCatalogItem[]
 }
 
+export function isMissingVoiceCatalogError(error: unknown): boolean {
+  return isMissingCapabilityError(error)
+}
+
 export function useVoiceCatalog(
   transport: HermesTransport | null,
   connected: boolean,
 ): {
   providers: string[]
   catalog: VoiceProviderCatalogItem[]
+  catalogSupported: boolean | null
   choices: VoiceChoice[]
   loading: boolean
   error: string
   refresh: () => Promise<void>
 } {
   const [catalog, setCatalog] = useState<VoiceProviderCatalogItem[]>([])
+  const [catalogSupported, setCatalogSupported] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const generationRef = useRef(0)
@@ -49,6 +56,7 @@ export function useVoiceCatalog(
     const generation = ++generationRef.current
     if (!transport || !connected) {
       setCatalog([])
+      setCatalogSupported(null)
       setLoading(false)
       setError('')
       return
@@ -61,12 +69,20 @@ export function useVoiceCatalog(
       )
       if (generation === generationRef.current) {
         setCatalog(result.providers ?? [])
+        setCatalogSupported(true)
       }
     } catch (loadError) {
       if (generation === generationRef.current) {
-        setError(
-          loadError instanceof Error ? loadError.message : String(loadError),
-        )
+        setCatalog([])
+        if (isMissingVoiceCatalogError(loadError)) {
+          setCatalogSupported(false)
+          setError('')
+        } else {
+          setCatalogSupported(null)
+          setError(
+            loadError instanceof Error ? loadError.message : String(loadError),
+          )
+        }
       }
     } finally {
       if (generation === generationRef.current) setLoading(false)
@@ -88,6 +104,7 @@ export function useVoiceCatalog(
   return {
     providers,
     catalog,
+    catalogSupported,
     choices: useMemo(
       () =>
         voiceChoices(

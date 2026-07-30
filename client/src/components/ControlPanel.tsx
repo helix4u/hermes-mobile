@@ -1,14 +1,23 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { useEmbedPreferences } from '../embeds'
 import type { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
 import type { VoiceSelection } from '../reader'
+import type {
+  MobilePetInfo,
+  PetHostCapabilities,
+  PetPersonalityData,
+  PetPersonalitySummary,
+  PetPreferences,
+  PetSpeechProfile,
+} from '../pet'
 import { modelConfigValue, nextRunLabel } from '../state/control'
-import {
-  MOBILE_THEME_OPTIONS,
-  type MobileThemeSelection,
-} from '../state/theme'
+import { MOBILE_THEME_OPTIONS, type MobileThemeSelection } from '../state/theme'
 import { formatDisplayValue, redactDisplayValue } from '../state/transcript'
 import type { HermesTransport } from '../transport/hermes-transport'
 import type { VoicePhase } from '../voice'
+import { configPatch, HostSettings } from './HostSettings'
+import { MobilePluginInstaller } from './MobilePluginInstaller'
+import { PetSettings } from './PetSettings'
 import { VoiceSettings } from './VoiceSettings'
 
 interface ModelProvider {
@@ -48,15 +57,34 @@ interface ControlPanelProps {
   gateway: JsonRpcGatewayClient | null
   connected: boolean
   runtimeSessionId: string
+  profile: string
+  sessionCwd: string
+  preferredWorkspace: string
   activeSkinName: string
   themeSelection: MobileThemeSelection
   autoSpeak: boolean
   transport: HermesTransport | null
   voiceSelection: VoiceSelection
   voicePhase: VoicePhase
+  pet: {
+    catalog: PetPersonalitySummary[]
+    desktopSpeech: PetSpeechProfile | null
+    desktopSpeechStatus: 'idle' | 'loading' | 'ready' | 'missing'
+    error: string
+    hostCapabilities: PetHostCapabilities
+    info: MobilePetInfo
+    personality: PetPersonalityData | null
+    preferences: PetPreferences
+    status: 'idle' | 'loading' | 'ready' | 'unavailable'
+    onPreferences: (patch: Partial<PetPreferences>) => void
+    onPreviewVoice: () => void
+    onRefreshDesktopSpeech: () => void | Promise<void>
+    onTest: () => void | Promise<void>
+  }
   onAutoSpeakChange: (enabled: boolean) => void
   onThemeSelectionChange: (selection: MobileThemeSelection) => void
   onNotice: (message: string) => void
+  onOpenWorkspace: () => void
   onStopSpeech: () => void
   onToolDetailModeChange: (value: string) => void
   onVoiceSelectionChange: (selection: VoiceSelection) => void
@@ -84,6 +112,12 @@ function AppearanceSettings({
   ControlPanelProps,
   'activeSkinName' | 'onThemeSelectionChange' | 'themeSelection'
 >) {
+  const {
+    allowedProviders,
+    clearAllowedProviders,
+    mode: embedMode,
+    setMode: setEmbedMode,
+  } = useEmbedPreferences()
   const activeLabel =
     themeSelection === 'host'
       ? `Following ${activeSkinName || 'host'}`
@@ -109,9 +143,7 @@ function AppearanceSettings({
           <select
             value={themeSelection}
             onChange={event =>
-              onThemeSelectionChange(
-                event.target.value as MobileThemeSelection,
-              )
+              onThemeSelectionChange(event.target.value as MobileThemeSelection)
             }
           >
             {MOBILE_THEME_OPTIONS.map(option => (
@@ -128,6 +160,33 @@ function AppearanceSettings({
           Follow host is read-only. It mirrors the active Hermes skin and live
           skin changes without writing to host configuration.
         </p>
+        <label>
+          <span>Rich link embeds</span>
+          <select
+            value={embedMode}
+            onChange={event =>
+              setEmbedMode(event.target.value as 'always' | 'ask' | 'off')
+            }
+          >
+            <option value="ask">Ask before loading</option>
+            <option value="always">Always load</option>
+            <option value="off">Plain links only</option>
+          </select>
+        </label>
+        <p className="advanced-copy">
+          Like Desktop, third-party players wait for consent by default. This
+          preference stays on this device and never changes the host.
+        </p>
+        {allowedProviders.length > 0 && (
+          <button
+            className="quiet-button"
+            type="button"
+            onClick={clearAllowedProviders}
+          >
+            Reset {allowedProviders.length} allowed{' '}
+            {allowedProviders.length === 1 ? 'service' : 'services'}
+          </button>
+        )}
       </div>
     </details>
   )
@@ -140,11 +199,16 @@ export function ControlPanel({
   gateway,
   onAutoSpeakChange,
   onNotice,
+  onOpenWorkspace,
   onStopSpeech,
   onThemeSelectionChange,
   onToolDetailModeChange,
   onVoiceSelectionChange,
+  pet,
   runtimeSessionId,
+  profile,
+  sessionCwd,
+  preferredWorkspace,
   themeSelection,
   transport,
   voiceSelection,
@@ -338,10 +402,15 @@ export function ControlPanel({
     setLoading(true)
     setError('')
     try {
-      const result = await request<{ config?: unknown }>('config.get', {
-        key: 'full',
-      })
-      setRawConfig(redactDisplayValue(result.config ?? {}))
+      if (!transport) throw new Error('Connect to Hermes first')
+      const query =
+        profile && profile !== 'default'
+          ? `?profile=${encodeURIComponent(profile)}`
+          : ''
+      const result = await transport.requestJson<Record<string, unknown>>(
+        `/api/config${query}`,
+      )
+      setRawConfig(redactDisplayValue(result))
     } catch (configError) {
       setError(
         configError instanceof Error
@@ -360,11 +429,16 @@ export function ControlPanel({
     setLoading(true)
     setError('')
     try {
-      const result = await request<{ value?: string }>('config.set', {
-        key,
-        value: advancedValue,
-      })
-      onNotice(`${key} set to ${result.value || advancedValue}`)
+      if (!transport) throw new Error('Connect to Hermes first')
+      await transport.requestJson(
+        '/api/config',
+        {
+          config: configPatch(key, advancedValue),
+          ...(profile && profile !== 'default' ? { profile } : {}),
+        },
+        { method: 'PUT' },
+      )
+      onNotice(`${key} set to ${advancedValue}`)
       setAdvancedValue('')
       if (rawConfig !== null) await loadRawConfig()
     } catch (configError) {
@@ -426,7 +500,10 @@ export function ControlPanel({
     }
   }
 
-  async function cronAction(action: 'pause' | 'resume' | 'remove', job: CronJob) {
+  async function cronAction(
+    action: 'pause' | 'resume' | 'remove',
+    job: CronJob,
+  ) {
     setLoading(true)
     setError('')
     try {
@@ -465,6 +542,24 @@ export function ControlPanel({
           onThemeSelectionChange={onThemeSelectionChange}
           themeSelection={themeSelection}
         />
+        <PetSettings
+          catalog={pet.catalog}
+          desktopSpeech={pet.desktopSpeech}
+          desktopSpeechStatus={pet.desktopSpeechStatus}
+          error={pet.error}
+          gateway={gateway}
+          hostCapabilities={pet.hostCapabilities}
+          info={pet.info}
+          personality={pet.personality}
+          preferences={pet.preferences}
+          profile={profile}
+          status={pet.status}
+          transport={transport}
+          onPreferences={pet.onPreferences}
+          onPreviewVoice={pet.onPreviewVoice}
+          onRefreshDesktopSpeech={pet.onRefreshDesktopSpeech}
+          onTest={pet.onTest}
+        />
       </div>
     )
   }
@@ -489,7 +584,30 @@ export function ControlPanel({
 
       {error && <p className="error-message sticky-error">{error}</p>}
 
-      <details className="control-section" open>
+      <details className="control-section">
+        <summary>
+          <span>
+            <strong>Session workspace</strong>
+            <small>{sessionCwd || preferredWorkspace || 'Not selected'}</small>
+          </span>
+          <span className="disclosure-glyph">+</span>
+        </summary>
+        <div className="control-body">
+          <p className="advanced-copy">
+            The current session cwd controls terminal and file tools. Your
+            explicit choice is also used for new conversations on this
+            connection.
+          </p>
+          <code className="workspace-path-value">
+            {sessionCwd || preferredWorkspace || 'Choose a workspace'}
+          </code>
+          <button className="primary-button" onClick={onOpenWorkspace}>
+            Change session workspace
+          </button>
+        </div>
+      </details>
+
+      <details className="control-section">
         <summary>
           <span>
             <strong>Model</strong>
@@ -516,7 +634,10 @@ export function ControlPanel({
           </label>
           <label>
             <span>Model</span>
-            <select value={model} onChange={event => setModel(event.target.value)}>
+            <select
+              value={model}
+              onChange={event => setModel(event.target.value)}
+            >
               <option value="">Select model</option>
               {(selectedProvider?.models ?? []).map(item => (
                 <option key={item} value={item}>
@@ -560,7 +681,26 @@ export function ControlPanel({
         themeSelection={themeSelection}
       />
 
-      <details className="control-section" open>
+      <PetSettings
+        catalog={pet.catalog}
+        desktopSpeech={pet.desktopSpeech}
+        desktopSpeechStatus={pet.desktopSpeechStatus}
+        error={pet.error}
+        gateway={gateway}
+        hostCapabilities={pet.hostCapabilities}
+        info={pet.info}
+        personality={pet.personality}
+        preferences={pet.preferences}
+        profile={profile}
+        status={pet.status}
+        transport={transport}
+        onPreferences={pet.onPreferences}
+        onPreviewVoice={pet.onPreviewVoice}
+        onRefreshDesktopSpeech={pet.onRefreshDesktopSpeech}
+        onTest={pet.onTest}
+      />
+
+      <details className="control-section">
         <summary>
           <span>
             <strong>Agent behavior</strong>
@@ -574,7 +714,11 @@ export function ControlPanel({
             <select
               value={config.reasoning}
               onChange={event =>
-                void setConfigValue('reasoning', event.target.value, 'reasoning')
+                void setConfigValue(
+                  'reasoning',
+                  event.target.value,
+                  'reasoning',
+                )
               }
             >
               {['none', 'low', 'medium', 'high', 'xhigh'].map(value => (
@@ -673,7 +817,9 @@ export function ControlPanel({
         <summary>
           <span>
             <strong>Tools</strong>
-            <small>{toolsets.filter(row => row.enabled).length} toolsets enabled</small>
+            <small>
+              {toolsets.filter(row => row.enabled).length} toolsets enabled
+            </small>
           </span>
           <span className="disclosure-glyph">+</span>
         </summary>
@@ -708,7 +854,10 @@ export function ControlPanel({
           <span className="disclosure-glyph">+</span>
         </summary>
         <div className="control-body">
-          <form className="cron-form" onSubmit={event => void createCron(event)}>
+          <form
+            className="cron-form"
+            onSubmit={event => void createCron(event)}
+          >
             <label>
               <span>Name (optional)</span>
               <input
@@ -780,6 +929,33 @@ export function ControlPanel({
           </div>
         </div>
       </details>
+
+      {transport && (
+        <MobilePluginInstaller
+          connected={connected}
+          transport={transport}
+          onNotice={onNotice}
+        />
+      )}
+
+      {transport && (
+        <details className="control-section">
+          <summary>
+            <span>
+              <strong>All host settings</strong>
+              <small>Search the complete Hermes config schema</small>
+            </span>
+            <span className="disclosure-glyph">+</span>
+          </summary>
+          <div className="control-body">
+            <HostSettings
+              profile={profile}
+              transport={transport}
+              onNotice={onNotice}
+            />
+          </div>
+        </details>
+      )}
 
       <details className="control-section advanced-section">
         <summary>

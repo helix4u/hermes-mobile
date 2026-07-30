@@ -28,14 +28,29 @@ export interface RequestTranscriptData {
   answered: boolean
 }
 
+export interface PetTranscriptData {
+  personalityId?: string
+  personalityName?: string
+  lens?: string
+  source?: string
+}
+
 export interface TranscriptItem {
   id: string
-  kind: 'user' | 'assistant' | 'reasoning' | 'tool' | 'event' | 'request'
+  kind:
+    | 'user'
+    | 'assistant'
+    | 'reasoning'
+    | 'tool'
+    | 'event'
+    | 'request'
+    | 'pet'
   text?: string
   streaming?: boolean
   interim?: boolean
   tool?: ToolTranscriptData
   request?: RequestTranscriptData
+  pet?: PetTranscriptData
 }
 
 const SECRET_KEY =
@@ -137,6 +152,26 @@ export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
     const message = asRecord(raw)
     const role = String(message.role ?? '')
     const text = asText(message.text ?? message.content)
+    if (message.display_kind === 'pet_commentary' && text.trim()) {
+      const metadata = asRecord(message.display_metadata)
+      const rawId = String(
+        metadata.event_id ?? message.id ?? makeId('history-pet'),
+      )
+      transcript.push({
+        id: rawId.startsWith('pet-commentary:')
+          ? rawId
+          : `pet-commentary:${rawId}`,
+        kind: 'pet',
+        text,
+        pet: {
+          personalityId: asText(metadata.personality_id) || undefined,
+          personalityName: asText(metadata.personality_name) || undefined,
+          lens: asText(metadata.lens) || undefined,
+          source: asText(metadata.source) || undefined,
+        },
+      })
+      continue
+    }
 
     if (role === 'assistant') {
       const reasoning = reasoningText(message)
@@ -824,6 +859,32 @@ export function reduceGatewayEvent(
   event: GatewayEvent,
 ): TranscriptItem[] {
   const payload = asRecord(event.payload)
+
+  if (event.type === 'pet.commentary.recorded') {
+    const commentaryId = String(
+      payload.commentary_id ?? payload.id ?? makeId('pet'),
+    )
+    const id = commentaryId.startsWith('pet-commentary:')
+      ? commentaryId
+      : `pet-commentary:${commentaryId}`
+    const metadata = asRecord(payload.display_metadata)
+    const next: TranscriptItem = {
+      id,
+      kind: 'pet',
+      text: asText(payload.text),
+      pet: {
+        personalityId: asText(metadata.personality_id) || undefined,
+        personalityName: asText(metadata.personality_name) || undefined,
+        lens: asText(metadata.lens) || undefined,
+        source: asText(metadata.source) || undefined,
+      },
+    }
+    const index = transcript.findIndex(item => item.id === id)
+    if (index < 0) return [...transcript, next]
+    return transcript.map((item, itemIndex) =>
+      itemIndex === index ? next : item,
+    )
+  }
 
   if (event.type === 'message.delta') {
     return appendStreaming(

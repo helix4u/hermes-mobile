@@ -111,6 +111,125 @@ describe('core gateway compatibility', () => {
 })
 
 describe('authenticated JSON requests', () => {
+  test('downloads a remote file through the authenticated filesystem API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"dataUrl":"data:text/plain;base64,aGVsbG8="}', {
+        status: 200,
+      }),
+    )
+    const click = vi.fn()
+    const remove = vi.fn()
+    const appendChild = vi.fn()
+    const anchor = {
+      click,
+      download: '',
+      href: '',
+      remove,
+      style: { display: '' },
+    }
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('document', {
+      body: { appendChild },
+      createElement: vi.fn().mockReturnValue(anchor),
+    })
+    const transport = new BrowserHermesTransport({
+      id: 'direct-home',
+      name: 'Home',
+      baseUrl: 'https://hermes.example',
+      profile: 'default',
+      token: 'local-test-token',
+      authMode: 'token',
+      connectionType: 'direct',
+    })
+
+    await expect(
+      transport.downloadFile('/work/a b.txt', 'a b.txt'),
+    ).resolves.toBe(true)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hermes.example/api/fs/read-data-url?path=%2Fwork%2Fa%20b.txt',
+      expect.objectContaining({
+        credentials: 'include',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer local-test-token',
+        }),
+      }),
+    )
+    expect(anchor).toMatchObject({
+      download: 'a b.txt',
+      href: 'data:text/plain;base64,aGVsbG8=',
+    })
+    expect(appendChild).toHaveBeenCalledWith(anchor)
+    expect(click).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledOnce()
+  })
+
+  test('uses status metadata when a Cloud host does not expose health', async () => {
+    const gateway = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    } as unknown as JsonRpcGatewayClient
+    const responses = [
+      new Response('{}', { status: 404 }),
+      new Response('{"detail":"not found"}', { status: 404 }),
+      new Response('{"version":"0.19.0","gateway_running":true}', {
+        status: 200,
+      }),
+    ]
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(responses.shift()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const transport = new BrowserHermesTransport(
+      {
+        id: 'nous-cloud',
+        name: 'Nous Cloud',
+        baseUrl: 'https://agent.agents.nousresearch.com',
+        profile: 'default',
+        token: '',
+        authMode: 'oauth',
+        connectionType: 'cloud',
+      },
+      gateway,
+    )
+
+    await expect(transport.capabilities()).resolves.toMatchObject({
+      hermes_version: '0.19.0',
+      plugin_version: 'core-gateway',
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'https://agent.agents.nousresearch.com/api/status',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  test('reports both failed core metadata routes', async () => {
+    const responses = [
+      new Response('{}', { status: 404 }),
+      new Response('{}', { status: 401 }),
+      new Response('{}', { status: 404 }),
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(responses.shift())),
+    )
+    const transport = new BrowserHermesTransport({
+      id: 'nous-cloud',
+      name: 'Nous Cloud',
+      baseUrl: 'https://agent.agents.nousresearch.com',
+      profile: 'default',
+      token: '',
+      authMode: 'oauth',
+      connectionType: 'cloud',
+    })
+
+    await expect(transport.capabilities()).rejects.toThrow(
+      'Hermes core gateway discovery failed: /api/health returned HTTP 401; /api/status returned HTTP 404',
+    )
+  })
+
   test('posts voice payloads through the selected Hermes connection', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -149,6 +268,38 @@ describe('authenticated JSON requests', () => {
         body: JSON.stringify({
           data_url: 'data:audio/webm;base64,AAAA',
           mime_type: 'audio/webm',
+        }),
+      }),
+    )
+  })
+
+  test('supports authenticated PUT requests for deep-merged host config', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response('{"ok":true}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const transport = new BrowserHermesTransport({
+      id: 'direct-home',
+      name: 'Home',
+      baseUrl: 'https://hermes.example',
+      profile: 'default',
+      token: 'local-test-token',
+      authMode: 'token',
+      connectionType: 'direct',
+    })
+
+    await transport.requestJson(
+      '/api/config',
+      { config: { terminal: { cwd: '/workspace' } } },
+      { method: 'PUT' },
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hermes.example/api/config',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          config: { terminal: { cwd: '/workspace' } },
         }),
       }),
     )

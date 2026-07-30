@@ -38,6 +38,14 @@ $proxyStdoutPath = Join-Path $stateDirectory 'proxy.stdout.log'
 $proxyStderrPath = Join-Path $stateDirectory 'proxy.stderr.log'
 $proxyScript = Join-Path $PSScriptRoot 'mobile_proxy.py'
 $pythonExecutable = Join-Path (Split-Path -Parent $HermesExecutable) 'python.exe'
+$serverWorkingDirectory = if (
+    $env:USERPROFILE -and
+    (Test-Path -LiteralPath $env:USERPROFILE -PathType Container)
+) {
+    $env:USERPROFILE
+} else {
+    $HermesHome
+}
 
 if (-not (Test-Path -LiteralPath $proxyScript)) {
     throw "Mobile reverse proxy not found: $proxyScript"
@@ -99,6 +107,7 @@ try {
                 '--port',
                 $Port.ToString()
             ) `
+            -WorkingDirectory $serverWorkingDirectory `
             -WindowStyle Hidden `
             -RedirectStandardOutput $stdoutPath `
             -RedirectStandardError $stderrPath `
@@ -117,6 +126,7 @@ try {
                 '--allowed-host',
                 $TailnetHost
             ) `
+            -WorkingDirectory $PSScriptRoot `
             -WindowStyle Hidden `
             -RedirectStandardOutput $proxyStdoutPath `
             -RedirectStandardError $proxyStderrPath `

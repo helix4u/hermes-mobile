@@ -1,9 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+
 import { Transcript } from './Transcript'
 
 const commonProps = {
   activeSpeechId: '',
+  connectionId: 'workstation',
   toolDetailMode: 'expanded' as const,
   voicePhase: 'idle' as const,
   onSpeak: vi.fn(),
@@ -180,5 +182,28 @@ describe('Transcript message actions', () => {
     )
 
     expect(html).not.toContain('copy-message-button')
+  })
+})
+
+describe('Transcript pet presentation', () => {
+  it('renders durable pet commentary as a dismissible secondary note', () => {
+    const html = renderToStaticMarkup(
+      <Transcript
+        {...commonProps}
+        items={[
+          {
+            id: 'pet-commentary:one',
+            kind: 'pet',
+            pet: { personalityName: 'Alien Child' },
+            text: 'A compact durable pet note.',
+          },
+        ]}
+      />,
+    )
+
+    expect(html).toContain('message-pet')
+    expect(html).toContain('Alien Child')
+    expect(html).toContain('Dismiss pet note')
+    expect(html).toContain('A compact durable pet note.')
   })
 })

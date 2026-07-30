@@ -2,6 +2,11 @@ import type { MobileCapabilities } from '../protocol/types'
 
 export type HermesConnectionType = 'direct' | 'tailnet' | 'cloud'
 
+export const CORE_GATEWAY_METADATA_PATHS = [
+  '/api/health',
+  '/api/status',
+] as const
+
 export function shouldAttemptCoreGatewayFallback(
   connectionType: HermesConnectionType,
   pluginStatus?: number,

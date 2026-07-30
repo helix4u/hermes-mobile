@@ -1,17 +1,23 @@
-import {
-  Children,
-  isValidElement,
-  type ReactNode,
-  useState,
-} from 'react'
+import { Children, isValidElement, type ReactNode, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { writeClipboardText } from '../clipboard'
+import { detectEmbed, RichEmbed } from '../embeds'
 import { safeMarkdownUrl } from '../markdown'
+import {
+  mediaPathFromHref,
+  renderMediaMarkers,
+} from '../media-markers'
+import { previewMediaInfo } from '../preview'
+import type { HermesTransport } from '../transport/hermes-transport'
+import { ImagePreview } from './ImageViewer'
+import { RemoteMediaAttachment } from './RemoteMediaAttachment'
 
 interface MarkdownContentProps {
   children: string
   className?: string
+  resolveMediaMarkers?: boolean
+  transport?: HermesTransport | null
 }
 
 function nodeText(node: ReactNode): string {
@@ -55,10 +61,41 @@ function CodeBlock({ children }: { children: ReactNode }) {
   )
 }
 
+function MediaPlayer({
+  kind,
+  name,
+  src,
+}: {
+  kind: 'audio' | 'video'
+  name: string
+  src: string
+}) {
+  return (
+    <span className={`markdown-media markdown-${kind}`}>
+      <small>{name}</small>
+      {kind === 'audio' ? (
+        <audio controls preload="metadata" src={src}>
+          This device cannot play this audio format.
+        </audio>
+      ) : (
+        <video controls playsInline preload="metadata" src={src}>
+          This device cannot play this video format.
+        </video>
+      )}
+    </span>
+  )
+}
+
 export function MarkdownContent({
   children,
   className = '',
+  resolveMediaMarkers = false,
+  transport = null,
 }: MarkdownContentProps) {
+  const renderedChildren = resolveMediaMarkers
+    ? renderMediaMarkers(children)
+    : children
+
   return (
     <div className={`markdown-body ${className}`.trim()}>
       <ReactMarkdown
@@ -68,6 +105,33 @@ export function MarkdownContent({
           a({ href, children: linkChildren, ...props }) {
             const safeHref = safeMarkdownUrl(href)
             if (!safeHref) return <span>{linkChildren}</span>
+            const remoteMediaPath = mediaPathFromHref(safeHref)
+            if (remoteMediaPath) {
+              return (
+                <RemoteMediaAttachment
+                  path={remoteMediaPath}
+                  transport={transport}
+                />
+              )
+            }
+            const label = nodeText(linkChildren).trim()
+            const isBareLink = label === safeHref
+            const media = previewMediaInfo(safeHref)
+            if (
+              isBareLink &&
+              media &&
+              (media.kind === 'audio' || media.kind === 'video')
+            ) {
+              return (
+                <MediaPlayer
+                  kind={media.kind}
+                  name={safeHref.split('/').pop() || media.kind}
+                  src={safeHref}
+                />
+              )
+            }
+            const embed = isBareLink ? detectEmbed(safeHref) : null
+            if (embed) return <RichEmbed descriptor={embed} />
             return (
               <a
                 {...props}
@@ -82,14 +146,18 @@ export function MarkdownContent({
           img({ src, alt, ...props }) {
             const safeSrc = safeMarkdownUrl(src, true)
             if (!safeSrc) return alt ? <span>[{alt}]</span> : null
+            const media = previewMediaInfo(safeSrc)
+            if (media && (media.kind === 'audio' || media.kind === 'video')) {
+              return (
+                <MediaPlayer
+                  kind={media.kind}
+                  name={alt || safeSrc.split('/').pop() || media.kind}
+                  src={safeSrc}
+                />
+              )
+            }
             return (
-              <img
-                {...props}
-                alt={alt || ''}
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                src={safeSrc}
-              />
+              <ImagePreview alt={alt || ''} showHint={false} src={safeSrc} />
             )
           },
           pre({ children: codeChildren }) {
@@ -102,7 +170,7 @@ export function MarkdownContent({
           },
         }}
       >
-        {children}
+        {renderedChildren}
       </ReactMarkdown>
     </div>
   )

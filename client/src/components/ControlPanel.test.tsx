@@ -1,0 +1,76 @@
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, test } from 'vitest'
+import { EmbedPreferencesProvider } from '../embeds'
+import { ControlPanel } from './ControlPanel'
+
+describe('mobile Control settings disclosures', () => {
+  test('defaults every settings section to collapsed', () => {
+    const html = renderToStaticMarkup(
+      <EmbedPreferencesProvider connectionId="test">
+        <ControlPanel
+          activeSkinName="default"
+          autoSpeak={false}
+          connected
+          gateway={null}
+          preferredWorkspace=""
+          profile="default"
+          runtimeSessionId=""
+          sessionCwd=""
+          themeSelection="mobile"
+          transport={null}
+          voicePhase="idle"
+          voiceSelection={{ provider: '', speed: 1, voice: '' }}
+          pet={{
+            catalog: [],
+            desktopSpeech: null,
+            desktopSpeechStatus: 'missing',
+            error: '',
+            hostCapabilities: {
+              commentary: false,
+              mode: 'visual-only',
+              personalities: false,
+              sidechat: false,
+            },
+            info: { enabled: false },
+            personality: null,
+            preferences: {
+              commentary: true,
+              delaySeconds: 12,
+              intervalSeconds: 45,
+              commentaryHistory: 5,
+              commentaryLens: 'companion',
+              contextTurns: 3,
+              personalitySlug: 'alien-child',
+              roam: true,
+              speechMode: 'desktop',
+              speechPitch: 0,
+              speechProvider: '',
+              speechSpeed: 1,
+              speechVoice: '',
+              speechVolume: 1,
+              speakCommentary: false,
+              toolTurns: 4,
+              visible: true,
+            },
+            status: 'idle',
+            onPreferences: () => {},
+            onPreviewVoice: () => {},
+            onRefreshDesktopSpeech: () => {},
+            onTest: () => {},
+          }}
+          onAutoSpeakChange={() => {}}
+          onNotice={() => {}}
+          onOpenWorkspace={() => {}}
+          onStopSpeech={() => {}}
+          onThemeSelectionChange={() => {}}
+          onToolDetailModeChange={() => {}}
+          onVoiceSelectionChange={() => {}}
+        />
+      </EmbedPreferencesProvider>,
+    )
+
+    expect(html).toContain('Session workspace')
+    expect(html).toContain('Rich link embeds')
+    expect(html).not.toMatch(/<details[^>]*\sopen(?:=|>)/)
+  })
+})
