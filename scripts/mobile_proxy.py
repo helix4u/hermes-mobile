@@ -32,9 +32,26 @@ HOP_BY_HOP = {
     "upgrade",
 }
 
+DEFAULT_UPSTREAM_TIMEOUT_SECONDS = 30.0
+AUDIO_UPSTREAM_TIMEOUT_SECONDS = 14 * 60.0
+UPSTREAM_CONNECT_TIMEOUT_SECONDS = 15.0
+
 
 def _host_without_port(value: str) -> str:
     return value.rsplit(":", 1)[0].lower() if value.count(":") == 1 else value.lower()
+
+
+def _request_timeout(path: str) -> httpx.Timeout:
+    """Give blocking audio work time to finish without weakening every route."""
+    timeout_seconds = (
+        AUDIO_UPSTREAM_TIMEOUT_SECONDS
+        if path.lstrip("/").startswith("api/audio/")
+        else DEFAULT_UPSTREAM_TIMEOUT_SECONDS
+    )
+    return httpx.Timeout(
+        timeout_seconds,
+        connect=UPSTREAM_CONNECT_TIMEOUT_SECONDS,
+    )
 
 
 def _request_headers(
@@ -59,7 +76,10 @@ def _request_headers(
 
 def create_app(*, upstream: str, allowed_host: str) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    client = httpx.AsyncClient(timeout=30.0, follow_redirects=False)
+    client = httpx.AsyncClient(
+        timeout=_request_timeout(""),
+        follow_redirects=False,
+    )
     upstream_http = upstream.rstrip("/")
     upstream_ws = upstream_http.replace("http://", "ws://", 1).replace(
         "https://", "wss://", 1
@@ -142,12 +162,22 @@ def create_app(*, upstream: str, allowed_host: str) -> FastAPI:
         target = f"{upstream_http}/{path}"
         if request.url.query:
             target = f"{target}?{request.url.query}"
-        upstream_response = await client.request(
-            request.method,
-            target,
-            headers=_request_headers(request.scope.get("headers", []), upstream_authority),
-            content=await request.body(),
-        )
+        try:
+            upstream_response = await client.request(
+                request.method,
+                target,
+                headers=_request_headers(
+                    request.scope.get("headers", []),
+                    upstream_authority,
+                ),
+                content=await request.body(),
+                timeout=_request_timeout(path),
+            )
+        except httpx.TimeoutException:
+            return JSONResponse(
+                {"detail": "The Hermes host timed out while processing this request"},
+                status_code=504,
+            )
         response_headers = {
             name: value
             for name, value in upstream_response.headers.items()

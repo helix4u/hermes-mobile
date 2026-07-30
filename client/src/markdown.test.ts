@@ -28,4 +28,12 @@ describe('markdown safety and speech projection', () => {
       ),
     ).toBe('Result\n\nDone. See the report.\n\nconst ok = true')
   })
+
+  test('does not speak generated-media markers or private host paths', () => {
+    expect(
+      markdownToSpeechText(
+        'Here is the finished image.\n\nMEDIA:C:\\Users\\person\\private\\result.png',
+      ),
+    ).toBe('Here is the finished image.')
+  })
 })

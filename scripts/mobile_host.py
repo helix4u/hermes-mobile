@@ -595,6 +595,7 @@ def run_forever(
     python_executable = hermes_python(hermes_executable)
     stopping = False
     children: list[subprocess.Popen[bytes]] = []
+    server_cwd = Path.home()
 
     def stop_children() -> None:
         for child in children:
@@ -636,7 +637,7 @@ def run_forever(
                             "--port",
                             str(BACKEND_PORT),
                         ],
-                        cwd=PROJECT_ROOT,
+                        cwd=server_cwd,
                         env=server_env,
                         stdout=server_stdout,
                         stderr=server_stderr,

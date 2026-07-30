@@ -150,6 +150,26 @@ export function persistConnection(
   storage.setItem(ACTIVE_CONNECTION_STORAGE_KEY, safe.id)
 }
 
+export function removeConnection(
+  connectionId: string,
+  storage = storageOrNull(),
+): BrowserConnection[] {
+  if (!storage) return []
+  const next = readStoredConnections(storage).filter(
+    row => row.id !== connectionId,
+  )
+  storage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify(next))
+  storage.removeItem(`${DRAFT_PREFIX}${connectionId}`)
+  if (storage.getItem(ACTIVE_CONNECTION_STORAGE_KEY) === connectionId) {
+    if (next[0]) {
+      storage.setItem(ACTIVE_CONNECTION_STORAGE_KEY, next[0].id)
+    } else {
+      storage.removeItem(ACTIVE_CONNECTION_STORAGE_KEY)
+    }
+  }
+  return next.map(asConnection)
+}
+
 export function loadDraft(connectionId: string): string {
   const storage = storageOrNull()
   if (!storage) return ''

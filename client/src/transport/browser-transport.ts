@@ -1,6 +1,7 @@
 import { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
 import type { MobileCapabilities } from '../protocol/types'
 import {
+  CORE_GATEWAY_METADATA_PATHS,
   coreGatewayCapabilities,
   shouldAttemptCoreGatewayFallback,
 } from './gateway-compatibility'
@@ -69,9 +70,24 @@ export class BrowserHermesTransport {
       ) {
         throw error
       }
-      const health = await this.fetchJson<Record<string, unknown>>('/api/health')
-      this.gatewayKind = 'core'
-      return coreGatewayCapabilities(health)
+      const failures: string[] = []
+      for (const path of CORE_GATEWAY_METADATA_PATHS) {
+        try {
+          const metadata =
+            await this.fetchJson<Record<string, unknown>>(path)
+          this.gatewayKind = 'core'
+          return coreGatewayCapabilities(metadata)
+        } catch (metadataError) {
+          failures.push(
+            metadataError instanceof Error
+              ? metadataError.message
+              : String(metadataError),
+          )
+        }
+      }
+      throw new Error(
+        `Hermes core gateway discovery failed: ${failures.join('; ')}`,
+      )
     }
   }
 
@@ -90,6 +106,24 @@ export class BrowserHermesTransport {
     options?: HermesRequestOptions,
   ): Promise<T> {
     return this.fetchJson<T>(path, body, options)
+  }
+
+  async downloadFile(
+    path: string,
+    filename: string,
+  ): Promise<boolean> {
+    const result = await this.fetchJson<{ dataUrl?: string }>(
+      `/api/fs/read-data-url?path=${encodeURIComponent(path)}`,
+    )
+    if (!result.dataUrl) throw new Error('Hermes did not return file data')
+    const anchor = document.createElement('a')
+    anchor.href = result.dataUrl
+    anchor.download = filename
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    return true
   }
 
   disconnect(): void {
@@ -156,7 +190,7 @@ export class BrowserHermesTransport {
         buildPluginHttpUrl(this.connection.baseUrl, path),
         {
           credentials: 'include',
-          method: body ? 'POST' : 'GET',
+          method: options?.method ?? (body ? 'POST' : 'GET'),
           headers: {
             ...this.authHeaders(),
             ...(body ? { 'Content-Type': 'application/json' } : {}),

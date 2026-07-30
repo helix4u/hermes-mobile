@@ -7,6 +7,7 @@ import {
   readerBufferKey,
   readerFallbackSelections,
   readerSpeakers,
+  reconcileReaderProviders,
   ttsOverride,
   voiceChoices,
   voiceSelectionKey,
@@ -38,6 +39,9 @@ describe('reader helpers', () => {
       xai: { voice_id: 'eve' },
     })
     expect(ttsOverride({ provider: '', voice: '', speed: 1 })).toBeUndefined()
+    expect(ttsOverride({ provider: '', voice: '', speed: 1.25 })).toEqual({
+      speed: 1.25,
+    })
   })
 
   test('merges partial live built-in catalogs and keeps custom catalogs', () => {
@@ -75,6 +79,27 @@ describe('reader helpers', () => {
     expect(voiceSelectionKey('tailnet')).not.toBe(
       voiceSelectionKey('cloud-agent'),
     )
+  })
+
+  test('reconciles reader providers when the active host changes', () => {
+    expect(
+      reconcileReaderProviders(
+        ['qwen'],
+        ['edge', 'openai', 'qwen'],
+        'openai',
+      ),
+    ).toEqual(['qwen'])
+    expect(reconcileReaderProviders(['qwen'], [], 'qwen')).toEqual([])
+    expect(
+      reconcileReaderProviders(
+        ['missing-provider'],
+        ['edge', 'openai'],
+        'openai',
+      ),
+    ).toEqual(['openai'])
+    expect(reconcileReaderProviders([], ['edge', 'openai'], 'qwen')).toEqual([
+      'edge',
+    ])
   })
 
   test('normalizes and scopes reader buffer-ahead preferences', () => {

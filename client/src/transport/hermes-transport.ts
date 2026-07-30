@@ -10,6 +10,7 @@ import {
   NativeWebSocket,
 } from './native-bridge'
 import {
+  CORE_GATEWAY_METADATA_PATHS,
   coreGatewayCapabilities,
   shouldAttemptCoreGatewayFallback,
 } from './gateway-compatibility'
@@ -23,17 +24,24 @@ import {
 export interface HermesTransport {
   readonly kind: 'browser' | 'native'
   readonly gateway: JsonRpcGatewayClient
+  readonly connection: BrowserConnection
   capabilities(): Promise<MobileCapabilities>
   requestJson<T>(
     path: string,
     body?: Record<string, unknown>,
     options?: HermesRequestOptions,
   ): Promise<T>
+  downloadFile(
+    path: string,
+    filename: string,
+    mimeType?: string,
+  ): Promise<boolean>
   connect(): Promise<void>
   disconnect(): void
 }
 
 export interface HermesRequestOptions {
+  method?: 'GET' | 'POST' | 'PUT'
   timeoutMs?: number
 }
 
@@ -73,26 +81,33 @@ export class NativeHermesTransport implements HermesTransport {
         response.status,
       )
     ) {
-      const health = await HermesNative.httpRequest({
-        connectionId: this.connection.id,
-        url: buildPluginHttpUrl(this.connection.baseUrl, '/api/health'),
-      })
-      if (health.status >= 200 && health.status < 300) {
-        this.gatewayKind = 'core'
-        let healthBody: Record<string, unknown> = {}
-        try {
-          healthBody = JSON.parse(health.body) as Record<string, unknown>
-        } catch {
-          // A successful legacy health endpoint may not return JSON.
+      const failures: string[] = []
+      for (const path of CORE_GATEWAY_METADATA_PATHS) {
+        const metadata = await HermesNative.httpRequest({
+          connectionId: this.connection.id,
+          url: buildPluginHttpUrl(this.connection.baseUrl, path),
+        })
+        if (metadata.status >= 200 && metadata.status < 300) {
+          this.gatewayKind = 'core'
+          let metadataBody: Record<string, unknown> = {}
+          try {
+            metadataBody = JSON.parse(
+              metadata.body,
+            ) as Record<string, unknown>
+          } catch {
+            // A successful legacy metadata endpoint may not return JSON.
+          }
+          return coreGatewayCapabilities(metadataBody)
         }
-        return coreGatewayCapabilities(healthBody)
+        failures.push(`${path} returned HTTP ${metadata.status}`)
       }
-    }
-    {
       throw new Error(
-        `The mobile capability endpoint returned HTTP ${response.status}`,
+        `Hermes core gateway discovery failed: ${failures.join('; ')}`,
       )
     }
+    throw new Error(
+      `The mobile capability endpoint returned HTTP ${response.status}`,
+    )
   }
 
   async connect(): Promise<void> {
@@ -113,7 +128,7 @@ export class NativeHermesTransport implements HermesTransport {
     const response = await HermesNative.httpRequest({
       connectionId: this.connection.id,
       url: buildPluginHttpUrl(this.connection.baseUrl, path),
-      method: body ? 'POST' : 'GET',
+      method: options?.method ?? (body ? 'POST' : 'GET'),
       ...(options?.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       ...(body
         ? {
@@ -136,6 +151,24 @@ export class NativeHermesTransport implements HermesTransport {
       )
     }
     return JSON.parse(response.body) as T
+  }
+
+  async downloadFile(
+    path: string,
+    filename: string,
+    mimeType = 'application/octet-stream',
+  ): Promise<boolean> {
+    await this.prepareCredential()
+    const result = await HermesNative.downloadFile({
+      connectionId: this.connection.id,
+      url: buildPluginHttpUrl(
+        this.connection.baseUrl,
+        `/api/fs/read-data-url?path=${encodeURIComponent(path)}`,
+      ),
+      filename,
+      mimeType,
+    })
+    return result.saved
   }
 
   disconnect(): void {

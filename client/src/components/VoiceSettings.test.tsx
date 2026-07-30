@@ -1,10 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { HermesTransport } from '../transport/hermes-transport'
 import { VoiceSettings } from './VoiceSettings'
 
-vi.mock('./useVoiceCatalog', () => ({
-  useVoiceCatalog: () => ({
+const voiceCatalogState = vi.hoisted(() => ({
+  current: {
     catalog: [
       {
         capabilities: {
@@ -26,6 +26,7 @@ vi.mock('./useVoiceCatalog', () => ({
         ],
       },
     ],
+    catalogSupported: true as boolean | null,
     choices: [
       {
         label: 'Saved Clone',
@@ -37,10 +38,19 @@ vi.mock('./useVoiceCatalog', () => ({
     loading: false,
     providers: ['custom'],
     refresh: vi.fn().mockResolvedValue(undefined),
-  }),
+  },
+}))
+
+vi.mock('./useVoiceCatalog', () => ({
+  useVoiceCatalog: () => voiceCatalogState.current,
 }))
 
 describe('mobile voice settings', () => {
+  beforeEach(() => {
+    voiceCatalogState.current.catalogSupported = true
+    voiceCatalogState.current.error = ''
+  })
+
   test('renders reported voices as a real picker and exposes generic voice creation', () => {
     const html = renderToStaticMarkup(
       <VoiceSettings
@@ -64,5 +74,33 @@ describe('mobile voice settings', () => {
     expect(html).toContain('Clone reference audio')
     expect(html).toContain('Design from instructions')
     expect(html).toContain('Create clone')
+  })
+
+  test('uses a quiet host-default explanation when the catalog route is absent', () => {
+    voiceCatalogState.current.catalog = []
+    voiceCatalogState.current.catalogSupported = false
+    voiceCatalogState.current.choices = []
+    voiceCatalogState.current.providers = []
+
+    const html = renderToStaticMarkup(
+      <VoiceSettings
+        connected
+        onChange={vi.fn()}
+        selection={{
+          instruct: '',
+          language: '',
+          provider: '',
+          speed: 1,
+          voice: '',
+        }}
+        transport={{} as HermesTransport}
+      />,
+    )
+
+    expect(html).toContain('<option value="" selected="">Host default</option>')
+    expect(html).toContain(
+      'This host does not expose provider and voice catalogs.',
+    )
+    expect(html).not.toContain('inline-error')
   })
 })
