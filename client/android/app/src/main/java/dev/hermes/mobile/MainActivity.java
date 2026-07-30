@@ -1,5 +1,6 @@
 package dev.hermes.mobile;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Build;
 import android.util.Log;
@@ -19,6 +20,28 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(HermesNativePlugin.class);
         super.onCreate(savedInstanceState);
+        receiveShareIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        receiveShareIntent(intent);
+    }
+
+    private void receiveShareIntent(Intent intent) {
+        if (
+            intent == null ||
+            !Intent.ACTION_SEND.equals(intent.getAction())
+        ) {
+            return;
+        }
+        HermesNativePlugin.receiveShare(getApplicationContext(), intent);
+        // Activity recreation must not ingest the same one-shot share twice.
+        intent.setAction(null);
+        intent.removeExtra(Intent.EXTRA_TEXT);
+        intent.removeExtra(Intent.EXTRA_STREAM);
     }
 
     @Override

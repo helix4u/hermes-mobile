@@ -1,3 +1,5 @@
+import { stripMediaMarkers } from './media-markers'
+
 export function safeMarkdownUrl(
   value: string | undefined,
   image = false,
@@ -23,7 +25,7 @@ export function safeMarkdownUrl(
 }
 
 export function markdownToSpeechText(markdown: string): string {
-  return markdown
+  return stripMediaMarkers(markdown)
     .replace(/```[^\n]*\n([\s\S]*?)```/g, '$1')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')

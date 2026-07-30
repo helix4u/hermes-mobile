@@ -1,12 +1,19 @@
 package dev.hermes.mobile;
 
 import android.Manifest;
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.app.Dialog;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.media.MediaRecorder;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.OpenableColumns;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
@@ -24,9 +31,11 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import com.getcapacitor.PermissionState;
+import androidx.activity.result.ActivityResult;
 
 import org.json.JSONException;
 import org.json.JSONArray;
@@ -35,13 +44,18 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.security.KeyStore;
+import java.lang.ref.WeakReference;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -92,6 +106,54 @@ public class HermesNativePlugin extends Plugin {
         "__Secure-hermes_session_rt",
         "hermes_session_rt"
     };
+    private static final int SHARED_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
+    private static final Object SHARE_LOCK = new Object();
+    private static final ExecutorService shareExecutor =
+        Executors.newSingleThreadExecutor();
+    private static volatile WeakReference<HermesNativePlugin> activeSharePlugin =
+        new WeakReference<>(null);
+    private static PendingShare pendingShare;
+
+    private static final class PendingShare {
+        final String id;
+        final String kind;
+        final String text;
+        final String name;
+        final String mimeType;
+        final File cachedImage;
+
+        PendingShare(
+            String id,
+            String kind,
+            String text,
+            String name,
+            String mimeType,
+            File cachedImage
+        ) {
+            this.id = id;
+            this.kind = kind;
+            this.text = text;
+            this.name = name;
+            this.mimeType = mimeType;
+            this.cachedImage = cachedImage;
+        }
+
+        JSObject toJs() {
+            JSObject result = new JSObject();
+            result.put("id", id);
+            result.put("kind", kind);
+            result.put("text", text);
+            result.put("name", name);
+            result.put("mimeType", mimeType);
+            return result;
+        }
+
+        void deleteCachedImage() {
+            if (cachedImage != null) {
+                cachedImage.delete();
+            }
+        }
+    }
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -115,6 +177,207 @@ public class HermesNativePlugin extends Plugin {
     private MediaRecorder recorder;
     private File recordingFile;
     private long recordingStartedAt;
+
+    @Override
+    public void load() {
+        activeSharePlugin = new WeakReference<>(this);
+        cleanupOrphanedShares(getContext());
+        publishPendingShare();
+    }
+
+    private static void cleanupOrphanedShares(Context context) {
+        File activeFile;
+        synchronized (SHARE_LOCK) {
+            activeFile = pendingShare == null ? null : pendingShare.cachedImage;
+        }
+        File[] files = context.getCacheDir().listFiles(
+            file -> file.getName().startsWith("hermes-share-")
+        );
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            if (activeFile == null || !activeFile.equals(file)) {
+                file.delete();
+            }
+        }
+    }
+
+    public static void receiveShare(Context context, Intent intent) {
+        if (
+            intent == null ||
+            !Intent.ACTION_SEND.equals(intent.getAction())
+        ) {
+            return;
+        }
+        final String text = safeSharedText(
+            intent.getCharSequenceExtra(Intent.EXTRA_TEXT)
+        );
+        final String declaredMime = stringOrEmpty(intent.getType());
+        final Uri stream = sharedStream(intent);
+
+        if (stream == null) {
+            if (text.isEmpty()) {
+                return;
+            }
+            replacePendingShare(
+                new PendingShare(
+                    UUID.randomUUID().toString(),
+                    "text",
+                    text,
+                    "",
+                    declaredMime.isEmpty() ? "text/plain" : declaredMime,
+                    null
+                )
+            );
+            return;
+        }
+
+        shareExecutor.execute(() -> {
+            try {
+                ContentResolver resolver = context.getContentResolver();
+                String mimeType = stringOrEmpty(resolver.getType(stream));
+                if (!mimeType.startsWith("image/")) {
+                    mimeType = declaredMime;
+                }
+                if (!mimeType.startsWith("image/")) {
+                    return;
+                }
+                String displayName = sharedDisplayName(resolver, stream);
+                String shareId = UUID.randomUUID().toString();
+                File cacheFile = new File(
+                    context.getCacheDir(),
+                    "hermes-share-" + shareId + imageSuffix(displayName, mimeType)
+                );
+                copySharedImage(resolver, stream, cacheFile);
+                replacePendingShare(
+                    new PendingShare(
+                        shareId,
+                        "image",
+                        text,
+                        displayName,
+                        mimeType,
+                        cacheFile
+                    )
+                );
+            } catch (Exception ignored) {
+                // The source app can revoke a one-time content URI immediately.
+                // In that case there is no safe share payload to present.
+            }
+        });
+    }
+
+    @SuppressWarnings("deprecation")
+    private static Uri sharedStream(Intent intent) {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            return intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class);
+        }
+        return intent.getParcelableExtra(Intent.EXTRA_STREAM);
+    }
+
+    private static String safeSharedText(CharSequence value) {
+        if (value == null) {
+            return "";
+        }
+        String text = value.toString().trim();
+        return text.length() > 1_000_000
+            ? text.substring(0, 1_000_000)
+            : text;
+    }
+
+    private static String stringOrEmpty(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static String sharedDisplayName(
+        ContentResolver resolver,
+        Uri uri
+    ) {
+        try (
+            Cursor cursor = resolver.query(
+                uri,
+                new String[] { OpenableColumns.DISPLAY_NAME },
+                null,
+                null,
+                null
+            )
+        ) {
+            if (cursor != null && cursor.moveToFirst()) {
+                String value = cursor.getString(0);
+                if (value != null && !value.trim().isEmpty()) {
+                    return value.replaceAll("[\\\\/\\r\\n]", "_");
+                }
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return "shared-image";
+    }
+
+    private static String imageSuffix(String name, String mimeType) {
+        int dot = name.lastIndexOf('.');
+        if (dot >= 0 && dot < name.length() - 1) {
+            String suffix = name.substring(dot).toLowerCase();
+            if (suffix.matches("\\.[a-z0-9]{1,8}")) {
+                return suffix;
+            }
+        }
+        if ("image/jpeg".equals(mimeType)) return ".jpg";
+        if ("image/gif".equals(mimeType)) return ".gif";
+        if ("image/webp".equals(mimeType)) return ".webp";
+        return ".png";
+    }
+
+    private static void copySharedImage(
+        ContentResolver resolver,
+        Uri source,
+        File target
+    ) throws Exception {
+        try (
+            InputStream input = resolver.openInputStream(source);
+            OutputStream output = new FileOutputStream(target)
+        ) {
+            if (input == null) {
+                throw new java.io.IOException("Shared image is unavailable");
+            }
+            byte[] buffer = new byte[16_384];
+            int total = 0;
+            int count;
+            while ((count = input.read(buffer)) >= 0) {
+                total += count;
+                if (total > SHARED_IMAGE_MAX_BYTES) {
+                    throw new java.io.IOException("Shared image is too large");
+                }
+                output.write(buffer, 0, count);
+            }
+        } catch (Exception error) {
+            target.delete();
+            throw error;
+        }
+    }
+
+    private static void replacePendingShare(PendingShare next) {
+        synchronized (SHARE_LOCK) {
+            if (pendingShare != null) {
+                pendingShare.deleteCachedImage();
+            }
+            pendingShare = next;
+        }
+        HermesNativePlugin plugin = activeSharePlugin.get();
+        if (plugin != null) {
+            plugin.publishPendingShare();
+        }
+    }
+
+    private void publishPendingShare() {
+        final PendingShare share;
+        synchronized (SHARE_LOCK) {
+            share = pendingShare;
+        }
+        if (share == null) {
+            return;
+        }
+        mainHandler.post(() -> notifyListeners("shareReceived", share.toJs()));
+    }
 
     @PluginMethod
     public void setCredential(PluginCall call) {
@@ -322,6 +585,277 @@ public class HermesNativePlugin extends Plugin {
             recordingFile = null;
         }
         recordingStartedAt = 0;
+    }
+
+    @PluginMethod
+    public void getPendingShare(PluginCall call) {
+        final PendingShare share;
+        synchronized (SHARE_LOCK) {
+            share = pendingShare;
+        }
+        JSObject result = new JSObject();
+        if (share != null) {
+            result.put("share", share.toJs());
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void readSharedImage(PluginCall call) {
+        String shareId = call.getString("shareId", "").trim();
+        if (shareId.isEmpty()) {
+            call.reject("A shared item is required");
+            return;
+        }
+        final PendingShare share;
+        synchronized (SHARE_LOCK) {
+            share = pendingShare;
+        }
+        if (
+            share == null ||
+            !share.id.equals(shareId) ||
+            share.cachedImage == null ||
+            !share.cachedImage.isFile()
+        ) {
+            call.reject("The shared image is no longer available");
+            return;
+        }
+        ioExecutor.execute(() -> {
+            try {
+                byte[] bytes = readFileBytes(share.cachedImage);
+                if (bytes.length == 0 || bytes.length > SHARED_IMAGE_MAX_BYTES) {
+                    call.reject("The shared image is empty or too large");
+                    return;
+                }
+                JSObject result = new JSObject();
+                result.put(
+                    "dataUrl",
+                    "data:" +
+                    share.mimeType +
+                    ";base64," +
+                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                );
+                call.resolve(result);
+            } catch (Exception error) {
+                call.reject("Could not read the shared image");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void discardShare(PluginCall call) {
+        String shareId = call.getString("shareId", "").trim();
+        synchronized (SHARE_LOCK) {
+            if (pendingShare != null && pendingShare.id.equals(shareId)) {
+                pendingShare.deleteCachedImage();
+                pendingShare = null;
+            }
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void downloadFile(PluginCall call) {
+        String connectionId = requireConnectionId(call);
+        String url = call.getString("url", "");
+        if (connectionId == null || !requireSecureUrl(call, url, false)) {
+            return;
+        }
+        String filename = safeDownloadName(
+            call.getString("filename", "download")
+        );
+        String mimeType = call.getString(
+            "mimeType",
+            "application/octet-stream"
+        );
+        Intent picker = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType(
+                mimeType == null || mimeType.trim().isEmpty()
+                    ? "application/octet-stream"
+                    : mimeType
+            )
+            .putExtra(Intent.EXTRA_TITLE, filename);
+        startActivityForResult(call, picker, "downloadFileResult");
+    }
+
+    @PluginMethod
+    public void saveDataFile(PluginCall call) {
+        String dataUrl = call.getString("dataUrl", "");
+        if (dataUrl.isEmpty()) {
+            call.reject("The file data is empty");
+            return;
+        }
+        String filename = safeDownloadName(
+            call.getString("filename", "download")
+        );
+        String mimeType = call.getString(
+            "mimeType",
+            "application/octet-stream"
+        );
+        Intent picker = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType(
+                mimeType == null || mimeType.trim().isEmpty()
+                    ? "application/octet-stream"
+                    : mimeType
+            )
+            .putExtra(Intent.EXTRA_TITLE, filename);
+        startActivityForResult(call, picker, "saveDataFileResult");
+    }
+
+    @ActivityCallback
+    private void saveDataFileResult(PluginCall call, ActivityResult activityResult) {
+        if (
+            activityResult.getResultCode() != Activity.RESULT_OK ||
+            activityResult.getData() == null ||
+            activityResult.getData().getData() == null
+        ) {
+            JSObject result = new JSObject();
+            result.put("saved", false);
+            call.resolve(result);
+            return;
+        }
+        Uri destination = activityResult.getData().getData();
+        String dataUrl = call.getString("dataUrl", "");
+        ioExecutor.execute(() -> {
+            try {
+                byte[] bytes = decodeDataUrl(dataUrl);
+                try (
+                    OutputStream output = getContext()
+                        .getContentResolver()
+                        .openOutputStream(destination, "w")
+                ) {
+                    if (output == null) {
+                        throw new java.io.IOException(
+                            "The selected destination is unavailable"
+                        );
+                    }
+                    output.write(bytes);
+                }
+                JSObject result = new JSObject();
+                result.put("saved", true);
+                result.put(
+                    "filename",
+                    safeDownloadName(call.getString("filename", "download"))
+                );
+                call.resolve(result);
+            } catch (Exception error) {
+                call.reject(
+                    "Could not save the rendered file (" +
+                    error.getClass().getSimpleName() +
+                    ")"
+                );
+            }
+        });
+    }
+
+    @ActivityCallback
+    private void downloadFileResult(PluginCall call, ActivityResult activityResult) {
+        if (
+            activityResult.getResultCode() != Activity.RESULT_OK ||
+            activityResult.getData() == null ||
+            activityResult.getData().getData() == null
+        ) {
+            JSObject result = new JSObject();
+            result.put("saved", false);
+            call.resolve(result);
+            return;
+        }
+        Uri destination = activityResult.getData().getData();
+        String connectionId = requireConnectionId(call);
+        String url = call.getString("url", "");
+        if (
+            connectionId == null ||
+            !requireSecureUrl(call, url, false)
+        ) {
+            return;
+        }
+        final String credential = credentialOrNull(connectionId);
+        final String cookies = cookiesFor(url);
+        if (credential == null && cookies.isEmpty()) {
+            call.reject("No usable authentication is stored for this connection");
+            return;
+        }
+        Request.Builder request = new Request.Builder()
+            .url(url)
+            .header("Accept", "application/json");
+        if (credential != null) {
+            request
+                .header("Authorization", "Bearer " + credential)
+                .header("X-Hermes-Session-Token", credential);
+        }
+        if (!cookies.isEmpty()) {
+            request.header("Cookie", cookies);
+        }
+        httpClient.newCall(request.build()).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call request, java.io.IOException error) {
+                call.reject(
+                    "File download failed (" +
+                    error.getClass().getSimpleName() +
+                    ")"
+                );
+            }
+
+            @Override
+            public void onResponse(Call request, Response response) {
+                try (response) {
+                    storeResponseCookies(url, response);
+                    String body = responseBody(response.body());
+                    if (!response.isSuccessful()) {
+                        call.reject(
+                            "Hermes file download returned HTTP " +
+                            response.code()
+                        );
+                        return;
+                    }
+                    JSONObject parsed = new JSONObject(body);
+                    byte[] bytes = decodeDataUrl(parsed.optString("dataUrl", ""));
+                    try (
+                        OutputStream output = getContext()
+                            .getContentResolver()
+                            .openOutputStream(destination, "w")
+                    ) {
+                        if (output == null) {
+                            throw new java.io.IOException(
+                                "The selected destination is unavailable"
+                            );
+                        }
+                        output.write(bytes);
+                    }
+                    JSObject result = new JSObject();
+                    result.put("saved", true);
+                    result.put(
+                        "filename",
+                        safeDownloadName(call.getString("filename", "download"))
+                    );
+                    call.resolve(result);
+                } catch (Exception error) {
+                    call.reject(
+                        "Could not save the downloaded file (" +
+                        error.getClass().getSimpleName() +
+                        ")"
+                    );
+                }
+            }
+        });
+    }
+
+    private static String safeDownloadName(String value) {
+        String name = stringOrEmpty(value).replaceAll("[\\\\/\\r\\n]", "_");
+        return name.isEmpty() ? "download" : name;
+    }
+
+    private static byte[] decodeDataUrl(String value) throws Exception {
+        int comma = value.indexOf(',');
+        if (
+            comma < 0 ||
+            !value.substring(0, comma).toLowerCase().contains(";base64")
+        ) {
+            throw new java.io.IOException("Hermes returned invalid file data");
+        }
+        return Base64.decode(value.substring(comma + 1), Base64.DEFAULT);
     }
 
     @PluginMethod

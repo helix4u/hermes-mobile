@@ -2,11 +2,88 @@
 
 Last updated: 2026-07-29
 
-Current milestone: Milestone 5D cross-platform mobile host implementation and
-macOS host verification complete, physical Android acceptance pending
+Current milestone: Milestone 5G Mobile Reader, preview, and media workspace
+implementation complete, physical-device acceptance pending
 
 Current state:
 
+- The Reader 22-of-24 failure was traced to the tailnet host proxy's global
+  30-second `httpx` timeout. Later xAI chunks completed on the Hermes backend
+  after that deadline, so the proxy emitted an opaque 500 and the client
+  retried audio that was still finishing.
+- `/api/audio/*` proxy requests now have a bounded 14-minute upstream window
+  while ordinary routes retain their 30-second timeout. A real upstream
+  timeout returns 504 with an explicit host-timeout detail instead of becoming
+  an unhandled 500.
+- Mobile speech synthesis now supplies an explicit 8-minute request timeout,
+  overriding Android's former four-minute audio default so a slow but healthy
+  provider response is not abandoned and duplicated.
+- Completed assistant replies now resolve Hermes `MEDIA:` markers through the
+  authenticated remote-safe filesystem route. Generated images render inline
+  with the full-screen viewer, audio and video use native controls, and
+  unsupported or oversized files retain Retry and Download actions.
+- Raw host media paths no longer remain in the visible completed reply, copied
+  response text, or TTS projection. Loading and failure cards expose only the
+  generated filename, and media fetch failures cannot echo a private host path.
+- Every Control settings disclosure now defaults to collapsed. Entering
+  Control remounts the settings surface, so sections opened during a previous
+  visit do not remain unexpectedly open.
+- Files now scrolls a newly opened document preview into view inside its
+  existing phone-owned viewport. The document heading gives the filename its
+  own readable row and wraps Download, Open in Previewer, Open in Reader, and
+  Close into full touch targets.
+- Reader now has explicit Multi-voice Reader and File Preview surfaces. The
+  shared preview supports Markdown/plain-text rendering, editing, save/revert,
+  download, and handoff back into Reader.
+- Remote images open in a native-feeling full-screen fit/actual-size viewer.
+  Remote audio and video files use native media controls, and Markdown can
+  render direct audio/video links without treating them as broken images.
+- Supported YouTube, Vimeo, and Spotify links use a connection-scoped
+  Desktop-style privacy gate with ask, always, and off modes. The setting is
+  client-local and never writes host config or theme state.
+- Multivoice Reader can render the entire parsed script through the existing
+  provider/fallback chain into one 24 kHz mono WAV. Browser builds download the
+  Blob directly; Android saves it through `ACTION_CREATE_DOCUMENT`.
+- Reader's provider choices and buffering remain collapsed until requested.
+  The main Read/Stop action now spans the control card, and preview/media
+  actions remain inside a 360-pixel viewport.
+- Mobile Files now exposes Download on every file row and in the open document
+  pane. Browser downloads use the authenticated remote filesystem data route;
+  Android downloads use the same route through the native credential/cookie
+  boundary and let the user choose the destination with the system document
+  picker.
+- Hermes Mobile now appears in Android's share sheet for text, links, and
+  individual images. Shared content opens a confirmation sheet instead of
+  sending automatically.
+- The share sheet can switch among saved direct, Tailnet, and Cloud targets,
+  then route to an existing session or create a new one. New conversations have
+  their own remote directory picker and explicit cwd without modifying the
+  connection's normal preferred workspace.
+- Android copies a shared image out of its temporary content URI immediately,
+  caps it at 16 MiB, and keeps it only in application cache. JavaScript sees
+  metadata until confirmation; cancel, successful send, replacement, and
+  orphan cleanup remove the cached image.
+- Confirmed image shares use the existing authenticated
+  `image.attach_bytes` gateway method followed by ordinary prompt submission.
+  A synchronous send guard prevents fast double taps from submitting twice,
+  and selecting the current but disconnected target now performs a real
+  reconnect.
+- Desktop now exposes the current session cwd as an always-visible status item.
+  The same remote-aware project picker can retarget a draft or idle live
+  session through the backend's existing `session.cwd.set` authority.
+- Mobile keeps a preferred cwd per connection, sends it on `session.create`,
+  adopts resumed/runtime cwd, and exposes one shared directory picker from Chat
+  and Control.
+- Mobile host launchers now give detached Hermes servers a user-home working
+  directory. Windows Scheduled Task startup can no longer leak System32 into
+  newly created sessions, and cross-platform service startup no longer uses the
+  plugin checkout as the implicit agent workspace.
+- Mobile Control now includes a searchable schema-driven host-settings surface
+  using the authenticated `/api/config` deep-merge contract. Secret-like keys
+  stay hidden and the existing redacted raw config view remains available.
+- Mobile Files now has a closeable document pane, Preview and Edit tabs,
+  explicit save/revert controls, current-folder cwd selection, and direct
+  Reader handoff.
 - Durable plan and compaction-resume procedure created.
 - Standalone Git repository and project scaffold created.
 - Server plugin linked and enabled in the Windows/AppData Hermes install.
@@ -292,11 +369,38 @@ Current state:
 
 Next action:
 
-Install the newly rebuilt Windows debug APK in place with app data preserved,
-then reproduce thinking, tool activity, resumed thinking, and the final
-response. When a Docker cloud instance is available, confirm its gated
-trusted-HTTPS URL opens host sign-in and connects through the core gateway
-without the Mobile plugin.
+Install the newest APK in place with app data preserved and rerun the exact
+multivoice Render & save that failed at 22 of 24. Confirm it completes all
+chunks and opens Android's document picker without a 500 from
+`/api/audio/speak`.
+
+Install the rebuilt debug APK in place with app data preserved. Confirm Control
+returns with every settings section collapsed. First reopen the reported image
+generation session or create another generated image. Confirm the completed
+reply renders the image inline instead of showing `MEDIA:`, the full-screen
+viewer opens on tap, Copy hides the host path, and Listen does not speak it.
+
+In a deeply scrolled Files directory, open Markdown, plain text, image, audio,
+and video files. Confirm the preview is immediately visible;
+Preview/Edit/save/revert/download, Previewer/Reader handoff, image full-screen
+Fit/Actual size, and native media playback work on the phone.
+
+Use a supported third-party media link to confirm ask/always/off embed
+behavior, then render a multivoice script to one WAV and save it with Android's
+document picker. Confirm the saved WAV contains every speaker block in order.
+
+Then share a link, text, and an image from other Android apps. Confirm each
+waits for explicit approval, can switch remote targets, can select an existing
+session, and can create a new session with a chosen remote cwd. Cancel one
+image share and confirm it does not reopen. Download files from both a row and
+the document pane and verify the Android-selected copies.
+
+Then confirm the
+Session cwd strip, remote folder picker, connection-scoped persistence, live
+idle-session retargeting, Files close/Preview/Edit/save flow, and Open in Reader
+handoff. The regular Desktop shortcut is already running the rebuilt package;
+confirm its workspace status item changes both a draft and an idle live
+session.
 
 Then connect the physical Android tailnet peer through the verified Mac HTTPS
 MagicDNS endpoint and open Control, Voice. Select Qwen3-TTS,
@@ -308,6 +412,111 @@ the regular shortcut as well.
 
 Validation completed:
 
+- The Windows/AppData Mobile host was refreshed again at
+  `2026-07-29 19:37 -06:00` after the adjacent Hermes core performance pass.
+  The scheduled service is running, loopback backend 9129 and validating proxy
+  9130 are listening, authenticated health is `ok`, compatibility is
+  `compatible`, contract version is 1, and Tailscale Serve remains configured.
+  The checked-in installer and status workflows did not print the credential.
+- Current local-tree Android rebuild: the checked-in client build, Capacitor
+  sync, and a forced `assembleDebug --rerun-tasks` all passed with Android
+  Studio JDK 21. The matched refresh after the adjacent Hermes session/database
+  hardening produced an APK of 5,240,774 bytes, modified at
+  `2026-07-30T00:01:49.8005446Z`, with SHA-256
+  `7A8C90DAB74A333D6114777E9911AB8902E93804C280A2393C287D2D9F0D2D57`.
+- Mobile proxy timeout unittest: 3 tests passed.
+- Focused speech queue/render Vitest: 2 files and 10 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- The refreshed Windows Mobile host reports a running service, both loopback
+  listeners, authenticated health `ok`, compatibility `compatible`, contract
+  version 1, and configured Tailscale Serve.
+- Two authenticated xAI syntheses through the actual validating proxy returned
+  HTTP 200 with 2,335,322-byte and 3,550,298-byte responses near the former
+  30-second cutoff; no new `/api/audio/speak` 500 appeared.
+- Proxy-timeout replacement APK size: 5,496,505 bytes.
+- Proxy-timeout replacement APK SHA-256:
+  `76C1F9BEBD274DA6642C27214C2B442739D8E4555B3CCFC7B499E4E18FB9B2AA`.
+- Generated-media focused Vitest: 5 files and 21 tests passed.
+- Complete Mobile client Vitest suite: 31 files and 127 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  Android `compileDebugJavaWithJavac`, and `assembleDebug` with Android Studio
+  JDK 21: passed.
+- A real 360 by 800 Chrome render loaded a completed Windows-path `MEDIA:`
+  marker through a fake authenticated transport, kept the document exactly
+  360 pixels wide, rendered the image card at 308.3 pixels wide, opened the
+  full-screen viewer, omitted the host path from rendered HTML, and produced no
+  browser or React console errors.
+- Generated-media debug APK size: 5,496,505 bytes.
+- Generated-media debug APK SHA-256:
+  `125350D161CBA41765A31CD9E94987975076E41B1A5A0B699C7B82725E8171B4`.
+- Reader/preview/media focused Vitest: 10 files and 33 tests passed.
+- Complete Mobile client Vitest suite: 30 files and 122 tests passed.
+- Mobile TypeScript typecheck, Vite production build, and Capacitor Android
+  sync: passed.
+- Android `compileDebugJavaWithJavac` and final `assembleDebug` with Android
+  Studio JDK 21: passed.
+- A real 360 by 800 Chrome pass confirmed every Control disclosure starts
+  closed and returns to zero open sections after leaving and re-entering the
+  tab.
+- The same phone-width pass scrolled a 26-file directory to the bottom, opened
+  the final file, and confirmed the document preview was moved to viewport
+  position 200 px with its Markdown content and all actions visible. The
+  document remained exactly 360 px wide.
+- The combined Reader/Preview surface remained exactly 360 px wide. File
+  Preview rendered Markdown and its actions; Multi-voice Reader kept Voices &
+  buffering closed and gave its Read action the full 311.6-pixel control width.
+- Image, audio, video, and embed surfaces remained within the 360-pixel
+  document. The image preview rendered at 310 px wide, opened the full-screen
+  viewer, both media elements exposed native controls, and YouTube remained
+  behind the default consent façade.
+- `git diff --check`: passed with only existing line-ending warnings.
+- Reader/preview/media debug APK size: 5,496,505 bytes.
+- Reader/preview/media debug APK SHA-256:
+  `AE0B035216771FF13234E1E01A9EB11CFD5F5661E4C201AD38528B6284D3980D`.
+- Android share/download focused Vitest: 4 files and 13 tests passed.
+- Complete Mobile client Vitest suite: 24 files and 111 tests passed.
+- Mobile TypeScript typecheck, Vite production build, and Capacitor Android
+  sync: passed.
+- Android `compileDebugJavaWithJavac` and `assembleDebug` with Android Studio
+  JDK 21: passed.
+- Packaged manifest inspection confirms exported `ACTION_SEND` handling for
+  both `text/*` and `image/*`.
+- A real 360 by 800 Chrome render kept the share sheet, long shared filename,
+  message editor, destination controls, and action row inside the exact
+  360-pixel document width. The sheet owned vertical overflow.
+- The stacked new-session directory picker also stayed exactly 360 pixels wide,
+  rendered above the share sheet at z-index 110 over 105, and kept its remote
+  directory list and actions visible.
+- Share/download debug APK size: 5,496,505 bytes.
+- Share/download debug APK SHA-256:
+  `D96E082BA52A1AF39152AD12B8B7BC3ECF8DECA86CC706441D165A87B6C4272D`.
+- Session workspace and host-config focused Mobile tests: 3 files and 10 tests
+  passed.
+- Complete Mobile client Vitest suite: 22 files and 106 tests passed.
+- Mobile TypeScript typecheck, Vite production build, and Capacitor Android
+  sync: passed.
+- Focused Mobile server-plugin suite: 19 tests run, 14 passed, and 5 expected
+  Windows platform skips.
+- Every checked-in Mobile PowerShell script passed the PowerShell parser.
+- Android `assembleDebug` with Android Studio JDK 21: passed.
+- Session-workspace debug APK size: 5,496,505 bytes.
+- Session-workspace debug APK SHA-256:
+  `0F65E4BDFA1E99121FE0A46BDF91CC02D2C5D5AFC0D718B9AA057DC5B5AF1CB9`.
+- The refreshed Windows Mobile service is running, both loopback listeners are
+  live, authenticated health is `ok`, compatibility is `compatible`, contract
+  version is 1, and Tailscale Serve remains configured. The credential was not
+  printed.
+- Desktop cwd/dropdown focused Vitest: 3 files and 17 tests passed.
+- Desktop TypeScript typecheck and `npm run pack`: passed.
+- The regular shortcut target is 214,281,216 bytes with SHA-256
+  `86646F9CF2D10205547BBE1B9172E7A2F8ACFBDA72345B39F72601268E844917`.
+- Launching `C:\Users\btgil\Desktop\Hermes.lnk` started the exact packaged
+  AppData executable, emitted `HERMES_BACKEND_READY port=54888`, and returned
+  HTTP 200 from `/api/status` and `/api/health`.
+- A real 360 by 800 browser render kept the new Session cwd strip readable,
+  full-width, and aligned above the existing composer and five-item bottom
+  navigation.
 - The adjacent Windows/AppData Hermes checkout was pinned to upstream Nous
   `main` at `bff22069727ae7b7f8ede8d7da110ab0f1558d69`, the latest fetched tip
   selected for this reconciliation. Upstream advanced by six commits during
@@ -578,8 +787,23 @@ Known constraints:
   for older or fully missed tool rows, but true post-process replay of every
   tool payload still requires Milestone 3's mobile event journal.
 - The mobile file browser mirrors Desktop's remote-safe list, read, and
-  write-text path. Electron-local rename, delete, reveal, and operating-system
-  file actions are not exposed by the remote API and are not claimed.
+  write-text path, and now downloads through the authenticated data route plus
+  Android's system save picker. Electron-local rename, delete, reveal, and
+  other operating-system file actions are not exposed by the remote API and
+  are not claimed.
+- Inline remote image/audio/video preview currently uses Hermes's authenticated
+  data-URL route and inherits its 16 MiB response limit. Larger media remains
+  downloadable but needs a future authenticated streaming seam for inline
+  playback.
+- Full podcast export currently assembles a mono WAV in client memory before
+  opening the save picker. That keeps provider ordering and fallbacks
+  deterministic, but very long renders still need physical-device memory and
+  cancellation acceptance before this is treated as an unbounded export path.
+- Android share routing is covered by focused client behavior tests, native
+  Java compilation, packaged-manifest inspection, and phone-width Chrome
+  rendering. Actual source-app content-URI grants, Android chooser behavior,
+  Cloud target switching, system document destinations, and byte-for-byte
+  downloaded-file acceptance remain physical-device checks.
 - Long TTS chunking and lookahead, provider selection, buffered multivoice
   playback, Reader auto-scroll/manual takeover/section restart, voice
   fallbacks, Android clipboard behavior, and remote file saves are covered by

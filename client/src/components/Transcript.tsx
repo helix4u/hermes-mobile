@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { writeClipboardText } from '../clipboard'
+import { displayTextForMediaMarkers } from '../media-markers'
 import {
   formatDisplayValue,
   type RequestTranscriptData,
   type TranscriptItem,
 } from '../state/transcript'
+import type { HermesTransport } from '../transport/hermes-transport'
 import type { VoicePhase } from '../voice'
 import { MarkdownContent } from './MarkdownContent'
 
@@ -14,6 +16,7 @@ interface TranscriptProps {
   items: TranscriptItem[]
   activeSpeechId: string
   toolDetailMode: ToolDetailMode
+  transport?: HermesTransport | null
   voicePhase: VoicePhase
   onSpeak: (text: string, itemId: string) => void
   onRespond: (
@@ -336,6 +339,7 @@ export function Transcript({
   onRespond,
   onSpeak,
   toolDetailMode,
+  transport = null,
   voicePhase,
 }: TranscriptProps) {
   if (items.length === 0) {
@@ -398,14 +402,21 @@ export function Transcript({
                   </button>
                 )}
                 {item.text && !item.streaming && (
-                  <MessageCopyButton text={item.text} />
+                  <MessageCopyButton
+                    text={displayTextForMediaMarkers(item.text)}
+                  />
                 )}
               </div>
             </div>
             {item.kind === 'event' ? (
               <p>{item.text}</p>
             ) : (
-              <MarkdownContent>{item.text || ''}</MarkdownContent>
+              <MarkdownContent
+                resolveMediaMarkers={!item.streaming}
+                transport={transport}
+              >
+                {item.text || ''}
+              </MarkdownContent>
             )}
           </article>
         )

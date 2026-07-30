@@ -52,10 +52,9 @@ same work session.
 - Upstreaming the project into `NousResearch/hermes-agent`.
 - Modifying Hermes core.
 - Reimplementing the Hermes agent, tools, model loop, or transcript database.
-- Full Desktop settings parity.
 - Provider credential setup, plugin administration, or billing.
 - SSH tunneling.
-- Full terminal emulation or remote file editing.
+- Full terminal emulation.
 - Guaranteed live observation of sessions owned by unrelated Hermes processes.
 - Push notifications after Android process death.
 - Production device pairing in the first milestone.
@@ -616,6 +615,101 @@ Acceptance:
       through its real Tailscale MagicDNS endpoint.
 - [ ] Connect through the physical Android tailnet peer.
 
+### Milestone 5E: Session workspace and mobile workspace parity
+
+Current milestone: implementation complete, packaged acceptance pending
+
+Acceptance:
+
+- [x] Make the backend-owned session cwd visible and directly changeable from
+      the Desktop status bar for both drafts and idle live sessions.
+- [x] Keep the Desktop cwd selector on the same local/remote-aware project
+      picker instead of adding another path authority.
+- [x] Persist Mobile's preferred cwd per saved connection and pass it
+      explicitly to `session.create`.
+- [x] Adopt the authoritative cwd returned by `session.resume` and
+      `session.cwd.set`.
+- [x] Keep the Mobile cwd picker obvious in Chat and Control, with a
+      touch-scrollable directory browser and editable absolute path.
+- [x] Prevent Windows Scheduled Task and cross-platform host launches from
+      supplying System32 or the plugin checkout as a detached session's
+      accidental default cwd.
+- [x] Add a schema-driven, searchable Mobile host-config surface backed by the
+      authenticated deep-merge config API, while retaining the redacted raw
+      diagnostic view.
+- [x] Upgrade Mobile Files with a closeable document pane, Preview and Edit
+      modes, explicit save/revert, use-current-folder-as-cwd, and Reader
+      handoff.
+- [x] Preserve one phone-owned vertical scroll path for large directories and
+      independently scroll long preview/editor content.
+- [x] Rebuild and verify the Windows Desktop shortcut target and Android debug
+      APK.
+
+### Milestone 5F: Android share routing and file downloads
+
+Current milestone: implementation complete, physical-device acceptance pending
+
+Acceptance:
+
+- [x] Add a Download action to every file row and the open document pane.
+- [x] Route browser downloads through the authenticated remote filesystem API.
+- [x] Route Android downloads through the same authenticated endpoint and the
+      system `ACTION_CREATE_DOCUMENT` picker, without exposing credentials to
+      JavaScript or broad storage permissions.
+- [x] Register Hermes Mobile as an Android share target for text, links, and
+      individual images.
+- [x] Copy a shared image immediately from its one-use content URI into bounded
+      application cache, retain only non-secret metadata in JavaScript, and
+      remove the temporary copy on cancel, success, replacement, or later
+      orphan cleanup.
+- [x] Keep shared content pending until the user explicitly confirms a
+      destination and send action.
+- [x] Let the user choose any saved remote target, then an existing session or
+      a new conversation.
+- [x] Give new shared conversations a remote directory picker for their exact
+      session cwd without changing the connection's normal preferred cwd.
+- [x] Send shared images through Hermes's existing `image.attach_bytes`
+      gateway contract and ordinary prompt submission, with a synchronous
+      double-send guard.
+- [x] Add focused share-routing, sheet, workspace, and authenticated-download
+      tests.
+- [x] Validate the share sheet and stacked directory picker at 360 by 800 and
+      rebuild the Android debug APK with packaged `ACTION_SEND` filters.
+
+### Milestone 5G: Mobile Reader, preview, and media workspace
+
+Current milestone: implementation complete, physical-device acceptance pending
+
+Acceptance:
+
+- [x] Remount Mobile Control on every tab entry and default every settings
+      disclosure to collapsed without changing host configuration.
+- [x] Reveal an opened Files preview immediately inside the existing
+      touch-scroll viewport even when the file was selected from deep in a
+      scrolled directory.
+- [x] Turn Reader into a combined multivoice Reader and file Preview/Edit
+      workspace with explicit surface tabs.
+- [x] Support Markdown and plain-text preview, editing, save/revert, download,
+      Open in Previewer, and Open in Reader from the shared document surface.
+- [x] Add native image preview with a fit/actual-size full-screen viewer.
+- [x] Add native audio and inline video playback for remote files and direct
+      media links rendered from Markdown.
+- [x] Resolve completed Hermes `MEDIA:` markers through the authenticated
+      remote-safe filesystem route as inline image, audio, and video
+      attachments; keep host paths out of the rendered transcript, clipboard,
+      and TTS projection.
+- [x] Add connection-scoped third-party rich-embed preferences matching
+      Desktop's ask, always, and off modes without writing a host theme or
+      config setting.
+- [x] Reuse Reader's provider-aware synthesis and fallback chain to render the
+      complete multivoice script into one mono WAV and save it through the
+      browser download path or Android's system document picker.
+- [x] Keep Reader controls, document actions, native media, rich-embed consent,
+      and full-screen image viewing inside a 360 by 800 viewport.
+- [x] Add focused preview, media, embed, Reader-render, settings-collapse, and
+      file-reveal regression tests.
+- [x] Rebuild and validate the Android debug APK.
+
 ### Milestone 6: Profiles, projects, and recoverable attention
 
 Acceptance:
@@ -718,10 +812,72 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
-Install the newly rebuilt Windows debug APK in place with app data preserved,
-then confirm that thinking renders in separate inline blocks around an
-intervening tool call. Also confirm that an already-streaming thinking or tool
-block moves above the final assistant response without navigating away.
+Install the proxy-timeout replacement APK in place with app data preserved,
+then rerun the multivoice Render & save that previously stopped at 22 of 24.
+The Windows Mobile host has already been refreshed with a 14-minute
+route-specific upstream timeout for `/api/audio/*`; the Android/web speech
+request now waits up to 8 minutes. Confirm the render advances past the former
+30-second boundary and saves one complete WAV without a 500 from
+`/api/audio/speak`.
+
+Install the newly rebuilt Android debug APK in place with app data preserved.
+Open the session from the reported screenshot or generate another image.
+Confirm the completed assistant reply shows the image inline instead of a
+literal `MEDIA:` path, tapping it opens the full-screen Fit/Actual-size viewer,
+Copy includes only the generated filename, and Listen does not read the host
+path aloud.
+
+Open Control, expand any section, switch tabs, and return to Control. Confirm
+every section is collapsed again. In Files, scroll deep into a directory and
+open a Markdown or text file. Confirm the preview is brought into view
+immediately, its filename and action buttons remain readable, Preview renders
+the document, Edit can save and revert, Download opens Android's document
+picker, and Open in Previewer/Open in Reader land on the correct Reader
+surface.
+
+Preview an image, audio file, and video file from Files. Confirm the image
+opens a full-screen viewer with Fit/Actual size, and the native audio/video
+controls play. Render a message containing a supported YouTube, Vimeo, or
+Spotify link and confirm the default consent card waits for a tap. Change Rich
+link embeds under Control, Appearance and confirm the choice is local to that
+saved connection and does not modify the host.
+
+Paste a multivoice script, assign speakers, tap Render & save, choose a
+destination, and confirm the result is one playable WAV containing the full
+script in order. Repeat ordinary Reader playback and confirm the collapsed
+Voices & buffering section, voice fallbacks, active-block following, manual
+scroll takeover, and Start here behavior still work.
+
+Then continue the share/download acceptance pass. From a browser or another
+Android app, share a link, a block of text, and one image to Hermes Mobile. For
+each, confirm that nothing sends before the final button, switch between two
+saved remote targets, choose an existing session, then repeat with New
+conversation and its remote directory picker. Cancel one image share and
+confirm returning to the app does not reopen it. In Files, download a text file
+from its row and an open document, choose an Android save location, and confirm
+the downloaded bytes match the host file.
+
+Latest rebuilt repository debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `5,240,774` bytes
+
+SHA-256:
+`7A8C90DAB74A333D6114777E9911AB8902E93804C280A2393C287D2D9F0D2D57`
+
+Then continue the existing workspace acceptance pass. Install the APK in place
+with app data preserved.
+Confirm that the Session cwd strip opens the remote directory picker, the
+selection survives a new conversation and connection switch, and an idle live
+session immediately adopts the selected path. In Files, open and close a text
+document, switch Preview/Edit, save an explicit edit, use the current folder as
+the session cwd, and open the document in Reader.
+
+On Desktop, use the workspace status item from the regular shortcut to change a
+draft and an idle live session. Confirm the item remains visible as Choose
+workspace before a path is selected and keeps copy/reveal actions after the
+backend returns the cwd.
 
 The Windows consolidation used private branch
 `origin/codex/fix-live-transcript-order` at
@@ -753,15 +909,16 @@ captured after the overnight idle period remains fixed in the repository, and
 the previous replacement mobile build remains installed without requiring an
 interactive phone pass right now.
 
-Latest rebuilt repository debug APK (contains the transcript interleaving,
-late-event reconciliation, direct-auth, and core-gateway fallback changes):
+Previous repository debug APK (contained the transcript interleaving,
+late-event reconciliation, direct-auth, core-gateway fallback, and workspace
+changes before Milestone 5F):
 
 `client\android\app\build\outputs\apk\debug\app-debug.apk`
 
 Size: `5,496,505` bytes
 
 SHA-256:
-`6B35AA0544DF91D13ED2C8FB377A5FE0A762C071257DC0A3579BE89D458DBE3C`
+`0F65E4BDFA1E99121FE0A46BDF91CC02D2C5D5AFC0D718B9AA057DC5B5AF1CB9`
 
 The saved-connection, Cloud status, tool/reasoning, project/cwd, theme,
 multiline composer, Nous girl branding, focus-loss recovery, long TTS, normal

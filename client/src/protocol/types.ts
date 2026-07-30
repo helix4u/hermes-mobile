@@ -86,8 +86,11 @@ export interface SessionCreateResult {
   message_count: number
   messages: unknown[]
   info?: {
+    branch?: string
+    cwd?: string
     model?: string
     profile_name?: string
+    project?: unknown
   }
 }
 

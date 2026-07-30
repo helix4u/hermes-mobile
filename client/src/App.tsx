@@ -8,15 +8,15 @@ import {
   useState,
 } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
+import { EmbedPreferencesProvider } from './embeds'
 import { ConnectionSheet } from './components/ConnectionSheet'
 import { ControlPanel } from './components/ControlPanel'
 import { FilesView } from './components/FilesView'
 import { ReaderView } from './components/ReaderView'
+import { ShareSheet } from './components/ShareSheet'
 import { SessionsView } from './components/SessionsView'
-import {
-  Transcript,
-  type ToolDetailMode,
-} from './components/Transcript'
+import { WorkspaceSheet } from './components/WorkspaceSheet'
+import { Transcript, type ToolDetailMode } from './components/Transcript'
 import type {
   GatewayConnectionState,
   GatewayEvent,
@@ -48,11 +48,22 @@ import {
 import { aliasCommand, commandParts } from './state/commands'
 import { projectSessionRows } from './state/sessions'
 import {
+  sharedImageAttachParams,
+  sharedPromptText,
+  type ShareDestination,
+} from './state/share'
+import {
+  loadPreferredWorkspace,
+  persistPreferredWorkspace,
+  sessionCreateParams,
+} from './state/workspace'
+import {
   loadVoiceSelection,
   persistVoiceSelection,
   ttsOverride,
   type VoiceSelection,
 } from './reader'
+import type { PreviewDocument } from './preview'
 import {
   applyThemeSelection,
   bindHermesSkin,
@@ -72,15 +83,13 @@ import {
   reconcileForegroundConnection,
   shouldSurfaceGatewayStateError,
 } from './transport/foreground-reconnect'
-import {
-  becameActive,
-  usesDocumentVisibility,
-} from './transport/app-activity'
+import { becameActive, usesDocumentVisibility } from './transport/app-activity'
 import {
   type CloudAgent,
   type CloudOrganization,
   HermesNative,
   isNativeHermesClient,
+  type SharedContent,
 } from './transport/native-bridge'
 import {
   completedAssistantText,
@@ -94,9 +103,7 @@ type AppTab = 'chat' | 'sessions' | 'reader' | 'files' | 'control'
 const MAX_RECONNECT_ATTEMPTS = 5
 
 function normalizeToolDetailMode(value: unknown): ToolDetailMode {
-  return value === 'expanded' || value === 'hidden'
-    ? value
-    : 'collapsed'
+  return value === 'expanded' || value === 'hidden' ? value : 'collapsed'
 }
 
 interface CommandsCatalog {
@@ -120,9 +127,7 @@ interface CommandDirective {
 }
 
 function directive(value: unknown): CommandDirective {
-  return value && typeof value === 'object'
-    ? (value as CommandDirective)
-    : {}
+  return value && typeof value === 'object' ? (value as CommandDirective) : {}
 }
 
 function NavIcon({ tab }: { tab: AppTab }) {
@@ -180,7 +185,8 @@ function SendIcon() {
 
 export function App() {
   const initialConnection = useMemo<BrowserConnection>(
-    () => (typeof window === 'undefined' ? defaultConnection : loadConnection()),
+    () =>
+      typeof window === 'undefined' ? defaultConnection : loadConnection(),
     [],
   )
   const nativeClient = isNativeHermesClient()
@@ -188,8 +194,9 @@ export function App() {
     useState<BrowserConnection>(initialConnection)
   const [connectionState, setConnectionState] =
     useState<GatewayConnectionState>('disconnected')
-  const [capabilities, setCapabilities] =
-    useState<MobileCapabilities | null>(null)
+  const [capabilities, setCapabilities] = useState<MobileCapabilities | null>(
+    null,
+  )
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectTree[]>([])
   const [activeProjectId, setActiveProjectId] = useState('')
@@ -200,6 +207,21 @@ export function App() {
   )
   const [selectedStoredId, setSelectedStoredId] = useState('')
   const [runtimeSessionId, setRuntimeSessionId] = useState('')
+  const [preferredWorkspace, setPreferredWorkspace] = useState(() =>
+    typeof window === 'undefined'
+      ? ''
+      : loadPreferredWorkspace(initialConnection.id),
+  )
+  const [sessionCwd, setSessionCwd] = useState('')
+  const [workspaceOpen, setWorkspaceOpen] = useState(false)
+  const [shareWorkspaceOpen, setShareWorkspaceOpen] = useState(false)
+  const [shareWorkspace, setShareWorkspace] = useState('')
+  const [pendingShare, setPendingShare] = useState<SharedContent | null>(null)
+  const [readerImport, setReaderImport] = useState<{
+    document: PreviewDocument
+    id: number
+    mode: 'preview' | 'reader'
+  } | null>(null)
   const [draft, setDraft] = useState(() =>
     typeof window === 'undefined' ? '' : loadDraft(initialConnection.id),
   )
@@ -210,6 +232,7 @@ export function App() {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('chat')
+  const [controlVisit, setControlVisit] = useState(0)
   const [connectionOpen, setConnectionOpen] = useState(
     !nativeClient || !initialConnection.baseUrl,
   )
@@ -223,12 +246,12 @@ export function App() {
   const [cloudOrg, setCloudOrg] = useState('')
   const [orphanCredentialIds, setOrphanCredentialIds] = useState<string[]>([])
   const [activeSkinName, setActiveSkinName] = useState('default')
-  const [themeSelection, setThemeSelection] =
-    useState<MobileThemeSelection>(() =>
-    typeof window === 'undefined'
-      ? 'mobile'
-      : loadThemeSelection(initialConnection.id),
-    )
+  const [themeSelection, setThemeSelection] = useState<MobileThemeSelection>(
+    () =>
+      typeof window === 'undefined'
+        ? 'mobile'
+        : loadThemeSelection(initialConnection.id),
+  )
   const [autoSpeak, setAutoSpeak] = useState(() =>
     typeof window === 'undefined' ? false : loadAutoSpeak(initialConnection.id),
   )
@@ -259,6 +282,10 @@ export function App() {
   } | null>(null)
   const hostSkinRef = useRef<BoundHermesSkin | null>(null)
   const themeSelectionRef = useRef(themeSelection)
+  const sharedImageUploadRef = useRef<{
+    sessionId: string
+    shareId: string
+  } | null>(null)
 
   const activeSession = useMemo(
     () =>
@@ -317,6 +344,7 @@ export function App() {
   const {
     activeSpeechId,
     phase: voicePhase,
+    renderSequence,
     speak,
     speakSequence,
     stopPlayback,
@@ -337,10 +365,7 @@ export function App() {
           event.payload && typeof event.payload === 'object'
             ? (event.payload as Record<string, unknown>)
             : {}
-        const bound = bindHermesSkin(
-          connectionRef.current.id,
-          payload.skin,
-        )
+        const bound = bindHermesSkin(connectionRef.current.id, payload.skin)
         if (bound) {
           hostSkinRef.current = bound
           setActiveSkinName(String(bound.skin.name ?? 'default'))
@@ -349,10 +374,7 @@ export function App() {
           }
         }
       } else if (event.type === 'skin.changed') {
-        const bound = bindHermesSkin(
-          connectionRef.current.id,
-          event.payload,
-        )
+        const bound = bindHermesSkin(connectionRef.current.id, event.payload)
         if (bound) {
           hostSkinRef.current = bound
           setActiveSkinName(String(bound.skin.name ?? 'default'))
@@ -404,6 +426,18 @@ export function App() {
     persistDraft(connection.id, draft)
   }, [connection.id, draft])
   useEffect(() => {
+    if (!connected || preferredWorkspace || !transportRef.current) return
+    void transportRef.current
+      .requestJson<{ cwd?: string }>('/api/fs/default-cwd')
+      .then(result => {
+        const cwd = String(result.cwd || '').trim()
+        if (!cwd) return
+        setPreferredWorkspace(cwd)
+        persistPreferredWorkspace(connection.id, cwd)
+      })
+      .catch(() => undefined)
+  }, [connected, connection.id, preferredWorkspace])
+  useEffect(() => {
     setAutoSpeak(loadAutoSpeak(connection.id))
     setVoiceSelection(loadVoiceSelection(connection.id))
     stopPlayback()
@@ -423,6 +457,34 @@ export function App() {
     ]).then(results => {
       if (results[0].status === 'rejected') setCloudSignedIn(false)
     })
+  }, [nativeClient])
+  useEffect(() => {
+    if (!nativeClient) return
+    let disposed = false
+    let removeShareListener: (() => Promise<void>) | null = null
+    const receiveShare = (share: SharedContent) => {
+      if (disposed || !share?.id) return
+      setShareWorkspace(loadPreferredWorkspace(connectionRef.current.id))
+      setPendingShare(share)
+    }
+    void HermesNative.addListener('shareReceived', receiveShare).then(
+      handle => {
+        if (disposed) {
+          void handle.remove()
+          return
+        }
+        removeShareListener = () => handle.remove()
+      },
+    )
+    void HermesNative.getPendingShare()
+      .then(result => {
+        if (result.share) receiveShare(result.share)
+      })
+      .catch(() => undefined)
+    return () => {
+      disposed = true
+      if (removeShareListener) void removeShareListener()
+    }
   }, [nativeClient])
   useEffect(() => {
     if (
@@ -505,7 +567,12 @@ export function App() {
   useEffect(() => {
     const text = draft.trimStart()
     const gateway = transportRef.current?.gateway
-    if (!connected || !gateway || !text.startsWith('/') || text.includes('\n')) {
+    if (
+      !connected ||
+      !gateway ||
+      !text.startsWith('/') ||
+      text.includes('\n')
+    ) {
       setLiveSuggestions([])
       return
     }
@@ -566,8 +633,7 @@ export function App() {
     }
     const delays = [250, 1_000, 2_500, 5_000, 10_000]
     const nextDelay =
-      delay ??
-      delays[Math.min(reconnectAttemptRef.current, delays.length - 1)]
+      delay ?? delays[Math.min(reconnectAttemptRef.current, delays.length - 1)]
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null
       void reconcileAfterInterruption()
@@ -582,11 +648,7 @@ export function App() {
       return
     }
     const transport = transportRef.current
-    if (
-      !transport ||
-      !desiredConnectedRef.current ||
-      !appActiveRef.current
-    ) {
+    if (!transport || !desiredConnectedRef.current || !appActiveRef.current) {
       return
     }
 
@@ -609,8 +671,7 @@ export function App() {
       reconnectAttemptRef.current = 0
       if (result.resumed) {
         const storedId =
-          result.resumed.stored_session_id ||
-          selectedStoredIdRef.current
+          result.resumed.stored_session_id || selectedStoredIdRef.current
         selectedStoredIdRef.current = storedId
         runtimeSessionIdRef.current = result.resumed.session_id
         setSelectedStoredId(storedId)
@@ -736,14 +797,18 @@ export function App() {
         ])
         setConnectionOpen(false)
         setNotice(`Connected to ${activeTarget.name || 'Hermes'}`)
+        return true
       } catch (connectError) {
         throw connectError
       }
     } catch (connectError) {
       disconnect()
       setError(
-        connectError instanceof Error ? connectError.message : String(connectError),
+        connectError instanceof Error
+          ? connectError.message
+          : String(connectError),
       )
+      return false
     } finally {
       setBusy(false)
     }
@@ -807,14 +872,13 @@ export function App() {
     if (!transport) return
     setProjectLoading(true)
     try {
-      const result =
-        await transport.gateway.request<ProjectSessionsResult>(
-          'projects.project_sessions',
-          {
-            project_id: projectId,
-            session_limit: 5000,
-          },
-        )
+      const result = await transport.gateway.request<ProjectSessionsResult>(
+        'projects.project_sessions',
+        {
+          project_id: projectId,
+          session_limit: 5000,
+        },
+      )
       setProjectDetail(result.project ?? null)
     } catch (projectError) {
       setError(
@@ -850,7 +914,9 @@ export function App() {
       setCloudOrgs([])
       if (result.org) setCloudOrg(result.org.slug || result.org.id)
     } catch (cloudError) {
-      setError(cloudError instanceof Error ? cloudError.message : String(cloudError))
+      setError(
+        cloudError instanceof Error ? cloudError.message : String(cloudError),
+      )
     } finally {
       setBusy(false)
     }
@@ -862,10 +928,13 @@ export function App() {
     try {
       const status = await HermesNative.cloudLogin()
       setCloudSignedIn(status.signedIn)
-      if (!status.signedIn) throw new Error('Hermes Cloud sign-in did not complete')
+      if (!status.signedIn)
+        throw new Error('Hermes Cloud sign-in did not complete')
       await discoverCloud('')
     } catch (cloudError) {
-      setError(cloudError instanceof Error ? cloudError.message : String(cloudError))
+      setError(
+        cloudError instanceof Error ? cloudError.message : String(cloudError),
+      )
     } finally {
       setBusy(false)
     }
@@ -882,7 +951,9 @@ export function App() {
       setCloudOrg('')
       if (connection.connectionType === 'cloud') disconnect()
     } catch (cloudError) {
-      setError(cloudError instanceof Error ? cloudError.message : String(cloudError))
+      setError(
+        cloudError instanceof Error ? cloudError.message : String(cloudError),
+      )
     } finally {
       setBusy(false)
     }
@@ -916,7 +987,9 @@ export function App() {
       prepareConnectionView(nextConnection)
       await connect(nextConnection)
     } catch (cloudError) {
-      setError(cloudError instanceof Error ? cloudError.message : String(cloudError))
+      setError(
+        cloudError instanceof Error ? cloudError.message : String(cloudError),
+      )
     } finally {
       setBusy(false)
     }
@@ -932,6 +1005,9 @@ export function App() {
     setDraft(loadDraft(nextConnection.id))
     setSelectedStoredId('')
     setRuntimeSessionId('')
+    setPreferredWorkspace(loadPreferredWorkspace(nextConnection.id))
+    setSessionCwd('')
+    setWorkspaceOpen(false)
     setTranscript([])
     setSessions([])
     setProjects([])
@@ -961,16 +1037,15 @@ export function App() {
 
   async function switchSavedConnection(
     saved: BrowserConnection,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const nextConnection = { ...saved, token: '' }
     prepareConnectionView(nextConnection)
     if (nextConnection.connectionType !== 'cloud') {
-      await connect(nextConnection)
-      return
+      return connect(nextConnection)
     }
     if (!nativeClient) {
       setError('Hermes Cloud connections require the Android app')
-      return
+      return false
     }
     setBusy(true)
     setError('')
@@ -985,19 +1060,20 @@ export function App() {
       const refreshed = { ...nextConnection, baseUrl: signedIn.baseUrl }
       setConnection(refreshed)
       connectionRef.current = refreshed
-      await connect(refreshed)
+      return await connect(refreshed)
     } catch (cloudError) {
       setError(
         cloudError instanceof Error ? cloudError.message : String(cloudError),
       )
+      return false
     } finally {
       setBusy(false)
     }
   }
 
-  async function selectSession(session: SessionSummary) {
+  async function selectSession(session: SessionSummary): Promise<string> {
     const transport = transportRef.current
-    if (!transport) return
+    if (!transport) throw new Error('Connect to Hermes first')
     const previousStoredId = selectedStoredIdRef.current
     setBusy(true)
     setError('')
@@ -1016,6 +1092,12 @@ export function App() {
       runtimeSessionIdRef.current = resumed.session_id
       setSelectedStoredId(storedId)
       setRuntimeSessionId(resumed.session_id)
+      setSessionCwd(
+        resumed.info?.cwd ||
+          session.cwd ||
+          session.git_repo_root ||
+          preferredWorkspace,
+      )
       let messages = resumed.messages ?? []
       try {
         const history = await transport.gateway.request<{
@@ -1031,8 +1113,14 @@ export function App() {
           : historyToTranscript(messages),
       )
       setActiveTab('chat')
+      return resumed.session_id
     } catch (resumeError) {
-      setError(resumeError instanceof Error ? resumeError.message : String(resumeError))
+      setError(
+        resumeError instanceof Error
+          ? resumeError.message
+          : String(resumeError),
+      )
+      throw resumeError
     } finally {
       setBusy(false)
     }
@@ -1044,17 +1132,17 @@ export function App() {
     if (!transport) throw new Error('Connect to Hermes first')
     const created = await transport.gateway.request<SessionCreateResult>(
       'session.create',
-      {
-        profile: connection.profile === 'default' ? '' : connection.profile,
-        source: 'hermes-mobile',
-        cols: 100,
-        ...(preview ? { preview } : {}),
-      },
+      sessionCreateParams({
+        cwd: preferredWorkspace,
+        preview,
+        profile: connection.profile,
+      }),
     )
     runtimeSessionIdRef.current = created.session_id
     selectedStoredIdRef.current = created.stored_session_id
     setRuntimeSessionId(created.session_id)
     setSelectedStoredId(created.stored_session_id)
+    setSessionCwd(created.info?.cwd || preferredWorkspace)
     return created.session_id
   }
 
@@ -1156,7 +1244,9 @@ export function App() {
     }
     if (name === 'help' && !arg) {
       appendSystem(
-        commandCatalog.map(([key, description]) => `${key}  ${description}`).join('\n'),
+        commandCatalog
+          .map(([key, description]) => `${key}  ${description}`)
+          .join('\n'),
       )
       return
     }
@@ -1169,7 +1259,8 @@ export function App() {
         session_id: sessionId,
         command: command.replace(/^\/+/, ''),
       })
-      if (await handleCommandDirective(result, command, sessionId, depth)) return
+      if (await handleCommandDirective(result, command, sessionId, depth))
+        return
     } catch (error) {
       slashError = error
     }
@@ -1180,7 +1271,8 @@ export function App() {
         name,
         arg,
       })
-      if (await handleCommandDirective(result, command, sessionId, depth)) return
+      if (await handleCommandDirective(result, command, sessionId, depth))
+        return
       appendSystem(`/${name}: no output`)
     } catch (dispatchError) {
       throw slashError ?? dispatchError
@@ -1214,7 +1306,11 @@ export function App() {
       }
     } catch (submitError) {
       setDraft(text)
-      setError(submitError instanceof Error ? submitError.message : String(submitError))
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : String(submitError),
+      )
     } finally {
       setBusy(false)
     }
@@ -1229,7 +1325,9 @@ export function App() {
       })
       appendSystem('Interrupt requested.')
     } catch (stopError) {
-      setError(stopError instanceof Error ? stopError.message : String(stopError))
+      setError(
+        stopError instanceof Error ? stopError.message : String(stopError),
+      )
     }
   }
 
@@ -1261,7 +1359,9 @@ export function App() {
       setTranscript(current => markRequestAnswered(current, request.requestId))
     } catch (responseError) {
       setError(
-        responseError instanceof Error ? responseError.message : String(responseError),
+        responseError instanceof Error
+          ? responseError.message
+          : String(responseError),
       )
       throw responseError
     }
@@ -1272,6 +1372,7 @@ export function App() {
     transcriptFollowRef.current = true
     setSelectedStoredId('')
     setRuntimeSessionId('')
+    setSessionCwd('')
     setTranscript([])
     setError('')
     setActiveTab('chat')
@@ -1300,304 +1401,538 @@ export function App() {
     )
   }
 
+  async function applySessionWorkspace(cwd: string) {
+    const path = cwd.trim()
+    if (!path) return
+    const transport = transportRef.current
+    if (!transport) throw new Error('Connect to Hermes first')
+    let resolved = path
+    const activeRuntimeId = runtimeSessionIdRef.current
+    if (activeRuntimeId) {
+      const info = await transport.gateway.request<{
+        branch?: string
+        cwd?: string
+      }>('session.cwd.set', {
+        session_id: activeRuntimeId,
+        cwd: path,
+      })
+      resolved = info.cwd || path
+      setSessionCwd(resolved)
+      setSessions(current =>
+        current.map(session =>
+          session.id === selectedStoredIdRef.current
+            ? { ...session, cwd: resolved, git_branch: info.branch }
+            : session,
+        ),
+      )
+      void refreshSessions(transport)
+    }
+    setPreferredWorkspace(resolved)
+    persistPreferredWorkspace(connection.id, resolved)
+    setNotice(
+      activeRuntimeId
+        ? `Session workspace set to ${resolved}`
+        : `New conversations will start in ${resolved}`,
+    )
+  }
+
+  async function chooseShareConnection(
+    target: BrowserConnection,
+  ): Promise<boolean> {
+    setShareWorkspace(loadPreferredWorkspace(target.id))
+    if (
+      target.id === connectionRef.current.id &&
+      connected &&
+      transportRef.current &&
+      desiredConnectedRef.current
+    ) {
+      return true
+    }
+    return switchSavedConnection(target)
+  }
+
+  async function discardPendingShare() {
+    const share = pendingShare
+    setPendingShare(null)
+    setShareWorkspaceOpen(false)
+    sharedImageUploadRef.current = null
+    if (!share || !nativeClient) return
+    await HermesNative.discardShare({ shareId: share.id }).catch(
+      () => undefined,
+    )
+  }
+
+  async function sendPendingShare(destination: ShareDestination) {
+    const share = pendingShare
+    const transport = transportRef.current
+    if (!share || !transport || !connected) {
+      throw new Error('Connect the selected Hermes target first')
+    }
+    if (destination.connectionId !== connectionRef.current.id) {
+      throw new Error('The selected Hermes target is not active')
+    }
+
+    setBusy(true)
+    setError('')
+    transcriptFollowRef.current = true
+    try {
+      const promptText = sharedPromptText(share, destination.text)
+      let sessionId = ''
+      if (destination.sessionId === 'new') {
+        const created = await transport.gateway.request<SessionCreateResult>(
+          'session.create',
+          sessionCreateParams({
+            cwd: destination.cwd,
+            preview: promptText,
+            profile: connectionRef.current.profile,
+          }),
+        )
+        sessionId = created.session_id
+        runtimeSessionIdRef.current = sessionId
+        selectedStoredIdRef.current = created.stored_session_id
+        setRuntimeSessionId(sessionId)
+        setSelectedStoredId(created.stored_session_id)
+        setSessionCwd(created.info?.cwd || destination.cwd)
+        setTranscript(historyToTranscript(created.messages ?? []))
+      } else {
+        const session = sessions.find(row => row.id === destination.sessionId)
+        if (!session) {
+          throw new Error('The selected session is no longer available')
+        }
+        sessionId = await selectSession(session)
+      }
+
+      if (
+        share.kind === 'image' &&
+        (sharedImageUploadRef.current?.shareId !== share.id ||
+          sharedImageUploadRef.current.sessionId !== sessionId)
+      ) {
+        const image = await HermesNative.readSharedImage({ shareId: share.id })
+        const attached = await transport.gateway.request<{
+          attached?: boolean
+          message?: string
+        }>(
+          'image.attach_bytes',
+          sharedImageAttachParams(share, image.dataUrl, sessionId),
+        )
+        if (!attached.attached) {
+          throw new Error(
+            attached.message || 'Could not attach the shared image',
+          )
+        }
+        sharedImageUploadRef.current = { sessionId, shareId: share.id }
+      }
+
+      const displayText =
+        share.kind === 'image'
+          ? [`[Shared image: ${share.name || 'image'}]`, promptText]
+              .filter(Boolean)
+              .join('\n\n')
+          : promptText
+      setTranscript(current => [
+        ...current,
+        {
+          id: `user-${Date.now()}-${current.length}`,
+          kind: 'user',
+          text: displayText,
+        },
+      ])
+      await submitPrompt(promptText, sessionId)
+      setActiveTab('chat')
+      setNotice(`Sent to ${connectionRef.current.name || 'Hermes'}`)
+      await discardPendingShare()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <button className="brand-button" onClick={() => setActiveTab('chat')}>
-          <img
-            alt=""
-            aria-hidden="true"
-            className="brand-mark"
-            src="./nous-sidecar-128.png"
-          />
-          <span>
-            <small>Hermes</small>
-            <strong>Mobile</strong>
-          </span>
-        </button>
-        <button
-          className={`host-pill state-${connectionState}`}
-          onClick={() => setConnectionOpen(true)}
-        >
-          <span className="host-dot" />
-          <span>{connected ? connection.name || 'Connected' : 'Connect'}</span>
-          <span className="host-chevron">⌄</span>
-        </button>
-      </header>
-
-      {(error || notice) && (
-        <div className={`toast ${error ? 'toast-error' : 'toast-success'}`}>
-          <span>{error || notice}</span>
-          <button
-            aria-label="Dismiss"
-            onClick={() => {
-              setError('')
-              setNotice('')
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      <div className="mobile-workspace">
-        <section
-          className={`app-view chat-view ${activeTab === 'chat' ? 'active' : ''}`}
-        >
-          <div className="thread-heading">
-            <div>
-              <p className="eyebrow">
-                {runtimeSessionId ? 'Live session' : 'Ready when you are'}
-              </p>
-              <h1>{activeSession?.title || 'New conversation'}</h1>
-            </div>
-            {runtimeSessionId && (
-              <button className="stop-button" onClick={() => void stop()}>
-                <span className="stop-square" />
-                Stop
-              </button>
-            )}
-          </div>
-
-          <div
-            className="transcript"
-            aria-live="polite"
-            ref={transcriptRef}
-            onScroll={handleTranscriptScroll}
-          >
-            <Transcript
-              activeSpeechId={activeSpeechId}
-              items={transcript}
-              toolDetailMode={toolDetailMode}
-              voicePhase={voicePhase}
-              onRespond={respondToRequest}
-              onSpeak={(text, itemId) =>
-                toggleSpeech(markdownToSpeechText(text), itemId)
-              }
+    <EmbedPreferencesProvider connectionId={connection.id}>
+      <main className="app-shell">
+        <header className="topbar">
+          <button className="brand-button" onClick={() => setActiveTab('chat')}>
+            <img
+              alt=""
+              aria-hidden="true"
+              className="brand-mark"
+              src="./nous-sidecar-128.png"
             />
-          </div>
+            <span>
+              <small>Hermes</small>
+              <strong>Mobile</strong>
+            </span>
+          </button>
+          <button
+            className={`host-pill state-${connectionState}`}
+            onClick={() => setConnectionOpen(true)}
+          >
+            <span className="host-dot" />
+            <span>
+              {connected ? connection.name || 'Connected' : 'Connect'}
+            </span>
+            <span className="host-chevron">⌄</span>
+          </button>
+        </header>
 
-          <form className="composer" onSubmit={event => void submit(event)}>
-            {commandSuggestions.length > 0 && (
-              <div className="command-suggestions">
-                {commandSuggestions.map(suggestion => (
-                  <button
-                    key={`${suggestion.text}-${suggestion.display}`}
-                    type="button"
-                    onClick={() => setDraft(`${suggestion.text} `)}
-                  >
-                    <strong>{suggestion.display}</strong>
-                    <span>{suggestion.meta}</span>
-                  </button>
-                ))}
+        {(error || notice) && (
+          <div className={`toast ${error ? 'toast-error' : 'toast-success'}`}>
+            <span>{error || notice}</span>
+            <button
+              aria-label="Dismiss"
+              onClick={() => {
+                setError('')
+                setNotice('')
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        <div className="mobile-workspace">
+          <section
+            className={`app-view chat-view ${activeTab === 'chat' ? 'active' : ''}`}
+          >
+            <div className="thread-heading">
+              <div>
+                <p className="eyebrow">
+                  {runtimeSessionId ? 'Live session' : 'Ready when you are'}
+                </p>
+                <h1>{activeSession?.title || 'New conversation'}</h1>
               </div>
-            )}
-            <div className="composer-box">
-              <button
-                aria-label={
-                  voicePhase === 'recording'
-                    ? 'Stop recording and transcribe'
-                    : 'Record a voice message'
-                }
-                className={`voice-button ${
-                  voicePhase === 'recording' ? 'recording' : ''
-                }`}
-                disabled={
-                  !connected ||
-                  !['idle', 'recording'].includes(voicePhase)
-                }
-                type="button"
-                onClick={toggleRecording}
-              >
-                {voicePhase === 'recording' ? (
-                  <span className="recording-stop" />
-                ) : (
-                  <MicrophoneIcon />
-                )}
-              </button>
-              <textarea
-                ref={composerInputRef}
-                disabled={!connected}
-                placeholder={
-                  connected
-                    ? 'Message Hermes…'
-                    : 'Connect to a Hermes host'
-                }
-                rows={1}
-                value={draft}
-                onChange={event => setDraft(event.target.value)}
-                onKeyDown={event => {
-                  if (
-                    event.key === 'Enter' &&
-                    !event.shiftKey &&
-                    !event.nativeEvent.isComposing
-                  ) {
-                    event.preventDefault()
-                    event.currentTarget.form?.requestSubmit()
-                  }
-                }}
-              />
-              <button
-                aria-label="Send"
-                className="send-button"
-                disabled={!connected || busy || !draft.trim()}
-                type="submit"
-              >
-                <SendIcon />
-              </button>
-            </div>
-            <div className="composer-meta">
-              <span>
-                {voicePhase === 'recording'
-                  ? 'Recording, tap stop to transcribe'
-                  : voicePhase === 'transcribing'
-                    ? 'Hermes is transcribing'
-                    : voicePhase === 'synthesizing'
-                      ? 'Hermes is preparing reply audio'
-                      : voicePhase === 'speaking'
-                        ? 'Playing reply audio'
-                    : runtimeSessionId
-                      ? 'Session attached'
-                      : 'Creates on send'}
-              </span>
-              {voicePhase === 'speaking' || voicePhase === 'synthesizing' ? (
-                <button
-                  className="composer-audio-stop"
-                  type="button"
-                  onClick={stopPlayback}
-                >
-                  Stop audio
+              {runtimeSessionId && (
+                <button className="stop-button" onClick={() => void stop()}>
+                  <span className="stop-square" />
+                  Stop
                 </button>
-              ) : (
-                <span>/ commands supported</span>
               )}
             </div>
-          </form>
-        </section>
+            <button
+              className="session-workspace-button"
+              disabled={!connected || busy}
+              onClick={() => setWorkspaceOpen(true)}
+            >
+              <span>Session cwd</span>
+              <strong>
+                {sessionCwd || preferredWorkspace || 'Choose workspace'}
+              </strong>
+              <small>Change</small>
+            </button>
 
-        <section
-          className={`app-view sessions-view ${
-            activeTab === 'sessions' ? 'active' : ''
-          }`}
-        >
-          <SessionsView
-            activeProjectId={activeProjectId}
-            connected={connected}
-            profile={connection.profile}
-            projectDetail={projectDetail}
-            projectLoading={projectLoading}
-            projects={projects}
-            selectedSessionId={selectedStoredId}
-            sessions={sessions}
-            onNewSession={startDraft}
-            onProject={selectProject}
-            onRefresh={() => refreshSessions()}
-            onSession={selectSession}
-          />
-        </section>
+            <div
+              className="transcript"
+              aria-live="polite"
+              ref={transcriptRef}
+              onScroll={handleTranscriptScroll}
+            >
+              <Transcript
+                activeSpeechId={activeSpeechId}
+                items={transcript}
+                toolDetailMode={toolDetailMode}
+                transport={transportRef.current}
+                voicePhase={voicePhase}
+                onRespond={respondToRequest}
+                onSpeak={(text, itemId) =>
+                  toggleSpeech(markdownToSpeechText(text), itemId)
+                }
+              />
+            </div>
 
-        <section
-          className={`app-view reader-view ${
-            activeTab === 'reader' ? 'active' : ''
-          }`}
-        >
-          <ReaderView
-            connected={connected}
-            connectionId={connection.id}
-            latestText={latestAssistantText}
-            normalVoice={voiceSelection}
-            phase={voicePhase}
-            transport={transportRef.current}
-            onSpeak={speakSequence}
-            onStop={stopPlayback}
-          />
-        </section>
+            <form className="composer" onSubmit={event => void submit(event)}>
+              {commandSuggestions.length > 0 && (
+                <div className="command-suggestions">
+                  {commandSuggestions.map(suggestion => (
+                    <button
+                      key={`${suggestion.text}-${suggestion.display}`}
+                      type="button"
+                      onClick={() => setDraft(`${suggestion.text} `)}
+                    >
+                      <strong>{suggestion.display}</strong>
+                      <span>{suggestion.meta}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="composer-box">
+                <button
+                  aria-label={
+                    voicePhase === 'recording'
+                      ? 'Stop recording and transcribe'
+                      : 'Record a voice message'
+                  }
+                  className={`voice-button ${
+                    voicePhase === 'recording' ? 'recording' : ''
+                  }`}
+                  disabled={
+                    !connected || !['idle', 'recording'].includes(voicePhase)
+                  }
+                  type="button"
+                  onClick={toggleRecording}
+                >
+                  {voicePhase === 'recording' ? (
+                    <span className="recording-stop" />
+                  ) : (
+                    <MicrophoneIcon />
+                  )}
+                </button>
+                <textarea
+                  ref={composerInputRef}
+                  disabled={!connected}
+                  placeholder={
+                    connected ? 'Message Hermes…' : 'Connect to a Hermes host'
+                  }
+                  rows={1}
+                  value={draft}
+                  onChange={event => setDraft(event.target.value)}
+                  onKeyDown={event => {
+                    if (
+                      event.key === 'Enter' &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault()
+                      event.currentTarget.form?.requestSubmit()
+                    }
+                  }}
+                />
+                <button
+                  aria-label="Send"
+                  className="send-button"
+                  disabled={!connected || busy || !draft.trim()}
+                  type="submit"
+                >
+                  <SendIcon />
+                </button>
+              </div>
+              <div className="composer-meta">
+                <span>
+                  {voicePhase === 'recording'
+                    ? 'Recording, tap stop to transcribe'
+                    : voicePhase === 'transcribing'
+                      ? 'Hermes is transcribing'
+                      : voicePhase === 'synthesizing'
+                        ? 'Hermes is preparing reply audio'
+                        : voicePhase === 'speaking'
+                          ? 'Playing reply audio'
+                          : runtimeSessionId
+                            ? 'Session attached'
+                            : 'Creates on send'}
+                </span>
+                {voicePhase === 'speaking' || voicePhase === 'synthesizing' ? (
+                  <button
+                    className="composer-audio-stop"
+                    type="button"
+                    onClick={stopPlayback}
+                  >
+                    Stop audio
+                  </button>
+                ) : (
+                  <span>/ commands supported</span>
+                )}
+              </div>
+            </form>
+          </section>
 
-        <section
-          className={`app-view files-view ${
-            activeTab === 'files' ? 'active' : ''
-          }`}
-        >
-          <FilesView
-            connected={connected}
-            connectionId={connection.id}
-            initialPath={
-              activeSession?.cwd || activeSession?.git_repo_root || ''
-            }
-            transport={transportRef.current}
-          />
-        </section>
-
-        <section
-          className={`app-view control-view ${
-            activeTab === 'control' ? 'active' : ''
-          }`}
-        >
-          <ControlPanel
-            connected={connected}
-            gateway={transportRef.current?.gateway ?? null}
-            runtimeSessionId={runtimeSessionId}
-            activeSkinName={activeSkinName}
-            themeSelection={themeSelection}
-            autoSpeak={autoSpeak}
-            transport={transportRef.current}
-            voiceSelection={voiceSelection}
-            voicePhase={voicePhase}
-            onAutoSpeakChange={changeAutoSpeak}
-            onThemeSelectionChange={changeThemeSelection}
-            onNotice={setNotice}
-            onStopSpeech={stopPlayback}
-            onToolDetailModeChange={changeToolDetailMode}
-            onVoiceSelectionChange={changeVoiceSelection}
-          />
-        </section>
-      </div>
-
-      <nav className="bottom-nav" aria-label="Primary">
-        {(
-          [
-            ['chat', 'Chat'],
-            ['sessions', 'Sessions'],
-            ['reader', 'Reader'],
-            ['files', 'Files'],
-            ['control', 'Control'],
-          ] as Array<[AppTab, string]>
-        ).map(([tab, label]) => (
-          <button
-            className={activeTab === tab ? 'active' : ''}
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+          <section
+            className={`app-view sessions-view ${
+              activeTab === 'sessions' ? 'active' : ''
+            }`}
           >
-            <span className="nav-icon-shell">
-              <NavIcon tab={tab} />
-            </span>
-            <small>{label}</small>
-          </button>
-        ))}
-      </nav>
+            <SessionsView
+              activeProjectId={activeProjectId}
+              connected={connected}
+              profile={connection.profile}
+              projectDetail={projectDetail}
+              projectLoading={projectLoading}
+              projects={projects}
+              selectedSessionId={selectedStoredId}
+              sessions={sessions}
+              onNewSession={startDraft}
+              onProject={selectProject}
+              onRefresh={() => refreshSessions()}
+              onSession={async session => {
+                await selectSession(session)
+              }}
+            />
+          </section>
 
-      <ConnectionSheet
-        busy={busy}
-        capabilities={capabilities}
-        cloudAgents={cloudAgents}
-        cloudOrgs={cloudOrgs}
-        cloudSignedIn={cloudSignedIn}
-        connected={connected}
-        connection={connection}
-        nativeClient={nativeClient}
-        open={connectionOpen}
-        savedConnections={savedConnections}
-        onClose={() => setConnectionOpen(false)}
-        onCloudAgent={connectCloudAgent}
-        onCloudDiscover={discoverCloud}
-        onCloudLogin={signInToCloud}
-        onCloudLogout={signOutOfCloud}
-        onConnect={() => connect(connection)}
-        onConnectionChange={setConnection}
-        onDisconnect={disconnect}
-        onNewDirect={newDirectConnection}
-        onSavedConnection={switchSavedConnection}
-      />
-    </main>
+          <section
+            className={`app-view reader-view ${
+              activeTab === 'reader' ? 'active' : ''
+            }`}
+          >
+            <ReaderView
+              connected={connected}
+              connectionId={connection.id}
+              latestText={latestAssistantText}
+              normalVoice={voiceSelection}
+              phase={voicePhase}
+              transport={transportRef.current}
+              importedDocument={readerImport}
+              onRender={renderSequence}
+              onSpeak={speakSequence}
+              onStop={stopPlayback}
+            />
+          </section>
+
+          <section
+            className={`app-view files-view ${
+              activeTab === 'files' ? 'active' : ''
+            }`}
+          >
+            <FilesView
+              connected={connected}
+              connectionId={connection.id}
+              initialPath={
+                sessionCwd ||
+                activeSession?.cwd ||
+                activeSession?.git_repo_root ||
+                preferredWorkspace
+              }
+              transport={transportRef.current}
+              onOpenInPreviewer={document => {
+                setReaderImport({
+                  document,
+                  id: Date.now(),
+                  mode: 'preview',
+                })
+                setActiveTab('reader')
+              }}
+              onOpenInReader={document => {
+                setReaderImport({
+                  document,
+                  id: Date.now(),
+                  mode: 'reader',
+                })
+                setActiveTab('reader')
+              }}
+              onUseAsWorkspace={path => applySessionWorkspace(path)}
+            />
+          </section>
+
+          <section
+            className={`app-view control-view ${
+              activeTab === 'control' ? 'active' : ''
+            }`}
+          >
+            <ControlPanel
+              key={controlVisit}
+              connected={connected}
+              gateway={transportRef.current?.gateway ?? null}
+              runtimeSessionId={runtimeSessionId}
+              profile={connection.profile}
+              sessionCwd={sessionCwd}
+              preferredWorkspace={preferredWorkspace}
+              activeSkinName={activeSkinName}
+              themeSelection={themeSelection}
+              autoSpeak={autoSpeak}
+              transport={transportRef.current}
+              voiceSelection={voiceSelection}
+              voicePhase={voicePhase}
+              onAutoSpeakChange={changeAutoSpeak}
+              onThemeSelectionChange={changeThemeSelection}
+              onNotice={setNotice}
+              onOpenWorkspace={() => setWorkspaceOpen(true)}
+              onStopSpeech={stopPlayback}
+              onToolDetailModeChange={changeToolDetailMode}
+              onVoiceSelectionChange={changeVoiceSelection}
+            />
+          </section>
+        </div>
+
+        <nav className="bottom-nav" aria-label="Primary">
+          {(
+            [
+              ['chat', 'Chat'],
+              ['sessions', 'Sessions'],
+              ['reader', 'Reader'],
+              ['files', 'Files'],
+              ['control', 'Control'],
+            ] as Array<[AppTab, string]>
+          ).map(([tab, label]) => (
+            <button
+              className={activeTab === tab ? 'active' : ''}
+              key={tab}
+              onClick={() => {
+                if (tab === 'control') setControlVisit(value => value + 1)
+                setActiveTab(tab)
+              }}
+            >
+              <span className="nav-icon-shell">
+                <NavIcon tab={tab} />
+              </span>
+              <small>{label}</small>
+            </button>
+          ))}
+        </nav>
+        <WorkspaceSheet
+          connected={connected}
+          currentPath={sessionCwd || preferredWorkspace}
+          open={workspaceOpen}
+          transport={transportRef.current}
+          onApply={applySessionWorkspace}
+          onClose={() => setWorkspaceOpen(false)}
+        />
+
+        <ShareSheet
+          activeConnection={connection}
+          activeSessionId={selectedStoredId}
+          busy={busy}
+          connected={connected}
+          connections={savedConnections}
+          defaultWorkspace={preferredWorkspace}
+          sessions={sessions}
+          share={pendingShare}
+          shareWorkspace={shareWorkspace}
+          onChooseWorkspace={() => setShareWorkspaceOpen(true)}
+          onClose={() => void discardPendingShare()}
+          onConnection={chooseShareConnection}
+          onSend={sendPendingShare}
+        />
+
+        <WorkspaceSheet
+          applyLabel="Use for new session"
+          connected={connected}
+          currentPath={shareWorkspace || preferredWorkspace}
+          description="This directory is used only for the new conversation receiving the shared content."
+          eyebrow="Shared destination"
+          open={shareWorkspaceOpen}
+          stacked
+          title="Choose new-session workspace"
+          transport={transportRef.current}
+          onApply={async path => {
+            setShareWorkspace(path)
+          }}
+          onClose={() => setShareWorkspaceOpen(false)}
+        />
+
+        <ConnectionSheet
+          busy={busy}
+          capabilities={capabilities}
+          cloudAgents={cloudAgents}
+          cloudOrgs={cloudOrgs}
+          cloudSignedIn={cloudSignedIn}
+          connected={connected}
+          connection={connection}
+          nativeClient={nativeClient}
+          open={connectionOpen}
+          savedConnections={savedConnections}
+          onClose={() => setConnectionOpen(false)}
+          onCloudAgent={connectCloudAgent}
+          onCloudDiscover={discoverCloud}
+          onCloudLogin={signInToCloud}
+          onCloudLogout={signOutOfCloud}
+          onConnect={async () => {
+            await connect(connection)
+          }}
+          onConnectionChange={setConnection}
+          onDisconnect={disconnect}
+          onNewDirect={newDirectConnection}
+          onSavedConnection={async saved => {
+            await switchSavedConnection(saved)
+          }}
+        />
+      </main>
+    </EmbedPreferencesProvider>
   )
 }

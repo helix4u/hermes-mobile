@@ -111,6 +111,59 @@ describe('core gateway compatibility', () => {
 })
 
 describe('authenticated JSON requests', () => {
+  test('downloads a remote file through the authenticated filesystem API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"dataUrl":"data:text/plain;base64,aGVsbG8="}', {
+        status: 200,
+      }),
+    )
+    const click = vi.fn()
+    const remove = vi.fn()
+    const appendChild = vi.fn()
+    const anchor = {
+      click,
+      download: '',
+      href: '',
+      remove,
+      style: { display: '' },
+    }
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('document', {
+      body: { appendChild },
+      createElement: vi.fn().mockReturnValue(anchor),
+    })
+    const transport = new BrowserHermesTransport({
+      id: 'direct-home',
+      name: 'Home',
+      baseUrl: 'https://hermes.example',
+      profile: 'default',
+      token: 'local-test-token',
+      authMode: 'token',
+      connectionType: 'direct',
+    })
+
+    await expect(
+      transport.downloadFile('/work/a b.txt', 'a b.txt'),
+    ).resolves.toBe(true)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hermes.example/api/fs/read-data-url?path=%2Fwork%2Fa%20b.txt',
+      expect.objectContaining({
+        credentials: 'include',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer local-test-token',
+        }),
+      }),
+    )
+    expect(anchor).toMatchObject({
+      download: 'a b.txt',
+      href: 'data:text/plain;base64,aGVsbG8=',
+    })
+    expect(appendChild).toHaveBeenCalledWith(anchor)
+    expect(click).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledOnce()
+  })
+
   test('posts voice payloads through the selected Hermes connection', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -149,6 +202,38 @@ describe('authenticated JSON requests', () => {
         body: JSON.stringify({
           data_url: 'data:audio/webm;base64,AAAA',
           mime_type: 'audio/webm',
+        }),
+      }),
+    )
+  })
+
+  test('supports authenticated PUT requests for deep-merged host config', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response('{"ok":true}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const transport = new BrowserHermesTransport({
+      id: 'direct-home',
+      name: 'Home',
+      baseUrl: 'https://hermes.example',
+      profile: 'default',
+      token: 'local-test-token',
+      authMode: 'token',
+      connectionType: 'direct',
+    })
+
+    await transport.requestJson(
+      '/api/config',
+      { config: { terminal: { cwd: '/workspace' } } },
+      { method: 'PUT' },
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hermes.example/api/config',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          config: { terminal: { cwd: '/workspace' } },
         }),
       }),
     )

@@ -65,7 +65,10 @@ if ($HermesExecutable) {
 }
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments
+$action = New-ScheduledTaskAction `
+    -Execute $powerShell `
+    -Argument $arguments `
+    -WorkingDirectory $PSScriptRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
 $principal = New-ScheduledTaskPrincipal `
     -UserId $identity `

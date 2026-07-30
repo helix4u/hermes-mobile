@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { loadPreviewDocument, type PreviewDocument } from '../preview'
 import type { HermesTransport } from '../transport/hermes-transport'
+import { DocumentPreview, type DocumentMode } from './DocumentPreview'
 
 interface FileEntry {
   name: string
@@ -12,21 +14,14 @@ interface FileListResponse {
   error?: string
 }
 
-interface FileTextResponse {
-  binary?: boolean
-  byteSize?: number
-  language?: string
-  mimeType?: string
-  path?: string
-  text?: string
-  truncated?: boolean
-}
-
 interface FilesViewProps {
   connected: boolean
   connectionId: string
   initialPath: string
   transport: HermesTransport | null
+  onOpenInPreviewer: (document: PreviewDocument) => void
+  onOpenInReader: (document: PreviewDocument) => void
+  onUseAsWorkspace: (path: string) => Promise<void>
 }
 
 function parentPath(path: string): string {
@@ -43,10 +38,22 @@ function fileStateKey(connectionId: string): string {
   return `hermes-mobile.files.${connectionId}.path`
 }
 
+export function revealFilePreview(
+  preview: Pick<HTMLElement, 'scrollIntoView'> | null,
+): void {
+  preview?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start',
+  })
+}
+
 export function FilesView({
   connected,
   connectionId,
   initialPath,
+  onOpenInPreviewer,
+  onOpenInReader,
+  onUseAsWorkspace,
   transport,
 }: FilesViewProps) {
   const [path, setPath] = useState(() =>
@@ -56,12 +63,16 @@ export function FilesView({
   )
   const [pathInput, setPathInput] = useState(path)
   const [entries, setEntries] = useState<FileEntry[]>([])
-  const [selected, setSelected] = useState<FileTextResponse | null>(null)
+  const [selected, setSelected] = useState<PreviewDocument | null>(null)
   const [content, setContent] = useState('')
   const [savedContent, setSavedContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [downloadingPath, setDownloadingPath] = useState('')
+  const [applyingWorkspace, setApplyingWorkspace] = useState(false)
+  const [previewMode, setPreviewMode] = useState<DocumentMode>('preview')
   const [error, setError] = useState('')
+  const previewRef = useRef<HTMLDivElement | null>(null)
 
   const loadDirectory = useCallback(
     async (targetPath: string) => {
@@ -80,7 +91,8 @@ export function FilesView({
         const result = await transport.requestJson<FileListResponse>(
           `/api/fs/list?path=${encodeURIComponent(resolved)}`,
         )
-        if (result.error) throw new Error(`Could not open ${resolved}: ${result.error}`)
+        if (result.error)
+          throw new Error(`Could not open ${resolved}: ${result.error}`)
         setPath(resolved)
         setPathInput(resolved)
         setEntries(result.entries ?? [])
@@ -106,26 +118,35 @@ export function FilesView({
     if (connected) void loadDirectory(stored)
   }, [connected, connectionId, initialPath, loadDirectory])
 
+  useEffect(() => {
+    if (!selected) return
+    const frame = window.requestAnimationFrame(() => {
+      revealFilePreview(previewRef.current)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [selected])
+
   async function openFile(entry: FileEntry) {
     if (!transport) return
     setLoading(true)
     setError('')
     try {
-      const result = await transport.requestJson<FileTextResponse>(
-        `/api/fs/read-text?path=${encodeURIComponent(entry.path)}`,
-      )
+      const result = await loadPreviewDocument(transport, entry.path)
       setSelected(result)
-      setContent(result.text ?? '')
-      setSavedContent(result.text ?? '')
+      setContent(result.text)
+      setSavedContent(result.text)
+      setPreviewMode('preview')
     } catch (openError) {
-      setError(openError instanceof Error ? openError.message : String(openError))
+      setError(
+        openError instanceof Error ? openError.message : String(openError),
+      )
     } finally {
       setLoading(false)
     }
   }
 
   async function saveFile() {
-    if (!transport || !selected?.path || selected.binary) return
+    if (!transport || !selected?.path || selected.kind !== 'text') return
     setSaving(true)
     setError('')
     try {
@@ -135,9 +156,32 @@ export function FilesView({
       })
       setSavedContent(content)
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : String(saveError))
+      setError(
+        saveError instanceof Error ? saveError.message : String(saveError),
+      )
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function downloadFile(
+    filePath: string,
+    filename: string,
+    mimeType?: string,
+  ) {
+    if (!transport) return
+    setDownloadingPath(filePath)
+    setError('')
+    try {
+      await transport.downloadFile(filePath, filename, mimeType)
+    } catch (downloadError) {
+      setError(
+        downloadError instanceof Error
+          ? downloadError.message
+          : String(downloadError),
+      )
+    } finally {
+      setDownloadingPath('')
     }
   }
 
@@ -148,13 +192,34 @@ export function FilesView({
           <span className="eyebrow">Workspace</span>
           <h1>Files</h1>
         </div>
-        <button
-          className="quiet-button"
-          disabled={!connected || loading}
-          onClick={() => void loadDirectory(path)}
-        >
-          Refresh
-        </button>
+        <div className="file-heading-actions">
+          <button
+            className="quiet-button"
+            disabled={!connected || !path || applyingWorkspace}
+            onClick={() => {
+              setApplyingWorkspace(true)
+              setError('')
+              void onUseAsWorkspace(path)
+                .catch(workspaceError =>
+                  setError(
+                    workspaceError instanceof Error
+                      ? workspaceError.message
+                      : String(workspaceError),
+                  ),
+                )
+                .finally(() => setApplyingWorkspace(false))
+            }}
+          >
+            {applyingWorkspace ? 'Applying…' : 'Use as cwd'}
+          </button>
+          <button
+            className="quiet-button"
+            disabled={!connected || loading}
+            onClick={() => void loadDirectory(path)}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       <form
@@ -192,65 +257,64 @@ export function FilesView({
             <p className="file-empty">This directory is empty.</p>
           ) : (
             entries.map(entry => (
-              <button
-                className="file-row"
-                key={entry.path}
-                onClick={() =>
-                  entry.isDirectory
-                    ? void loadDirectory(entry.path)
-                    : void openFile(entry)
-                }
-              >
-                <span aria-hidden="true">
-                  {entry.isDirectory ? '▰' : '▤'}
-                </span>
-                <span>{entry.name}</span>
-                <small>{entry.isDirectory ? 'Folder' : 'File'}</small>
-              </button>
+              <div className="file-row-shell" key={entry.path}>
+                <button
+                  className="file-row"
+                  onClick={() =>
+                    entry.isDirectory
+                      ? void loadDirectory(entry.path)
+                      : void openFile(entry)
+                  }
+                >
+                  <span aria-hidden="true">
+                    {entry.isDirectory ? '▰' : '▤'}
+                  </span>
+                  <span>{entry.name}</span>
+                  <small>{entry.isDirectory ? 'Folder' : 'File'}</small>
+                </button>
+                {!entry.isDirectory && (
+                  <button
+                    aria-label={`Download ${entry.name}`}
+                    className="file-download-button"
+                    disabled={downloadingPath === entry.path}
+                    onClick={() => void downloadFile(entry.path, entry.name)}
+                  >
+                    {downloadingPath === entry.path ? '…' : '↓'}
+                  </button>
+                )}
+              </div>
             ))
           )}
         </section>
 
         {selected && (
-          <section className="file-preview">
-            <div className="file-preview-heading">
-              <div>
-                <strong>{selected.path?.split(/[\\/]/).pop()}</strong>
-                <small>
-                  {selected.language || selected.mimeType || 'text'}
-                  {typeof selected.byteSize === 'number'
-                    ? ` · ${selected.byteSize.toLocaleString()} bytes`
-                    : ''}
-                  {selected.truncated ? ' · preview truncated' : ''}
-                </small>
-              </div>
-              <button
-                className="primary-button"
-                disabled={
-                  saving ||
-                  selected.binary ||
-                  selected.truncated ||
-                  content === savedContent
-                }
-                onClick={() => void saveFile()}
-              >
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-            {selected.binary ? (
-              <div className="empty-panel">
-                <h2>Binary preview</h2>
-                <p>This file is not editable as text on mobile.</p>
-              </div>
-            ) : (
-              <textarea
-                aria-label="File content"
-                spellCheck={false}
-                value={content}
-                onChange={event => setContent(event.target.value)}
-              />
-            )}
-          </section>
+          <div ref={previewRef}>
+            <DocumentPreview
+              content={content}
+              document={selected}
+              downloading={downloadingPath === selected.path}
+              mode={previewMode}
+              savedContent={savedContent}
+              saving={saving}
+              onClose={() => setSelected(null)}
+              onContentChange={setContent}
+              onDownload={() =>
+                void downloadFile(
+                  selected.path,
+                  selected.name,
+                  selected.mimeType,
+                )
+              }
+              onModeChange={setPreviewMode}
+              onOpenPreviewer={() =>
+                onOpenInPreviewer({ ...selected, text: content })
+              }
+              onOpenReader={() =>
+                onOpenInReader({ ...selected, text: content })
+              }
+              onSave={() => void saveFile()}
+            />
+          </div>
         )}
       </div>
     </div>
