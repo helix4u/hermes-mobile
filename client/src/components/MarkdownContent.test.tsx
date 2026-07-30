@@ -43,4 +43,36 @@ describe('MarkdownContent', () => {
     expect(html).toContain('Second block')
     expect(html).not.toContain('<hr')
   })
+
+  test('gates supported bare embeds and renders direct audio/video players', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownContent>
+        {
+          'https://youtu.be/dQw4w9WgXcQ\n\nhttps://cdn.example.com/voice.mp3\n\n![clip](https://cdn.example.com/demo.mp4)'
+        }
+      </MarkdownContent>,
+    )
+
+    expect(html).toContain('YouTube preview')
+    expect(html).toContain('Load once')
+    expect(html).not.toContain('<iframe')
+    expect(html).toContain('<audio')
+    expect(html).toContain('<video')
+  })
+
+  test('turns a completed Hermes MEDIA marker into a private inline attachment', () => {
+    const path =
+      'C:\\Users\\person\\AppData\\Local\\hermes\\cache\\images\\generated.png'
+    const html = renderToStaticMarkup(
+      <MarkdownContent resolveMediaMarkers>
+        {`Here it is.\n\nMEDIA:${path}`}
+      </MarkdownContent>,
+    )
+
+    expect(html).toContain('Here it is.')
+    expect(html).toContain('Loading generated.png')
+    expect(html).toContain('remote-media-status')
+    expect(html).not.toContain('C:\\Users')
+    expect(html).not.toContain('MEDIA:')
+  })
 })

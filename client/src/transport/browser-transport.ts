@@ -92,6 +92,24 @@ export class BrowserHermesTransport {
     return this.fetchJson<T>(path, body, options)
   }
 
+  async downloadFile(
+    path: string,
+    filename: string,
+  ): Promise<boolean> {
+    const result = await this.fetchJson<{ dataUrl?: string }>(
+      `/api/fs/read-data-url?path=${encodeURIComponent(path)}`,
+    )
+    if (!result.dataUrl) throw new Error('Hermes did not return file data')
+    const anchor = document.createElement('a')
+    anchor.href = result.dataUrl
+    anchor.download = filename
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    return true
+  }
+
   disconnect(): void {
     this.gateway.disconnect()
   }
@@ -156,7 +174,7 @@ export class BrowserHermesTransport {
         buildPluginHttpUrl(this.connection.baseUrl, path),
         {
           credentials: 'include',
-          method: body ? 'POST' : 'GET',
+          method: options?.method ?? (body ? 'POST' : 'GET'),
           headers: {
             ...this.authHeaders(),
             ...(body ? { 'Content-Type': 'application/json' } : {}),

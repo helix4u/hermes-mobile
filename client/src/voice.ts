@@ -4,11 +4,7 @@ import type { HermesTransport } from './transport/hermes-transport'
 import { HermesNative } from './transport/native-bridge'
 
 export type VoicePhase =
-  | 'idle'
-  | 'recording'
-  | 'transcribing'
-  | 'synthesizing'
-  | 'speaking'
+  'idle' | 'recording' | 'transcribing' | 'synthesizing' | 'speaking'
 
 export interface SpeechSequenceItem {
   id: string
@@ -21,6 +17,11 @@ export interface SpeechSequenceOptions {
   speechId?: string
   onActive?: (itemId: string | null) => void
   bufferAhead?: number
+}
+
+export interface SpeechRenderOptions {
+  bufferAhead?: number
+  onProgress?: (completed: number, total: number) => void
 }
 
 export interface BufferedSpeechQueueOptions<T> {
@@ -56,6 +57,13 @@ interface SpeechResponse {
   provider?: string
 }
 
+interface AudioBufferShape {
+  getChannelData(channel: number): Float32Array
+  length: number
+  numberOfChannels: number
+  sampleRate: number
+}
+
 interface UseVoiceOptions {
   nativeClient: boolean
   getTransport: () => HermesTransport | null
@@ -68,6 +76,7 @@ const MAX_RECORDING_MS = 120_000
 export const MAX_SPEECH_CHUNK_CHARS = 1_800
 export const DEFAULT_SPEECH_SEQUENCE_BUFFER_AHEAD = 3
 export const MAX_SPEECH_SEQUENCE_BUFFER_AHEAD = 6
+export const SPEECH_REQUEST_TIMEOUT_MS = 8 * 60 * 1_000
 
 export function normalizeSpeechSequenceBufferAhead(value: unknown): number {
   const numeric = Number(value)
@@ -165,6 +174,149 @@ export async function runBufferedSpeechQueue<T>(
   }
 }
 
+export function expandSpeechSequence(
+  items: SpeechSequenceItem[],
+): SpeechSequenceItem[] {
+  return items.flatMap(item =>
+    splitSpeechText(item.text).map((text, chunkIndex) => ({
+      ...item,
+      id: item.id || `speech-${chunkIndex}`,
+      text,
+    })),
+  )
+}
+
+export function audioBufferToMonoPcm16(
+  buffer: AudioBufferShape,
+  targetSampleRate = 24_000,
+): Int16Array {
+  const sourceLength = Math.max(0, buffer.length)
+  if (!sourceLength || !buffer.numberOfChannels) return new Int16Array()
+  const outputLength = Math.max(
+    1,
+    Math.round((sourceLength * targetSampleRate) / buffer.sampleRate),
+  )
+  const output = new Int16Array(outputLength)
+  const channels = Array.from(
+    { length: buffer.numberOfChannels },
+    (_, channel) => buffer.getChannelData(channel),
+  )
+
+  for (let index = 0; index < outputLength; index += 1) {
+    const sourcePosition = (index * buffer.sampleRate) / targetSampleRate
+    const left = Math.min(sourceLength - 1, Math.floor(sourcePosition))
+    const right = Math.min(sourceLength - 1, left + 1)
+    const mix = sourcePosition - left
+    let sample = 0
+    for (const channel of channels) {
+      sample += channel[left] + (channel[right] - channel[left]) * mix
+    }
+    sample = Math.max(-1, Math.min(1, sample / channels.length))
+    output[index] =
+      sample < 0 ? Math.round(sample * 0x8000) : Math.round(sample * 0x7fff)
+  }
+  return output
+}
+
+export function encodePcm16Wav(
+  chunks: Int16Array[],
+  sampleRate = 24_000,
+): ArrayBuffer {
+  const sampleCount = chunks.reduce((total, chunk) => total + chunk.length, 0)
+  const buffer = new ArrayBuffer(44 + sampleCount * 2)
+  const view = new DataView(buffer)
+  const writeAscii = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index))
+    }
+  }
+  writeAscii(0, 'RIFF')
+  view.setUint32(4, 36 + sampleCount * 2, true)
+  writeAscii(8, 'WAVE')
+  writeAscii(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeAscii(36, 'data')
+  view.setUint32(40, sampleCount * 2, true)
+  let offset = 44
+  for (const chunk of chunks) {
+    for (const sample of chunk) {
+      view.setInt16(offset, sample, true)
+      offset += 2
+    }
+  }
+  return buffer
+}
+
+export async function synthesizeSpeechItem(
+  transport: HermesTransport,
+  item: SpeechSequenceItem,
+): Promise<string> {
+  let lastError: unknown
+  for (const config of speechConfigAttempts(item)) {
+    try {
+      const result = await transport.requestJson<SpeechResponse>(
+        '/api/audio/speak',
+        {
+          text: item.text,
+          ...(config ? { tts_config: config } : {}),
+        },
+        { timeoutMs: SPEECH_REQUEST_TIMEOUT_MS },
+      )
+      if (!result.data_url) throw new Error('Hermes returned no speech audio')
+      return result.data_url
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError ?? new Error('Every configured Hermes speech voice failed')
+}
+
+export async function renderSpeechSequenceToWav(
+  transport: HermesTransport,
+  items: SpeechSequenceItem[],
+  options: SpeechRenderOptions = {},
+): Promise<Blob> {
+  const queue = expandSpeechSequence(items)
+  if (!queue.length) throw new Error('There is no speech to render')
+  const AudioContextConstructor =
+    window.AudioContext ||
+    (
+      window as typeof window & {
+        webkitAudioContext?: typeof AudioContext
+      }
+    ).webkitAudioContext
+  if (!AudioContextConstructor) {
+    throw new Error('This device cannot decode speech audio for export')
+  }
+  const audioContext = new AudioContextConstructor()
+  const pcmChunks: Int16Array[] = []
+  let completed = 0
+  try {
+    await runBufferedSpeechQueue(queue, {
+      bufferAhead: options.bufferAhead,
+      synthesize: item => synthesizeSpeechItem(transport, item),
+      play: async (_item, dataUrl) => {
+        const response = await fetch(dataUrl)
+        const decoded = await audioContext.decodeAudioData(
+          await response.arrayBuffer(),
+        )
+        pcmChunks.push(audioBufferToMonoPcm16(decoded))
+        completed += 1
+        options.onProgress?.(completed, queue.length)
+      },
+    })
+  } finally {
+    await audioContext.close()
+  }
+  return new Blob([encodePcm16Wav(pcmChunks)], { type: 'audio/wav' })
+}
+
 function appendSpeechPiece(
   chunks: string[],
   piece: string,
@@ -189,8 +341,7 @@ export function splitSpeechText(
   const safeCap = Math.max(160, Math.floor(maxChars))
   if (cleanText.length <= safeCap) return [cleanText]
 
-  const pieces =
-    cleanText.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/gs) ?? [cleanText]
+  const pieces = cleanText.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/gs) ?? [cleanText]
   const chunks: string[] = []
   let buffer = ''
 
@@ -248,13 +399,12 @@ export function voicePreferenceKey(connectionId: string): string {
 
 export function loadAutoSpeak(connectionId: string): boolean {
   if (typeof window === 'undefined') return false
-  return window.localStorage.getItem(voicePreferenceKey(connectionId)) === 'true'
+  return (
+    window.localStorage.getItem(voicePreferenceKey(connectionId)) === 'true'
+  )
 }
 
-export function persistAutoSpeak(
-  connectionId: string,
-  enabled: boolean,
-): void {
+export function persistAutoSpeak(connectionId: string, enabled: boolean): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(voicePreferenceKey(connectionId), String(enabled))
 }
@@ -274,7 +424,8 @@ function preferredRecordingMimeType(): string {
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Could not read the voice recording'))
+    reader.onerror = () =>
+      reject(new Error('Could not read the voice recording'))
     reader.onload = () => resolve(String(reader.result ?? ''))
     reader.readAsDataURL(blob)
   })
@@ -337,9 +488,13 @@ export function useVoice({
           typeof MediaRecorder === 'undefined' ||
           !navigator.mediaDevices?.getUserMedia
         ) {
-          throw new Error('Microphone recording is not supported in this browser')
+          throw new Error(
+            'Microphone recording is not supported in this browser',
+          )
         }
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        })
         const mimeType = preferredRecordingMimeType()
         const recorder = new MediaRecorder(
           stream,
@@ -383,9 +538,7 @@ export function useVoice({
           recording.recorder.addEventListener(
             'stop',
             () =>
-              resolve(
-                new Blob(recording.chunks, { type: recording.mimeType }),
-              ),
+              resolve(new Blob(recording.chunks, { type: recording.mimeType })),
             { once: true },
           )
           recording.recorder.addEventListener(
@@ -467,13 +620,16 @@ export function useVoice({
         finishAudioRef.current = finish
         audio.addEventListener('ended', onEnded, { once: true })
         audio.addEventListener('error', onAudioError, { once: true })
-        void audio.play().then(() => {
-          if (generation === speechGenerationRef.current) {
-            setPhase('speaking')
-          }
-        }).catch(() =>
-          finish(new Error('The device could not play Hermes speech audio')),
-        )
+        void audio
+          .play()
+          .then(() => {
+            if (generation === speechGenerationRef.current) {
+              setPhase('speaking')
+            }
+          })
+          .catch(() =>
+            finish(new Error('The device could not play Hermes speech audio')),
+          )
       })
     },
     [],
@@ -484,13 +640,7 @@ export function useVoice({
       items: SpeechSequenceItem[],
       options: SpeechSequenceOptions = {},
     ) => {
-      const queue = items.flatMap(item =>
-        splitSpeechText(item.text).map((text, chunkIndex) => ({
-          ...item,
-          id: item.id || `speech-${chunkIndex}`,
-          text,
-        })),
-      )
+      const queue = expandSpeechSequence(items)
       if (!queue.length) return
       stopPlayback()
       onError('')
@@ -501,40 +651,17 @@ export function useVoice({
         const transport = getTransport()
         if (!transport) throw new Error('Connect to Hermes before using speech')
         const completed = await runBufferedSpeechQueue(queue, {
-          bufferAhead: normalizeSpeechSequenceBufferAhead(
-            options.bufferAhead,
-          ),
+          bufferAhead: normalizeSpeechSequenceBufferAhead(options.bufferAhead),
           isCurrent: () => generation === speechGenerationRef.current,
           onActive: itemId => {
             options.onActive?.(itemId)
             if (itemId) setPhase('synthesizing')
           },
           synthesize: async item => {
-            let lastError: unknown
-            for (const config of speechConfigAttempts(item)) {
-              if (generation !== speechGenerationRef.current) {
-                throw new Error('Speech playback stopped')
-              }
-              try {
-                const result = await transport.requestJson<SpeechResponse>(
-                  '/api/audio/speak',
-                  {
-                    text: item.text,
-                    ...(config ? { tts_config: config } : {}),
-                  },
-                )
-                if (!result.data_url) {
-                  throw new Error('Hermes returned no speech audio')
-                }
-                return result.data_url
-              } catch (error) {
-                lastError = error
-              }
+            if (generation !== speechGenerationRef.current) {
+              throw new Error('Speech playback stopped')
             }
-            throw (
-              lastError ??
-              new Error('Every configured Hermes speech voice failed')
-            )
+            return synthesizeSpeechItem(transport, item)
           },
           play: async (_item, dataUrl) => {
             await playAudio(dataUrl, generation)
@@ -576,6 +703,16 @@ export function useVoice({
       )
     },
     [getDefaultTtsConfig, speakSequence],
+  )
+
+  const renderSequence = useCallback(
+    async (items: SpeechSequenceItem[], options: SpeechRenderOptions = {}) => {
+      const transport = getTransport()
+      if (!transport)
+        throw new Error('Connect to Hermes before rendering speech')
+      return renderSpeechSequenceToWav(transport, items, options)
+    },
+    [getTransport],
   )
 
   const toggleSpeech = useCallback(
@@ -622,6 +759,7 @@ export function useVoice({
   return {
     activeSpeechId,
     phase,
+    renderSequence,
     speak,
     speakSequence,
     stopPlayback,

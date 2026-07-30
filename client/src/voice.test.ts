@@ -1,11 +1,13 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { GatewayEvent } from './protocol/types'
 import {
   completedAssistantText,
   normalizeSpeechSequenceBufferAhead,
   runBufferedSpeechQueue,
+  SPEECH_REQUEST_TIMEOUT_MS,
   speechConfigAttempts,
   splitSpeechText,
+  synthesizeSpeechItem,
   voicePreferenceKey,
 } from './voice'
 
@@ -143,5 +145,31 @@ describe('voice helpers', () => {
     ).resolves.toBe(true)
     expect(attempts).toEqual([0, 1, 1])
     expect(played).toEqual(['first', 'second'])
+  })
+
+  test('gives blocking speech synthesis enough time to cross the mobile proxy', async () => {
+    const requestJson = vi.fn().mockResolvedValue({
+      data_url: 'data:audio/mpeg;base64,AA==',
+    })
+    const transport = {
+      requestJson,
+    } as unknown as Parameters<typeof synthesizeSpeechItem>[0]
+
+    await expect(
+      synthesizeSpeechItem(transport, {
+        id: 'podcast-chunk',
+        text: 'A later podcast section.',
+        ttsConfig: { provider: 'xai', xai: { voice_id: 'eve' } },
+      }),
+    ).resolves.toBe('data:audio/mpeg;base64,AA==')
+
+    expect(requestJson).toHaveBeenCalledWith(
+      '/api/audio/speak',
+      {
+        text: 'A later podcast section.',
+        tts_config: { provider: 'xai', xai: { voice_id: 'eve' } },
+      },
+      { timeoutMs: SPEECH_REQUEST_TIMEOUT_MS },
+    )
   })
 })
