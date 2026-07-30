@@ -20,6 +20,44 @@ describe('mobile Control settings disclosures', () => {
           transport={null}
           voicePhase="idle"
           voiceSelection={{ provider: '', speed: 1, voice: '' }}
+          pet={{
+            catalog: [],
+            desktopSpeech: null,
+            desktopSpeechStatus: 'missing',
+            error: '',
+            hostCapabilities: {
+              commentary: false,
+              mode: 'visual-only',
+              personalities: false,
+              sidechat: false,
+            },
+            info: { enabled: false },
+            personality: null,
+            preferences: {
+              commentary: true,
+              delaySeconds: 12,
+              intervalSeconds: 45,
+              commentaryHistory: 5,
+              commentaryLens: 'companion',
+              contextTurns: 3,
+              personalitySlug: 'alien-child',
+              roam: true,
+              speechMode: 'desktop',
+              speechPitch: 0,
+              speechProvider: '',
+              speechSpeed: 1,
+              speechVoice: '',
+              speechVolume: 1,
+              speakCommentary: false,
+              toolTurns: 4,
+              visible: true,
+            },
+            status: 'idle',
+            onPreferences: () => {},
+            onPreviewVoice: () => {},
+            onRefreshDesktopSpeech: () => {},
+            onTest: () => {},
+          }}
           onAutoSpeakChange={() => {}}
           onNotice={() => {}}
           onOpenWorkspace={() => {}}

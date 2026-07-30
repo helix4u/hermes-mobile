@@ -19,6 +19,7 @@ export function VoiceSettings({
 }: VoiceSettingsProps) {
   const {
     catalog,
+    catalogSupported,
     choices,
     error,
     loading,
@@ -34,6 +35,22 @@ export function VoiceSettings({
 
   useEffect(() => {
     if (
+      catalogSupported === false &&
+      (selection.provider ||
+        selection.voice ||
+        selection.instruct ||
+        selection.language)
+    ) {
+      onChange({
+        ...selection,
+        provider: '',
+        voice: '',
+        instruct: '',
+        language: '',
+      })
+      return
+    }
+    if (
       selection.provider &&
       providers.length > 0 &&
       !providers.includes(selection.provider)
@@ -46,7 +63,7 @@ export function VoiceSettings({
         language: '',
       })
     }
-  }, [onChange, providers, selection])
+  }, [catalogSupported, onChange, providers, selection])
 
   return (
     <div className="voice-settings">
@@ -179,8 +196,9 @@ export function VoiceSettings({
         </label>
       </div>
       <p className="section-help">
-        Listen buttons and auto-speak use this connection-scoped voice. Host
-        default follows the server’s own TTS configuration.
+        {catalogSupported === false
+          ? 'This host does not expose provider and voice catalogs. Listen, auto-speak, and Reader use the host’s configured default voice. Full voice controls return automatically when you switch to a compatible host.'
+          : 'Listen buttons and auto-speak use this connection-scoped voice. Host default follows the server’s own TTS configuration.'}
       </p>
       {selectedProvider && (
         <VoiceLibrary

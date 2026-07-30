@@ -15,6 +15,7 @@ export type ToolDetailMode = 'hidden' | 'collapsed' | 'expanded'
 interface TranscriptProps {
   items: TranscriptItem[]
   activeSpeechId: string
+  connectionId: string
   toolDetailMode: ToolDetailMode
   transport?: HermesTransport | null
   voicePhase: VoicePhase
@@ -333,8 +334,29 @@ function RequestCard({
   )
 }
 
+function dismissedPetStorageKey(connectionId: string): string {
+  return `hermes-mobile.pet-commentary-hidden.v1.${connectionId || 'default'}`
+}
+
+function loadDismissedPetIds(connectionId: string): Set<string> {
+  if (typeof localStorage === 'undefined') return new Set()
+  try {
+    const value = JSON.parse(
+      localStorage.getItem(dismissedPetStorageKey(connectionId)) || '[]',
+    )
+    return new Set(
+      Array.isArray(value)
+        ? value.filter(item => typeof item === 'string').slice(-200)
+        : [],
+    )
+  } catch {
+    return new Set()
+  }
+}
+
 export function Transcript({
   activeSpeechId,
+  connectionId,
   items,
   onRespond,
   onSpeak,
@@ -342,6 +364,33 @@ export function Transcript({
   transport = null,
   voicePhase,
 }: TranscriptProps) {
+  const [dismissedPetIds, setDismissedPetIds] = useState<Set<string>>(() =>
+    loadDismissedPetIds(connectionId),
+  )
+
+  useEffect(() => {
+    setDismissedPetIds(loadDismissedPetIds(connectionId))
+  }, [connectionId])
+
+  const dismissPet = (itemId: string) => {
+    setDismissedPetIds(current => {
+      const next = new Set(current)
+      next.add(itemId)
+      const bounded = [...next].slice(-200)
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem(
+            dismissedPetStorageKey(connectionId),
+            JSON.stringify(bounded),
+          )
+        } catch {
+          // Dismissal remains effective for this view when storage is unavailable.
+        }
+      }
+      return new Set(bounded)
+    })
+  }
+
   if (items.length === 0) {
     return (
       <div className="thread-empty">
@@ -359,6 +408,7 @@ export function Transcript({
   return (
     <>
       {items.map(item => {
+        if (item.kind === 'pet' && dismissedPetIds.has(item.id)) return null
         if (item.kind === 'tool') {
           return (
             <ToolCard
@@ -386,9 +436,17 @@ export function Transcript({
         return (
           <article className={`message message-${item.kind}`} key={item.id}>
             <div className="message-label-row">
-              <span>{item.kind === 'event' ? 'Hermes' : item.kind}</span>
+              <span>
+                {item.kind === 'event'
+                  ? 'Hermes'
+                  : item.kind === 'pet'
+                    ? item.pet?.personalityName || 'Pet commentary'
+                    : item.kind}
+              </span>
               <div className="message-actions">
-                {item.kind === 'assistant' && item.text && !item.streaming && (
+                {(item.kind === 'assistant' || item.kind === 'pet') &&
+                  item.text &&
+                  !item.streaming && (
                   <button
                     aria-label={speaking ? 'Stop reading response' : 'Read response aloud'}
                     className={`speak-button ${speaking ? 'active' : ''}`}
@@ -405,6 +463,19 @@ export function Transcript({
                   <MessageCopyButton
                     text={displayTextForMediaMarkers(item.text)}
                   />
+                )}
+                {item.kind === 'pet' && !item.streaming && (
+                  <button
+                    aria-label="Dismiss pet note"
+                    className="pet-dismiss-button"
+                    onClick={() => {
+                      if (speaking) onSpeak(item.text || '', item.id)
+                      dismissPet(item.id)
+                    }}
+                    type="button"
+                  >
+                    Dismiss
+                  </button>
                 )}
               </div>
             </div>

@@ -5,6 +5,7 @@ import {
   loadReaderBufferAhead,
   parseReaderScript,
   persistReaderBufferAhead,
+  reconcileReaderProviders,
   readerFallbackSelections,
   readerSpeakers,
   ttsOverride,
@@ -23,6 +24,7 @@ import { DocumentPreview, type DocumentMode } from './DocumentPreview'
 import { useVoiceCatalog } from './useVoiceCatalog'
 
 interface ReaderViewProps {
+  active: boolean
   connected: boolean
   connectionId: string
   latestText: string
@@ -70,6 +72,7 @@ function loadAssignments(connectionId: string): Record<string, string> {
 }
 
 export function ReaderView({
+  active,
   connected,
   connectionId,
   importedDocument,
@@ -111,6 +114,7 @@ export function ReaderView({
   const blockNodes = useRef(new Map<string, HTMLElement>())
   const readerRun = useRef(0)
   const {
+    catalogSupported,
     choices,
     error: catalogError,
     providers,
@@ -132,7 +136,19 @@ export function ReaderView({
     setDocumentContent('')
     setSavedDocumentContent('')
     setSurface('reader')
+    setSelectedProviders([])
+    setActiveBlock(null)
+    setFollowPlayback(true)
+    setError('')
   }, [connectionId])
+
+  useEffect(() => {
+    if (active) setError('')
+  }, [active])
+
+  useEffect(() => {
+    if (catalogSupported === false) setError('')
+  }, [catalogSupported])
 
   useEffect(() => {
     window.localStorage.setItem(draftKey(connectionId), text)
@@ -171,13 +187,18 @@ export function ReaderView({
   }, [activeBlock, followPlayback])
 
   useEffect(() => {
-    if (selectedProviders.length > 0 || providers.length === 0) return
-    setSelectedProviders([
-      normalVoice.provider && providers.includes(normalVoice.provider)
-        ? normalVoice.provider
-        : providers[0],
-    ])
-  }, [normalVoice.provider, providers, selectedProviders.length])
+    setSelectedProviders(current => {
+      const next = reconcileReaderProviders(
+        current,
+        providers,
+        normalVoice.provider,
+      )
+      return next.length === current.length &&
+        next.every((provider, index) => provider === current[index])
+        ? current
+        : next
+    })
+  }, [normalVoice.provider, providers])
 
   useEffect(() => {
     if (availableChoices.length === 0) return
@@ -245,13 +266,20 @@ export function ReaderView({
       const choice = availableChoices.find(
         row => `${row.provider}:${row.voice}` === key,
       )
-      const selection = choice
-        ? {
-            provider: choice.provider,
-            voice: choice.voice,
-            speed: normalVoice.speed,
-          }
-        : normalVoice
+      const selection =
+        catalogSupported === false
+          ? {
+              provider: '',
+              voice: '',
+              speed: normalVoice.speed,
+            }
+          : choice
+            ? {
+                provider: choice.provider,
+                voice: choice.voice,
+                speed: normalVoice.speed,
+              }
+            : normalVoice
       return {
         id: block.id,
         text: block.text,
@@ -475,7 +503,12 @@ export function ReaderView({
               <button
                 className="quiet-button"
                 disabled={
-                  !connected || assigning || !speakers.length || rendering
+                  !connected ||
+                  assigning ||
+                  !speakers.length ||
+                  !availableChoices.length ||
+                  catalogSupported === false ||
+                  rendering
                 }
                 onClick={() => void autoAssign()}
               >
@@ -510,30 +543,36 @@ export function ReaderView({
                 <span>
                   <strong>Voices & buffering</strong>
                   <small>
-                    {selectedProviders.length || providers.length} providers ·{' '}
-                    {bufferAhead} ahead
+                    {catalogSupported === false
+                      ? 'Host default'
+                      : `${selectedProviders.length || providers.length} providers`}{' '}
+                    · {bufferAhead} ahead
                   </small>
                 </span>
                 <span className="disclosure-glyph">+</span>
               </summary>
               <div className="reader-settings-body">
                 <div className="reader-provider-row">
-                  {providers.map(provider => (
-                    <label className="provider-chip" key={provider}>
-                      <input
-                        checked={selectedProviders.includes(provider)}
-                        type="checkbox"
-                        onChange={event =>
-                          setSelectedProviders(current =>
-                            event.target.checked
-                              ? [...current, provider]
-                              : current.filter(value => value !== provider),
-                          )
-                        }
-                      />
-                      {provider === 'xai' ? 'xAI' : provider}
-                    </label>
-                  ))}
+                  {catalogSupported === false ? (
+                    <span className="state-chip">Host default voice</span>
+                  ) : (
+                    providers.map(provider => (
+                      <label className="provider-chip" key={provider}>
+                        <input
+                          checked={selectedProviders.includes(provider)}
+                          type="checkbox"
+                          onChange={event =>
+                            setSelectedProviders(current =>
+                              event.target.checked
+                                ? [...current, provider]
+                                : current.filter(value => value !== provider),
+                            )
+                          }
+                        />
+                        {provider === 'xai' ? 'xAI' : provider}
+                      </label>
+                    ))
+                  )}
                 </div>
                 <div className="reader-playback-settings">
                   <label className="reader-buffer-field">
@@ -556,9 +595,13 @@ export function ReaderView({
                   <span className="state-chip">Voice fallback · automatic</span>
                 </div>
                 <p className="section-help reader-buffer-help">
-                  Prepares {bufferAhead} upcoming{' '}
-                  {bufferAhead === 1 ? 'block' : 'blocks'}. Failed voices try
-                  another selected voice, then the host default.
+                  {catalogSupported === false
+                    ? `This host does not expose the Reader voice catalog. Every block uses its configured host-default TTS while ${bufferAhead} upcoming ${
+                        bufferAhead === 1 ? 'block is' : 'blocks are'
+                      } prepared. Switching to a compatible host restores multivoice selection automatically.`
+                    : `Prepares ${bufferAhead} upcoming ${
+                        bufferAhead === 1 ? 'block' : 'blocks'
+                      }. Failed voices try another selected voice, then the host default.`}
                 </p>
               </div>
             </details>
@@ -584,26 +627,32 @@ export function ReaderView({
                 >
                   <div className="reader-block-heading">
                     <strong>{block.speaker}</strong>
-                    <select
-                      aria-label={`${block.speaker} voice`}
-                      value={assignments[block.speaker] || ''}
-                      onChange={event =>
-                        setAssignments(current => ({
-                          ...current,
-                          [block.speaker]: event.target.value,
-                        }))
-                      }
-                    >
-                      {availableChoices.map(choice => (
-                        <option
-                          key={`${choice.provider}:${choice.voice}`}
-                          value={`${choice.provider}:${choice.voice}`}
-                        >
-                          {choice.provider === 'xai' ? 'xAI' : choice.provider}{' '}
-                          · {choice.label}
-                        </option>
-                      ))}
-                    </select>
+                    {catalogSupported === false ? (
+                      <span className="state-chip">Host default</span>
+                    ) : (
+                      <select
+                        aria-label={`${block.speaker} voice`}
+                        value={assignments[block.speaker] || ''}
+                        onChange={event =>
+                          setAssignments(current => ({
+                            ...current,
+                            [block.speaker]: event.target.value,
+                          }))
+                        }
+                      >
+                        {availableChoices.map(choice => (
+                          <option
+                            key={`${choice.provider}:${choice.voice}`}
+                            value={`${choice.provider}:${choice.voice}`}
+                          >
+                            {choice.provider === 'xai'
+                              ? 'xAI'
+                              : choice.provider}{' '}
+                            · {choice.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <p>{block.text}</p>
                   <button

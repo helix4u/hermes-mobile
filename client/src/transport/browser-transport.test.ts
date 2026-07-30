@@ -164,6 +164,72 @@ describe('authenticated JSON requests', () => {
     expect(remove).toHaveBeenCalledOnce()
   })
 
+  test('uses status metadata when a Cloud host does not expose health', async () => {
+    const gateway = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    } as unknown as JsonRpcGatewayClient
+    const responses = [
+      new Response('{}', { status: 404 }),
+      new Response('{"detail":"not found"}', { status: 404 }),
+      new Response('{"version":"0.19.0","gateway_running":true}', {
+        status: 200,
+      }),
+    ]
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(responses.shift()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const transport = new BrowserHermesTransport(
+      {
+        id: 'nous-cloud',
+        name: 'Nous Cloud',
+        baseUrl: 'https://agent.agents.nousresearch.com',
+        profile: 'default',
+        token: '',
+        authMode: 'oauth',
+        connectionType: 'cloud',
+      },
+      gateway,
+    )
+
+    await expect(transport.capabilities()).resolves.toMatchObject({
+      hermes_version: '0.19.0',
+      plugin_version: 'core-gateway',
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'https://agent.agents.nousresearch.com/api/status',
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  test('reports both failed core metadata routes', async () => {
+    const responses = [
+      new Response('{}', { status: 404 }),
+      new Response('{}', { status: 401 }),
+      new Response('{}', { status: 404 }),
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(responses.shift())),
+    )
+    const transport = new BrowserHermesTransport({
+      id: 'nous-cloud',
+      name: 'Nous Cloud',
+      baseUrl: 'https://agent.agents.nousresearch.com',
+      profile: 'default',
+      token: '',
+      authMode: 'oauth',
+      connectionType: 'cloud',
+    })
+
+    await expect(transport.capabilities()).rejects.toThrow(
+      'Hermes core gateway discovery failed: /api/health returned HTTP 401; /api/status returned HTTP 404',
+    )
+  })
+
   test('posts voice payloads through the selected Hermes connection', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

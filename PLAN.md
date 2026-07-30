@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
 Project root: `F:\Symlinks\hermes-data\hermes\hermes-mobile`
 
@@ -710,6 +710,229 @@ Acceptance:
       file-reveal regression tests.
 - [x] Rebuild and validate the Android debug APK.
 
+### Milestone 5H: Mobile Alien Child pet companion
+
+Current milestone: implementation complete, physical-device acceptance pending
+
+Acceptance:
+
+- [x] Bundle Alien Child's real animated spritesheet and full personality
+      definition into the Mobile client so the default companion does not
+      depend on the connected host's pet inventory.
+- [x] Load every valid profile-scoped personality exposed by
+      `pet.personality.list`, merge those local definitions with the built-in
+      Alien Child entry, and hydrate the selected prompt and interaction lines
+      through `pet.personality.get`.
+- [x] Render the pet in a phone-sized walking lane above the composer using the
+      real spritesheet geometry, directional walk rows, ragged frame counts,
+      pixel-preserving canvas drawing, visibility-resume animation, and
+      direction-owned travel legs. Non-locomotion poses remain stationary
+      instead of gliding across the screen.
+- [x] React to live busy, reasoning, tool, waiting-for-input, completion, and
+      idle state without coupling the pet animation to the WebSocket lifecycle.
+- [x] Add connection-scoped Mobile controls for visibility, roaming,
+      personality, AI commentary, commentary speech, first-delay timing, and
+      repeat cadence.
+- [x] Expose the host-owned `auxiliary.pet_commentary` provider, model, and
+      reasoning-effort assignment while keeping all visual pet preferences
+      local to the phone.
+- [x] Generate bounded context-aware comments through
+      `pet.commentary.generate`, avoid recent repeats, show comments in a pet
+      bubble, and optionally speak interactions, previews, and generated
+      commentary during the turn through a dedicated pet speech profile.
+- [x] Let Mobile either follow the active Desktop pet provider, voice, speed,
+      pitch, and volume for that connection, or select an independent Mobile
+      pet provider and voice without changing normal assistant TTS.
+- [x] Add companion, progress, and tool observability lenses with bounded
+      conversation turns, tool observations, recent-comment avoidance, and
+      force-redacted tool evidence.
+- [x] Record generated and click-interaction comments through
+      `pet.commentary.record`, render live and durable commentary as distinct
+      copyable/listenable transcript rows, and deduplicate repeated events.
+- [x] Fail softly against hosts without the pet RPCs: keep the bundled Alien
+      Child animation and click lines usable without surfacing reconnect
+      errors or changing Hermes core.
+- [x] Add focused pet preference, animation-state, context, durable-history,
+      event-deduplication, settings-collapse, and transcript-rendering tests.
+- [x] Validate the built-in sprite and Pet controls in a real 360 by 800 Chrome
+      render, then rebuild the Android debug APK.
+
+### Milestone 5I: Pet sidechat and reliable companion motion
+
+Current milestone: implementation, Windows host refresh, and Mobile
+send/observer repair complete; physical-device acceptance pending
+
+Acceptance:
+
+- [x] Add one shared backend pet-sidechat contract used by Desktop and Mobile,
+      with the selected personality and the active session supplied as bounded
+      read-only context.
+- [x] Keep sidechat messages outside the main Hermes transcript and model
+      history, persist them against the durable session lineage, and clear them
+      independently from ordinary pet commentary.
+- [x] Give Desktop's in-window pet a full sidechat history/composer and explicit
+      Send to Hermes action.
+- [x] Give the popped-out Desktop pet a Hermes/Pet input target for both text and
+      microphone input.
+- [x] Give Mobile a pet-sidechat sheet with durable history, pet-targeted voice
+      input, explicit Send to Hermes handoff, and pet-profile TTS playback.
+- [x] Replace Mobile's fixed visible walking lane with a transparent draggable
+      in-app overlay whose position is scoped to the saved connection.
+- [x] Slow Mobile roaming, add short and long travel/rest variety, keep
+      direction and running animation aligned, and preserve the rendered pixel
+      when conversation state, visibility, tapping, or dragging interrupts a
+      travel leg.
+- [x] Resume roaming after app focus returns and after a tap or drag instead of
+      leaving the pet frozen or snapping to a stale animation origin.
+- [x] Keep commentary scheduling stable while transcript rows stream, and use a
+      non-resetting tool/progress trigger so continuous events cannot starve the
+      observer voice.
+- [x] Make Windows host refresh retire only verified Mobile-owned backend and
+      proxy listeners left behind by `Stop-ScheduledTask`, require both ports
+      to be free, and require the replacement task plus both listeners to
+      stabilize before reporting success.
+- [x] Verify two consecutive Windows refreshes replace both process
+      generations, register all pet sidechat methods, load durable sidechat
+      history, generate Tool evidence commentary, and synthesize that comment
+      through the configured Desktop-followed pet voice.
+- [x] Track Mobile's active agent turn from prompt submission through the
+      terminal `message.complete` event instead of reusing the short-lived
+      request/setup busy flag, so auxiliary commentary timers remain alive
+      throughout reasoning and tool execution.
+- [x] Reattach the selected durable session when Mobile sidechat has lost its
+      runtime identity, surface unavailable-session errors instead of silently
+      returning, and give commentary and sidechat auxiliary requests bounded
+      timeouts longer than the configured auxiliary-model window.
+- [x] Hide Mobile's sidechat action by default, reveal it only after the user
+      taps the pet, keep it available briefly, and isolate its pointer events
+      from the draggable pet overlay.
+- [x] Render Mobile pet commentary bubbles outside the transformed roaming
+      overlay, clamp them to the live viewport with phone-safe margins, and
+      wrap long text and unbroken tokens without clipping either screen edge,
+      while leaving the pet itself touch-draggable and position-persistent.
+- [x] Make the full pet hit area directly draggable without nested button
+      semantics, recover cleanly from cancelled/lost pointer capture, persist
+      every completed drag, and keep roaming above a seven-pixel-per-second
+      movement floor.
+- [x] Keep the pet overlay mounted above Chat, Sessions, Reader, Files, and
+      Control instead of placing it inside Chat's hidden tab layout. Cancel and
+      persist an active gesture on blur, page-hide, or backgrounding, then
+      resume roaming from the rendered position when the app returns.
+- [x] Route the revealed sidechat action through the pet's same tap-versus-drag
+      gesture so the action cannot create a dead touch region after tab or app
+      navigation.
+- [x] Give sidechat its own full-conversation character prompt instead of the
+      ambient one-line commentary prompt, preserve a cache-stable system and
+      session-snapshot prefix, retain substantially more private history, and
+      allow complete long-form replies.
+- [x] Keep long sidechat replies intact in the private sheet while abbreviating
+      only the temporary roaming bubble. Render durable pet remarks as small,
+      muted, locally dismissible annotations instead of bright chat bubbles.
+- [x] Replace Mobile's oversized modal sidechat sheet with a compact,
+      non-blocking floating popout above the bottom navigation. Use a subdued
+      scrollable conversation, theme-colored icon controls for microphone,
+      send, clear, close, and Hermes handoff, and concise accessible labels
+      without sacrificing full Markdown history or long replies.
+- [x] Serialize distinct assistant, Reader, and pet speech requests above the
+      existing chunk lookahead queue so newly queued audio waits without
+      interrupting current playback. Keep explicit Stop and microphone capture
+      authoritative by cancelling both current and waiting speech.
+- [x] Probe the connected host's pet RPC bundle per saved connection. Keep the
+      built-in Alien Child, tap lines, roaming, and host-default speech on
+      vanilla/core-only hosts while hiding unsupported commentary, sidechat,
+      host personality, and auxiliary-model controls without erasing the richer
+      connection's saved preferences.
+- [x] Portal the complete draggable pet stage into one fixed body-level overlay
+      above every app tab, with the sidechat hit target capability-gated, so
+      tab-specific stacking and scroll containers cannot make the sprite stop
+      accepting direct touch drags.
+- [x] Give Android finger dragging a native non-passive touch path with
+      window-level move/end tracking instead of depending on React pointer
+      capture. During roam rescheduling, freeze layout only when a real Web
+      Animation is active so an effect cleanup cannot restore the pre-drag
+      composited frame after the new coordinates were already persisted.
+- [x] Pass focused and complete Mobile client tests, TypeScript typecheck, Vite
+      production build, Capacitor sync, Android debug assembly, Desktop focused
+      pet tests, Desktop typecheck, and Desktop packaging.
+
+### Milestone 5J: Automatic Nous Cloud URL onboarding
+
+Current milestone: implementation, APK installation, and physical Cloud
+connection acceptance complete
+
+Acceptance:
+
+- [x] Recognize only secure subdomains of `agents.nousresearch.com` as Nous
+      Cloud agent URLs, rejecting lookalike suffixes, HTTP, and user-info URLs.
+- [x] Route a recognized URL through the existing native Nous Portal session
+      instead of probing it as a Direct HTTPS Mobile-plugin host.
+- [x] Open native Nous sign-in automatically when the Portal session is absent.
+- [x] Discover the signed-in account's Cloud inventory and search each
+      available organization for the exact agent hostname.
+- [x] Trust and connect only the dashboard URL returned by authenticated
+      account discovery, not the user-entered URL by itself.
+- [x] Save the matched target as a stable Cloud connection and reuse the
+      existing per-agent native cookie jar.
+- [x] Use the standard Hermes core gateway when the Cloud agent does not have
+      the Mobile server plugin installed.
+- [x] Hide the irrelevant session-token field, label the automatic Nous path,
+      and state directly that the Mobile plugin is not required.
+- [x] Add focused URL, authentication, organization-discovery, account-match,
+      and connection-sheet tests.
+- [x] Pass the complete Mobile client suite, TypeScript typecheck, Vite
+      production build, Capacitor sync, and Android debug assembly.
+- [x] Recognize both `/api/health` and `/api/status` as standard core-gateway
+      metadata so a Cloud deployment without the health route does not stop
+      after successful Nous discovery with a misleading plugin 404.
+- [x] Add explicit Edit and Delete actions for every saved connection. Keep
+      authenticated Cloud endpoints read-only while editing their local name
+      and profile, and remove Android Keystore credentials with deleted hosts.
+
+### Milestone 5K: In-app remote server-plugin installation
+
+Current milestone: implementation, APK installation, and Cloud upload complete;
+Cloud host restart and plugin-route acceptance pending
+
+Acceptance:
+
+- [x] Bundle the standalone `server-plugin` source inside the Mobile client
+      without build caches, credentials, local service tokens, or Git metadata.
+- [x] Resolve the remote plugin directory only from the authenticated managed
+      files policy, requiring a locked Hermes data root instead of guessing
+      from a session cwd or user home.
+- [x] Show the exact remote target, bundled byte count, source-file count, and
+      host per-file limit before any mutation.
+- [x] Require a separate explicit confirmation before upload and enablement.
+- [x] Reject absolute, traversal, oversized, empty, or non-plugin target paths
+      before sending bytes.
+- [x] Upload through `/api/files/upload`, verify the exact returned path for
+      every file, and keep discovery files last so an interrupted upload is
+      not treated as a complete plugin.
+- [x] Enable `hermes-mobile` only after every uploaded file is verified.
+- [x] State that plugin API routes mount at host startup and require a host
+      restart, without guessing at or invoking an unverified Cloud lifecycle
+      control.
+- [x] Keep standalone-plugin installation separate from Reader, speech, and
+      filesystem routes owned by Hermes core, so an older host cannot present
+      a plugin upload as a core-version upgrade.
+- [x] Treat a missing generic TTS catalog as an explicit host capability gap:
+      keep Listen, auto-speak, Reader playback, and podcast export on the
+      host-default speech path without empty voice selectors or a 404 banner,
+      while restoring full provider, voice, cloning, and multivoice controls
+      automatically on connections whose host exposes the catalog.
+- [x] Clear Reader-local failures when entering Reader or changing connections,
+      accept native and browser missing-route error shapes including the core
+      gateway's `No such API endpoint` response, and reconcile selected
+      providers against the active host so a successful host-default fallback
+      cannot retain a stale red catalog error.
+- [x] Pass focused and complete Mobile client tests, TypeScript typecheck, Vite
+      production build, Capacitor sync, Android debug assembly, and physical
+      phone layout/remote-upload acceptance.
+- [x] Upload and verify all bundled files at
+      `/opt/data/plugins/hermes-mobile` on the authenticated `mr mid tier`
+      Cloud host, then enable the plugin without exposing account cookies or
+      credentials to JavaScript or captured output.
+
 ### Milestone 6: Profiles, projects, and recoverable attention
 
 Acceptance:
@@ -812,6 +1035,266 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
+The newest pet-capability and cross-tab drag APK is installed in place on the
+physical Samsung SM-S918U with saved connection and Keystore state preserved.
+On `mr mid tier`, open Control, Pet companion and confirm it reports Alien Child
+as visual-only on that host, does not show commentary, sidechat, host
+personality, or auxiliary-model controls, and does not emit unknown-method
+errors. Tap Alien Child and confirm his built-in line still appears; with pet
+speech enabled, confirm it uses the same host-default TTS path as ordinary
+Listen and Reader. Switch back to Workstation and confirm the full stored pet
+personality, commentary, sidechat, auxiliary-model, Desktop-followed voice, and
+custom voice controls return.
+
+Drag Alien Child in Chat, Sessions, Reader, Files, and Control. Android finger
+dragging now uses native touchstart plus window-level touchmove/touchend
+tracking, and roam cleanup no longer restores a stale pre-drag composited
+frame. The complete pet stage remains in one fixed body-level overlay above all
+five views, so every visible part of the 72-pixel hit area should follow the
+finger and remain draggable after tab changes. Sheets, toasts, sidechat, and
+the image viewer remain above the pet while they are open.
+
+Physical Android finger-drag acceptance passed on the installed Samsung build
+after the native-touch and stale-composited-frame correction.
+
+Latest native-touch pet drag and pet-capability debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,257,869` bytes
+
+SHA-256:
+`7DE3818DDB382627B455E6279C818106907A5112141481AC9ED57ECB2EFCF16C`
+
+The replacement APK is installed on the physical phone with saved Cloud state
+preserved. Control, Mobile server plugin successfully authenticated to the
+selected `mr mid tier` Cloud host, resolved its locked managed root, uploaded
+and verified all 12 bundled source files at
+`/opt/data/plugins/hermes-mobile`, and enabled `hermes-mobile`. No GitHub
+credential, repository clone, session token, or account cookie was exposed.
+
+Restart the Cloud Hermes host through its owning Cloud lifecycle control, then
+reconnect and tap Check host. The section should report plugin `0.1.0` instead
+of `core-gateway`. Reader, speech, or filesystem endpoints that still return
+404 after that are core-version gaps and require a host Hermes update; the
+standalone plugin does not pretend to replace those core routes.
+
+The latest TTS-capability fallback APK is installed in place on the physical
+Samsung SM-S918U with app data preserved. On the older `mr mid tier` Cloud
+host, confirm Voice and Reader show Host default without a catalog 404, Reader
+playback and Render & save use the host's configured speech provider, and
+Smart assign is unavailable instead of silently doing nothing. Switch back to
+the Windows workstation and confirm its full provider, voice, cloning, and
+per-speaker controls return immediately.
+
+Latest Reader stale-error cleanup debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,256,579` bytes
+
+SHA-256:
+`38D68F10D1DCCF6EBC5EB7A60C8A831EC8873F8D875A0EAA74E73BF0DB8FE901`
+
+Latest TTS-capability fallback debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,256,467` bytes
+
+SHA-256:
+`FB1FB9BD46ED89CCC9A49EA06FE013A62A1F11BDB9E8C8E04AE97B94ED2EF493`
+
+Latest in-app plugin-installer debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,255,919` bytes
+
+SHA-256:
+`B92FB6DDA333DE85678FC3A34733B4AB24DB1B7F2A9C93327981FA95A772525C`
+
+The Cloud core-gateway replacement APK is installed in place with app data
+preserved. It relaunched, selected the already saved `mr mid tier` host, and
+connected through the standard gateway after the Mobile capability 404. The
+live UI reports `Connected to mr mid tier` and the Cloud session cwd `/opt/data`.
+
+In Saved hosts, use Edit on a direct/Tailnet host and confirm its name, URL,
+profile, and type can be changed before Save changes. Edit a Cloud host and
+confirm its discovered URL and Cloud type stay read-only while name and profile
+remain editable. Delete a disposable saved host, confirm the warning, and
+verify the row, its local draft, and protected Android credential are removed
+without affecting other saved hosts.
+
+Latest automatic Nous Cloud onboarding debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,243,953` bytes
+
+SHA-256:
+`FB0FDFB09215039187DD4E232E3E709850C104618EF82A58FA9A1E2F25FA5B24`
+
+Latest Cloud core-gateway and saved-connection-management debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,244,503` bytes
+
+SHA-256:
+`5694023CD5F416793FC6079904E7F343E271A1A3FA7981B3907D5CAB4F58C264`
+
+Install the latest Mobile pet replacement APK in place with app data preserved.
+Drag Alien Child directly from any visible part of his sprite in Chat, switch
+to Sessions, Reader, Files, and Control, then return and drag him again. Switch
+apps during another drag and confirm the cancelled gesture persists its last
+position, the next drag starts normally, and roaming resumes without freezing
+or teleporting. Reveal the sidechat star and confirm both tapping it and
+starting a drag from it work. Let him roam after the drag and confirm short
+legs no longer slow into a barely moving glide.
+
+While one reply or pet comment is playing, queue another Listen, auto-speak,
+Reader, or pet speech request. Confirm the current audio finishes normally and
+the waiting request begins afterward. The existing lookahead should still
+prepare later chunks inside each long response. Stop audio should immediately
+end the current playback and discard everything waiting.
+
+Open sidechat and hold a multi-turn conversation that asks for one substantial
+answer. Confirm Alien Child stays in character, uses earlier sidechat turns and
+the attached session as read-only background, and returns the complete answer
+in the compact floating Markdown popout. Confirm the app behind the popout is
+not covered by a full-screen dimmer, every icon control fits above the bottom
+navigation, the mic changes to a stop-square while recording, thinking and
+transcription status remain readable, and the full reply can still be handed
+to Hermes. Only the temporary roaming bubble should be abbreviated.
+
+Generate a few pet remarks in Chat. Confirm they appear as narrow, dim secondary
+annotations rather than full assistant bubbles; Dismiss should hide an
+individual remark for that saved connection without deleting the host's durable
+record. Confirm the temporary roaming bubble is also smaller and muted while
+remaining inside both screen edges.
+
+Run a long tool-using turn with AI commentary enabled and Tool evidence or
+Progress selected. Confirm commentary is generated and optionally spoken while
+reasoning/tools are still running, then stops scheduling after the terminal
+assistant response. This client repair does not require another host refresh;
+the current Windows host already exposes and passes the sidechat, commentary,
+custom auxiliary-model, and pet-speech paths.
+
+Use the already relaunched Desktop shortcut and reopen Alien Child sidechat.
+Confirm history loads without the `pet_sidechat_payload` error. Submit a
+sidechat turn and run a tool-using turn with Tool evidence or Progress enabled.
+Confirm both sidechat replies and observer commentary play audibly through the
+configured pet provider, voice, pitch, and volume. The corrected renderer now
+plays authenticated synthesized audio in Electron instead of asking the
+headless backend process to find a host audio player.
+
+Install the latest pet-sidechat replacement APK in place with app data
+preserved. In Chat, drag Alien Child to a new position and confirm it persists
+for that saved connection. Let him roam through short and long legs, tap or drag
+him mid-walk, switch apps, and return. Confirm he continues from the rendered
+position without teleporting, resumes roaming, and uses a directionally correct
+running animation at the slower varied pace.
+
+Open Alien Child's sidechat button, ask about the attached session by text and
+pet mic, then leave and reopen the sheet. Confirm the private history remains,
+the response can use the pet's independent/followed voice, and Send to Hermes
+places the chosen response into the main composer without silently submitting
+it. Run a long tool-using turn with Tool evidence or Progress commentary and
+confirm the pet speaks during active work without needing a poke or Test button.
+
+From the rebuilt Desktop shortcut, open the in-window pet sidechat and exercise
+the popped-out pet's Hermes/Pet target toggle with both text and mic. Confirm
+sidechat history follows the durable session, stays out of the main transcript,
+and crosses into Hermes only through Send to Hermes.
+
+Connect to the Windows host and open Control, Pet companion. Enable speech and
+select Follow Desktop pet voice for this connection. Confirm the summary shows
+the Desktop pet's xAI `orion` voice with speed 1, pitch +8.5, and volume 0.45.
+Tap the pet and run a long tool-using turn. Confirm both click lines and
+generated commentary use that pitch-bent voice while ordinary assistant Listen
+keeps its own voice settings. Switch to Independent Mobile pet voice, choose a
+different provider/voice, preview it, and confirm only pet speech changes.
+
+Exercise Companion, Progress, and Tool evidence commentary lenses. Confirm
+commentary can speak while generation is still active, Progress does not repeat
+without a new observed lifecycle event, Tool evidence includes bounded useful
+arguments/results without secret-like values, and Tool observations set to None
+emits no tool evidence. Confirm the comments remain visible as transcript rows
+after session resume and Copy/Listen work. Change the commentary
+provider/model/reasoning effort and confirm the assignment is reflected by the
+connected profile's `auxiliary.pet_commentary` configuration without changing
+Mobile appearance settings on the host.
+
+Latest pet sidechat, observer, and roam-fix debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,240,222` bytes
+
+SHA-256:
+`825BAA03AD2BFD614C6D14BB90DD5781B467156CDB997647740A6C5C756F5F73`
+
+Latest Mobile sidechat-send and active-turn observer replacement APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,240,690` bytes
+
+SHA-256:
+`96A44F4E3306EB0E83DDDE145702C25A55AD398269E3AE6D10EB7E476EF3C7DE`
+
+Latest Mobile viewport-safe pet-bubble replacement APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,241,007` bytes
+
+SHA-256:
+`564AC4A6223A91F8055E03A4DE95C2E6E22A9FEA185A77D6C3D2DE3876AA8640`
+
+Latest Mobile direct-drag, full-sidechat, and subdued-pet-dialogue replacement
+APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,242,183` bytes
+
+SHA-256:
+`C54ADCE422B10FA3AB5735E353320E4EB4E0B9C7DF1E60F2D40766A2FB1048C8`
+
+Latest Mobile tab-stable pet drag and non-interrupting speech-queue replacement
+APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,242,429` bytes
+
+SHA-256:
+`879B0F677A53FDBECBC7732CC9C18536B0B7A3612A9F16B3AD7E1F7138F0FC82`
+
+Latest Mobile compact pet-sidechat popout replacement APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,243,115` bytes
+
+SHA-256:
+`4913A44D35BE23A1B611BCA52F87D5E1051054D52A7110ABD8002AA6C528935C`
+
+The regular Desktop shortcut target was rebuilt with pet sidechat and the
+Hermes/Pet popped-overlay input target. The packaged executable is
+`214,281,216` bytes with SHA-256
+`BF80330FC68B72AAC6A05F5E4A4A34E7E4B500F194B55C0E1EF7FD2554CD9AAF`.
+
+Install the TTS-speed replacement APK in place with app data preserved. Under
+Control, Voice, compare 0.70x, 1.00x, and 1.50x with an ordinary assistant
+Listen button, auto-speak, and Reader. Confirm all three change playback speed
+even with Host default, F5-TTS, or Qwen selected, and that pitch remains
+natural. Interactive playback now applies speed in the client and removes it
+from the matching synthesis request so a provider cannot ignore or double
+apply the setting.
+
 Install the proxy-timeout replacement APK in place with app data preserved,
 then rerun the multivoice Render & save that previously stopped at 22 of 24.
 The Windows Mobile host has already been refreshed with a 14-minute
@@ -861,10 +1344,10 @@ Latest rebuilt repository debug APK:
 
 `client\android\app\build\outputs\apk\debug\app-debug.apk`
 
-Size: `5,240,774` bytes
+Size: `5,241,609` bytes
 
 SHA-256:
-`7A8C90DAB74A333D6114777E9911AB8902E93804C280A2393C287D2D9F0D2D57`
+`63A3B391681F30A5CAF5BC8AA7675E3C37E5A33BB31AD79D4EF8FDF786E67241`
 
 Then continue the existing workspace acceptance pass. Install the APK in place
 with app data preserved.

@@ -3,6 +3,7 @@ import {
   loadConnection,
   loadConnections,
   persistConnection,
+  removeConnection,
 } from './connection'
 
 class MemoryStorage {
@@ -83,5 +84,40 @@ describe('connection registry', () => {
     expect(storage.getItem('hermes-mobile.connections.v2')).not.toContain(
       'keystore-only',
     )
+  })
+
+  it('removes one host, its draft, and selects a remaining host', () => {
+    const storage = new MemoryStorage()
+    persistConnection(
+      {
+        id: 'workstation',
+        name: 'Workstation',
+        baseUrl: 'https://workstation.example',
+        profile: 'default',
+        token: '',
+        authMode: 'token',
+        connectionType: 'direct',
+      },
+      storage,
+    )
+    persistConnection(
+      {
+        id: 'cloud',
+        name: 'Cloud',
+        baseUrl: 'https://cloud.example',
+        profile: 'default',
+        token: '',
+        authMode: 'oauth',
+        connectionType: 'cloud',
+      },
+      storage,
+    )
+    storage.setItem('hermes-mobile.draft.v1.cloud', 'private draft')
+
+    expect(removeConnection('cloud', storage).map(row => row.id)).toEqual([
+      'workstation',
+    ])
+    expect(loadConnection(storage).id).toBe('workstation')
+    expect(storage.getItem('hermes-mobile.draft.v1.cloud')).toBeNull()
   })
 })

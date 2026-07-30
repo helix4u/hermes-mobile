@@ -1,12 +1,346 @@
 # Hermes Mobile Status
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
-Current milestone: Milestone 5G Mobile Reader, preview, and media workspace
-implementation complete, physical-device acceptance pending
+Current milestone: Milestone 5K in-app remote server-plugin installation built,
+installed, and exercised against Cloud; Cloud host restart and plugin-route
+acceptance pending
 
 Current state:
 
+- Physical Android acceptance passed for the corrected pet drag path. Alien
+  Child now follows the finger and remains draggable on the installed build.
+- Pet server features are now capability-gated per saved connection. A vanilla
+  or core-only Hermes host that returns JSON-RPC `-32601` or `unknown method`
+  for the pet personality probe enters a quiet visual-only mode instead of
+  being marked ready for commentary and then failing later.
+- Visual-only mode keeps the bundled Alien Child sprite, connection-scoped
+  position, roaming, tap interactions, and ordinary host-default speech. It
+  suppresses commentary scheduling and recording, hides sidechat and
+  host-personality affordances, skips auxiliary-model requests, and closes an
+  already-open sidechat when the connection changes to an unsupported host.
+- Pet preferences remain stored under the existing connection ID. Switching
+  from vanilla Cloud back to the workstation restores that connection's
+  commentary, sidechat, personality, auxiliary-model, Desktop-followed speech,
+  and independent Mobile voice choices without rewriting either host.
+- Pet Settings now explains the exact boundary. Host-default pet speech can use
+  the same `/api/audio/speak` path as Listen and Reader even when the host lacks
+  pet commentary RPCs; missing Desktop pet speech and custom provider catalogs
+  no longer imply that the built-in visual pet itself is unavailable.
+- The complete draggable pet stage now portals to `document.body` as a fixed,
+  centered overlay above all five tab views. It no longer inherits a tab's
+  stacking, clipping, scrolling, or hit-testing context. Toasts, sheets,
+  sidechat, and the image viewer retain higher layers.
+- Physical testing showed that moving the stage above every tab was not enough:
+  Android WebView could still drop the React pointer-capture gesture, and a
+  successful move could persist new coordinates while the roam effect cleanup
+  visibly restored the pre-drag composited frame.
+- Finger drag now has a dedicated native, non-passive touch path. Touch begins
+  on the complete pet hit area, while move, end, and cancellation are tracked
+  at the window so leaving the sprite cannot strand or terminate the gesture.
+  Mouse and stylus retain the existing pointer-capture path.
+- Roam rescheduling now freezes layout only when an actual Web Animation is
+  active. Finishing a direct drag no longer re-reads and rewrites the sprite
+  rect during the effect cleanup frame, so the visible position and persisted
+  connection-scoped position stay identical.
+- The sidechat star is rendered and participates in the pet's shared
+  tap-versus-drag gesture only when the active host supports the pet RPC bundle.
+- Reader no longer carries an old catalog, assignment, render, download, or
+  file-edit error into a later tab visit or another saved connection. Entering
+  Reader and switching hosts clear obsolete local failures.
+- Missing TTS catalog detection now accepts the browser and Android native
+  shapes that include `404`, `Not Found`, `not_found`, or the core gateway's
+  `No such API endpoint` detail. These expected capability misses stay silent
+  while host-default speech remains available.
+- Reader provider selections are reconciled against the active host catalog.
+  A provider selected on a rich Windows host cannot remain invisibly selected
+  on an older Cloud host, and returning to a capable host chooses its preferred
+  or first available provider without retaining the Cloud fallback state.
+- Mobile now treats a missing `/api/audio/tts/providers` route as a
+  connection-specific capability gap rather than a global speech failure.
+  Older/core-only hosts show a quiet Host default path, suppress the expected
+  catalog 404, disable unsupported Smart assign, and replace empty
+  per-speaker selectors with an explicit Host default label.
+- Host-default fallback still uses the existing authenticated
+  `/api/audio/speak` path for Listen, auto-speak, Reader playback, and complete
+  Reader WAV export. It does not pretend that an old host supports per-request
+  provider or voice overrides.
+- TTS capability is recomputed for each active transport. Switching to the
+  Windows workstation or another experiments-enabled host reloads that host's
+  live provider catalog and immediately restores provider, voice, cloning,
+  design, and multivoice controls without changing either host's TTS config.
+- Mobile now carries the complete 12-file, 28.2 KiB standalone server-plugin
+  source package inside the application bundle. Build caches, Git metadata,
+  credentials, and local service tokens are not included.
+- Control has a collapsed Mobile server plugin section that checks the active
+  host through its existing authenticated transport. It reports the active
+  plugin/core-gateway version, Hermes version, compatibility state, exact
+  upload target, package size, and current 100 MiB per-file managed-upload
+  limit.
+- Automatic upload requires a host-reported locked managed files root. Mobile
+  will not infer the Hermes home from session cwd, a mutable directory, or a
+  generic user-home listing.
+- The installer requires a second explicit review action, rejects traversal,
+  absolute, oversized, empty, and wrong-root targets, then uploads each file
+  through `/api/files/upload`.
+- Every upload response must verify the exact expected remote path. Discovery
+  files are uploaded last, and the app calls the authenticated plugin-enable
+  endpoint only after every source file succeeds.
+- Plugin API routes are mounted during Hermes server startup, so the installer
+  ends in a restart-required state. It does not invoke an unverified Cloud
+  restart mechanism.
+- The UI states directly that installing the Mobile plugin does not add
+  Reader, speech, or filesystem routes owned by Hermes core. A remaining 404
+  from those paths is reported as a host-version capability gap instead of
+  being hidden behind plugin-install success.
+- The installed replacement APK exercised this workflow through the saved
+  `mr mid tier` Cloud connection. The host reported Hermes `0.19.0`, degraded
+  core-gateway compatibility, and locked target
+  `/opt/data/plugins/hermes-mobile`.
+- All 12 bundled files were uploaded and path-verified at that exact target,
+  and the host returned success from enabling `hermes-mobile`. The app now
+  reports `Uploaded, host restart required`. No GitHub credential, repository
+  clone, session token, or native Nous cookie was exposed to JavaScript or
+  captured output.
+- Physical-device inspection confirmed that Nous authentication, exact account
+  discovery, and saving the requested Cloud target succeeded. Connection then
+  failed with `The mobile capability endpoint returned HTTP 404`.
+- The native transport was only accepting `/api/health` as proof of a standard
+  core gateway after a Mobile-plugin miss. This Cloud deployment exposes
+  authenticated gateway metadata through `/api/status`, so the fallback threw
+  the original plugin 404 even though the core gateway was available.
+- Browser and native transports now try `/api/health`, then `/api/status`,
+  before rejecting core-gateway discovery. If both fail, the error reports both
+  route statuses instead of repeating the misleading Mobile-plugin 404.
+- Saved hosts now have separate Select, Edit, and Delete actions. Direct and
+  Tailnet records can edit type, name, URL, and profile. Cloud records can edit
+  their local name and profile while their authenticated discovered endpoint
+  and connection type remain read-only.
+- Deleting a saved host requires confirmation, removes its local draft and
+  active-selection record, removes its Android Keystore credential through the
+  existing native bridge, and leaves every other host intact.
+- Pasting an HTTPS subdomain of `agents.nousresearch.com` into the ordinary
+  host form now routes through native Nous Cloud onboarding instead of Direct
+  HTTPS plugin/auth discovery.
+- The classifier requires the exact Nous agent-domain boundary and rejects
+  HTTP, embedded user information, and suffix-confusion hosts such as
+  `agents.nousresearch.com.evil.example`.
+- Mobile checks its native Nous Portal session, opens Nous sign-in
+  automatically when needed, then discovers the authenticated account's agent
+  inventory.
+- When the Portal requires organization selection, Mobile checks each returned
+  organization and matches the exact requested hostname without making the user
+  understand or manually repeat the discovery workflow.
+- The user-entered hostname is only a lookup key. Mobile connects to the
+  dashboard URL returned by authenticated account discovery, saves it under the
+  stable `cloud-<agent id>` connection identity, and reuses the existing
+  per-agent native cookie jar.
+- A Cloud target without the standalone Mobile server plugin continues through
+  the already-supported standard Hermes `/api/ws` gateway fallback. The plugin
+  is not required for basic Cloud connection.
+- The connection sheet labels the automatic Nous path, hides the irrelevant
+  session-token field, and changes the action to Connect with Nous.
+- Mobile pet sidechat is now a compact floating popout above the bottom
+  navigation rather than an oversized modal bottom sheet. The rest of the app
+  is no longer covered by a dimming backdrop, and the popout alone owns pointer
+  input.
+- The sidechat header, empty state, Markdown history, user/pet messages, status,
+  and composer have tighter hierarchy and subdued pet-matched presentation.
+  Long replies remain complete and independently scrollable.
+- Microphone, send, clear, close, and Hermes handoff now use theme-colored SVG
+  controls with explicit accessible labels and titles. Recording swaps the mic
+  for a stop-square, while thinking and transcription appear as a small status
+  row instead of expanding action-button text.
+- Alien Child is no longer mounted inside the Chat section that becomes
+  `display: none` on tab changes. The overlay is now a sibling of all five tab
+  views inside the stable Mobile workspace, so Sessions, Reader, Files, and
+  Control navigation cannot leave its geometry or pointer state trapped in a
+  hidden layout.
+- Pet pointer handling now cancels and persists an active drag on document
+  hiding, window blur, and page-hide. Returning to the app freezes the actual
+  rendered position and schedules roaming again, so the next touch starts from
+  valid geometry instead of a stale animation origin.
+- The revealed sidechat star no longer swallows pointer-down and pointer-up.
+  The whole 72-pixel pet hit area owns one tap-versus-drag gesture, including
+  touches that begin on the star; an unmoved star tap opens sidechat and a
+  moved touch drags the pet.
+- Distinct speech requests now enter one serial queue above the existing
+  chunk-buffering queue. Pet commentary, sidechat speech, assistant auto-speak,
+  Listen, and Reader requests wait for current playback instead of invoking
+  the global stop path and cutting it off.
+- Explicit Stop and microphone capture still increment the playback
+  generation, stop the current audio element, and clear waiting speech. A new
+  request after Stop can begin immediately without waiting for an abandoned
+  provider request to time out.
+- Mobile pet interaction now uses a 72-pixel direct hit area with no nested
+  sprite button competing for touch ownership. Pointer cancellation and lost
+  capture complete the same cleanup path as pointer-up, preserve the dropped
+  connection-scoped position, and restart roaming.
+- Roaming keeps its short-leg, long-leg, and rest variety but caps travel
+  duration to maintain a seven-pixel-per-second movement floor. Short clamped
+  legs no longer look like a stationary glide.
+- Alien Child now has a separate built-in sidechat prompt for continuing
+  character embodiment. Ambient commentary's exact-one-line, non-answering,
+  and character-cap instructions no longer constrain private sidechat.
+- The backend sidechat call uses a stable character system message, a
+  user-level untrusted session snapshot, a fixed assistant acknowledgement,
+  then durable private history and the current user turn. When the attached
+  session snapshot is unchanged, that layout gives automatic provider prompt
+  caching a byte-stable growing prefix.
+- Sidechat now retains up to 80 recent private events under a 64,000-character
+  history bound, permits 12,000-character user and returned messages, and gives
+  the auxiliary model a 2,048-token response budget. The Mobile request timeout
+  is 180 seconds.
+- Mobile renders full sidechat responses as scrollable Markdown and keeps the
+  complete reply for history and pet TTS. Only the temporary roaming bubble is
+  compacted to 240 characters.
+- Temporary roaming bubbles are capped near 224 pixels, use smaller muted text,
+  and keep their existing viewport clamp. Durable transcript remarks are narrow
+  transparent annotations with dim text and controls instead of bright chat
+  bubbles.
+- Each durable pet remark has a connection-scoped local Dismiss action. Dismiss
+  stops that remark's playback when needed and hides the presentation without
+  deleting the host-owned commentary record.
+- Mobile no longer uses the short-lived global request busy flag as the pet's
+  active-turn authority. Prompt submission now opens a dedicated turn state,
+  reasoning/tool/message events keep it active, and the terminal
+  `message.complete` event closes it. Commentary timers therefore survive the
+  whole custom-model/tool run instead of being cancelled as soon as
+  `prompt.submit` acknowledges.
+- Mobile pet sidechat no longer silently returns when a reconnect cleared the
+  runtime session ID. Send resumes the selected durable session or creates the
+  pending new session, publishes the optimistic user row immediately, and
+  surfaces an explicit connection/session error if attachment fails.
+- Pet commentary now allows 60 seconds and sidechat allows 180 seconds for their
+  JSON-RPC calls. This exceeds the configured 45-second auxiliary-model window
+  instead of timing out at the generic 30-second gateway default.
+- The Mobile sidechat action is hidden by default. Tapping Alien Child reveals
+  it for six seconds; opening it hides the action again, and its pointer events
+  no longer bubble into the draggable pet's pointer-capture path.
+- Opening sidechat now loads history once per sheet opening. A runtime
+  reattachment during Send cannot trigger a second history load that erases the
+  optimistic row while the custom auxiliary reply is pending.
+- Mobile pet commentary bubbles are now portaled out of the pet's transformed
+  roaming container and positioned from the pet's live screen coordinates. The
+  bubble follows Alien Child, clamps to 12-pixel viewport margins, wraps long
+  prose and unbroken tokens, and flips below the sprite when there is not enough
+  room above instead of extending off-screen. The portaled bubble ignores
+  pointer input, so the pet remains directly draggable and persists its dropped
+  position per connection.
+- The reported Mobile `unknown method: pet.sidechat.history` and missing
+  active-turn speech were both caused by a stale Windows Mobile backend, not by
+  the installed APK. `Stop-ScheduledTask` had terminated the scheduled
+  PowerShell runner while leaving its `Start-Process` backend and proxy
+  children alive from July 28. Every later install saw those old listeners,
+  reported health, and left the replacement task crash-looping on occupied
+  ports.
+- The Windows installer now inspects the exact owners of loopback ports 9129
+  and 9130 after stopping the task, refuses to touch unrelated listeners,
+  retires only command lines matching the Mobile Hermes server and validating
+  proxy, requires both ports to become free, then requires the replacement
+  task and both new listeners to stabilize before success.
+- Two consecutive real host refreshes replaced both backend and proxy process
+  generations. The live method table now registers
+  `pet.sidechat.history`, `pet.sidechat.submit`, and `pet.sidechat.reset`;
+  a durable-history read completed successfully.
+- A live Tool evidence observer request returned a 153-character Alien Child
+  comment, and authenticated synthesis through the configured xAI pet voice
+  returned 86,743 bytes of valid audio. This proves commentary generation and
+  pet TTS now complete before the main turn has to finish.
+- The first packaged Desktop sidechat test exposed two real integration
+  failures. Split gateway handlers were rebound into `server.py` without their
+  Progress, Tool evidence, or sidechat-payload helpers, and Desktop pet speech
+  was routed through host-side `voice.tts` playback even though the headless
+  Windows backend had no audio player.
+- Pet handler registration now publishes feature-scoped Progress, Tool
+  evidence, and sidechat helpers into the rebound gateway namespace. Direct
+  deployed-shape smokes pass for all three, removing both
+  `pet_sidechat_payload is not defined` and the repeated
+  `_tool_observer_section is not defined` failures.
+- Desktop pet speech now uses authenticated `/api/audio/speak` synthesis and
+  plays the returned audio in Electron, matching the already-working voice
+  preview. It retains the separate pet speech lane, cancellation, real
+  playing/ended state, configured provider/voice/pitch/volume, and popped-out
+  overlay forwarding.
+- Desktop and Mobile now share one pet-sidechat backend contract. The selected
+  personality receives bounded read-only context from the attached Hermes
+  session, has no tools, and cannot mutate or append to the main conversation.
+- Sidechat turns persist atomically in the existing profile-scoped session
+  database under presentation-only sources. They follow the durable session
+  lineage, remain excluded from ordinary pet commentary and transcript/model
+  history, and can be cleared without removing normal pet remarks.
+- Desktop's in-window pet has a full sidechat history and composer with pet mic,
+  clear, and explicit Send to Hermes controls. The popped-out transparent pet
+  can target either Hermes or the private pet sidechat with both text and mic.
+- Mobile has a dedicated pet-sidechat sheet with durable history, pet-targeted
+  speech input, explicit handoff to the main composer, and reply playback
+  through the independent or Desktop-followed pet speech profile.
+- Mobile's pet is now a transparent draggable in-app overlay instead of a
+  visible fixed walking lane. Position persists per connection, roaming mixes
+  slower short and long travel legs with varied rests, and movement uses the
+  running row facing the actual direction of travel.
+- Mobile freezes the true rendered position before any animation cancellation.
+  Conversation-state changes, visibility returns, taps, and drags therefore no
+  longer jump the pet to a stale origin; roaming is explicitly rescheduled after
+  focus, tapping, or dragging.
+- Commentary timers no longer depend on the live transcript callback identity.
+  The initial and repeating schedules survive streaming row updates, while
+  progress/tool evidence uses a non-resetting 900 ms trigger so a dense event
+  stream cannot continually postpone speech until the turn is over.
+- Alien Child is now a guaranteed Mobile built-in. The APK contains the real
+  1536 by 1872 WebP spritesheet and the complete Alien Child personality
+  definition, so he appears and reacts even before Mobile connects or when an
+  older/cloud host does not expose pet RPCs.
+- Mobile merges the built-in Alien Child entry with every valid personality
+  returned by the connected profile's `pet.personality.list`. Selecting a
+  host-local personality loads its actual prompt, state lines, and click
+  interactions through `pet.personality.get`.
+- The Chat pet uses a pixel-preserving canvas, the authoritative 192 by 208
+  frame cells, directional running rows, real row/frame metadata when the host
+  supplies it, and a visibility-resume loop. Each travel leg owns its facing
+  direction and uses the running row. Review, wait, and wave poses stay
+  stationary, so the sprite no longer glides or faces opposite its movement.
+- The pet reacts to running tools, live reasoning, pending approvals/input,
+  completion, and idle state. Animation is renderer-owned and is not stopped
+  or recreated by ordinary gateway focus/reconnect transitions.
+- Pet visibility, roaming, personality, commentary, commentary speech, initial
+  delay, and repeat interval are connection-scoped Mobile preferences. Alien
+  Child, roaming, and AI commentary default on; spoken commentary defaults off.
+- Control exposes the host-owned `auxiliary.pet_commentary` provider, model,
+  and reasoning-effort assignment. Saving that explicit model assignment
+  updates only the connected Hermes profile; visual pet preferences remain
+  phone-local.
+- Generated comments use the selected personality prompt, bounded recent
+  conversation, bounded tool activity, and a recent-comment avoidance window.
+  Companion, progress, and tool-evidence lenses select the exact context shape;
+  tool evidence is force-redacted and a zero observation limit now means no
+  tool evidence.
+- Pet speech is independent from ordinary assistant Listen/auto-speak. Mobile
+  can follow the Desktop pet provider, voice, speed, pitch, and volume for the
+  active connection, or select its own provider and voice. Click interactions,
+  previews, and generated commentary during an active turn all use that pet
+  speech profile.
+- Desktop now mirrors its active pet speech settings into the active
+  profile-scoped `pet.speech` record through the existing config API. The
+  rebuilt regular shortcut published the current xAI `orion` profile with
+  speed 1, pitch +8.5, and volume 0.45, which Mobile follow mode can consume
+  without reading Desktop local storage.
+- `pet.commentary.record` persists generated and interaction remarks as
+  presentation-only session events. Mobile renders both live
+  `pet.commentary.recorded` events and durable `display_kind=pet_commentary`
+  history as distinct personality-labeled transcript rows with Copy and Listen,
+  deduplicated by commentary event ID.
+- Mobile's Voice speed slider now controls client playback for ordinary
+  Listen, auto-speak, and Reader instead of depending on each TTS provider to
+  implement `tts_config.speed`. This makes Host default, F5-TTS, Qwen, and
+  other providers behave consistently.
+- Interactive synthesis removes the client-owned speed value before requesting
+  audio, preventing providers that do support synthesis speed from applying
+  the rate a second time. Playback uses pitch preservation and the existing
+  0.70x through 1.50x range.
+- A non-default speed is retained even when the Provider selector is Host
+  default; that selection previously returned no TTS override and silently
+  discarded the slider value.
 - The Reader 22-of-24 failure was traced to the tailnet host proxy's global
   30-second `httpx` timeout. Later xAI chunks completed on the Hermes backend
   after that deadline, so the proxy emitted an opaque 500 and the client
@@ -369,6 +703,91 @@ Current state:
 
 Next action:
 
+On the installed build, connect to `mr mid tier`, open Pet companion, and
+confirm the visual-only explanation replaces unsupported commentary, sidechat,
+personality, and auxiliary-model controls without an unknown-method banner.
+Tap Alien Child and test optional host-default pet speech. Switch back to
+Workstation and confirm the complete stored pet controls return.
+
+Physical finger-drag acceptance is complete on the installed build. Continue
+ordinary use across Chat, Sessions, Reader, Files, and Control; any future pet
+gesture issue should be evaluated separately from the now-accepted native touch
+and stale-frame correction.
+
+Restart the `mr mid tier` Hermes host through the Nous Cloud lifecycle surface,
+then reconnect and use Control, Mobile server plugin, Check host. Confirm the
+section reports plugin `0.1.0` rather than `core-gateway`. If Reader, speech, or
+filesystem still returns 404, update the Cloud host's Hermes core because those
+routes are not provided by the standalone plugin.
+
+The Reader stale-error cleanup APK is already installed in place on the
+physical phone. Open Reader on the older host and confirm Host default remains
+usable without the red catalog error. Switch to the Windows workstation and
+confirm its provider and voice controls return without carrying the Cloud
+selection forward.
+
+Exercise Edit and Delete on a disposable saved connection, confirming Cloud
+endpoint fields stay read-only and deleting one host does not disturb the
+others. Cloud connection acceptance is complete: the installed replacement
+reused `mr mid tier`, connected through the standard gateway without a Mobile
+plugin or token, and loaded the new-session workspace at `/opt/data`.
+
+Install the latest replacement APK in place with app data preserved. Drag Alien
+Child directly from the visible sprite in Chat, visit each other bottom tab,
+return, and confirm he remains draggable every time. Reveal the sidechat star
+and test both its tap and a drag that begins on it. Interrupt another drag by
+switching apps and confirm cleanup, position persistence, and roaming resume
+remain reliable. Let him roam through short and long legs and confirm the
+faster movement floor removes the barely-moving glide without removing rests
+or route variety.
+
+Start one long reply or pet comment playing, then queue a second Listen,
+auto-speak, Reader, or pet speech request. Confirm the first audio is not
+interrupted and the second begins only after it ends. Confirm long-response
+chunk lookahead remains seamless. Tap Stop during another pair and confirm both
+the active audio and the waiting request are discarded.
+
+Open sidechat and ask for a substantial multi-paragraph response after at least
+one earlier exchange. Confirm the sheet retains and renders the full Markdown
+answer, the pet stays in character, and only the transient roaming bubble is
+abbreviated. Confirm the floating popout fits above the bottom navigation
+without a full-screen dimmer, the message viewport scrolls, mic/send/clear/close
+icons remain reachable, recording swaps to a stop-square, and the compact
+Hermes handoff still fills the main composer. In Chat, confirm durable pet
+remarks are small and muted, then dismiss one and verify it stays hidden for
+this saved connection after navigation without deleting the underlying session
+record.
+
+Run a long tool-using turn with Tool evidence or Progress commentary enabled.
+Confirm the pet generates and optionally speaks commentary before the final
+assistant response, without requiring a poke or Test button. The Windows host
+does not need another refresh for this client-only repair.
+
+Install the latest APK in place with app data preserved. Drag Alien Child,
+interrupt a walk with a tap and another with a drag, switch apps during a walk,
+and return. Confirm his position never jumps, the walking row faces the travel
+direction, the slower mixed-length pace feels varied, and roaming resumes after
+each interruption.
+
+Open the pet sidechat, use text and pet mic, close and reopen it, and confirm the
+history remains outside the main transcript. Use Send to Hermes and confirm it
+fills the main composer without silently sending. During a long tool-using turn,
+confirm Tool evidence or Progress commentary speaks before completion without a
+poke or Test button. Repeat in Desktop's in-window pet and the popped-out
+Hermes/Pet input target.
+
+Exercise Companion, Progress, and Tool evidence lenses, including zero tool
+observations. Confirm progress/tool commentary waits for new observed work,
+secret-like tool fields are not exposed, and spoken commentary begins while
+the turn is still generating. Resume the session and confirm comments remain
+in the transcript. Test Copy, Listen, timing controls, recent-comment history,
+and the explicit pet auxiliary provider/model/reasoning assignment.
+
+Install the TTS-speed replacement APK in place with app data preserved. Compare
+0.70x, 1.00x, and 1.50x using an ordinary response Listen button, auto-speak,
+and Reader. Confirm each path changes playback speed with Host default and a
+custom provider such as F5-TTS or Qwen, without an unnatural pitch change.
+
 Install the newest APK in place with app data preserved and rerun the exact
 multivoice Render & save that failed at 22 of 24. Confirm it completes all
 chunks and opens Android's document picker without a 500 from
@@ -412,6 +831,272 @@ the regular shortcut as well.
 
 Validation completed:
 
+- A real 360 by 800 Chromium touch run reproduced the remaining failure:
+  storage changed while the rendered sprite snapped to the pre-drag frame.
+  After the correction, a native `touchstart`/`touchmove`/`touchend` gesture
+  moved Alien Child from `(12, 539.39)` to `(104, 491.39)`, persisted
+  `{x:104,y:293}`, and left the browser console with zero errors or warnings.
+- Complete Mobile client Vitest after the native-touch correction: 43 files
+  and 185 tests passed. TypeScript typecheck, Vite production build, Capacitor
+  Android sync, and Android `assembleDebug` with Android Studio JDK 21 passed.
+- Native-touch pet drag APK size: 6,257,869 bytes. SHA-256:
+  `7DE3818DDB382627B455E6279C818106907A5112141481AC9ED57ECB2EFCF16C`.
+- The native-touch replacement APK installed successfully with
+  `adb install -r` on the explicitly selected Samsung SM-S918U at
+  `100.112.167.36:44839`. Android reports
+  `lastUpdateTime=2026-07-30 11:44:46`; the relaunched app is PID 6474 and
+  `HermesConnectionService` is foreground with notification ID 2201. Existing
+  app data and Keystore state were preserved, and no phone screen or
+  application content was inspected.
+- Pet capability and fixed-overlay focused Vitest: 6 files and 17 tests passed.
+- Complete Mobile client Vitest after the capability and drag repair: 43 files
+  and 185 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Pet capability and cross-tab drag APK size: 6,257,482 bytes.
+- Pet capability and cross-tab drag APK SHA-256:
+  `BB1C582C0B4CAF7974D10A52B8DCB61DB2AB849672C671E818C9B87003D3E1EF`.
+- The replacement APK installed successfully with `adb install -r` on the
+  explicitly selected Samsung SM-S918U at `100.112.167.36:44839`. Android
+  reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 11:28:54`. Existing saved connections and Android
+  Keystore credentials were preserved. The app relaunched as PID 14043, and
+  `HermesConnectionService` is foreground with notification ID 2201. No phone
+  screen or application content was inspected.
+- Reader stale-error focused Vitest: 3 files and 10 tests passed.
+- Complete Mobile client Vitest after the repair: 40 files and 177 tests
+  passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Reader stale-error cleanup APK size: 6,256,579 bytes.
+- Reader stale-error cleanup APK SHA-256:
+  `38D68F10D1DCCF6EBC5EB7A60C8A831EC8873F8D875A0EAA74E73BF0DB8FE901`.
+- The cleanup APK was installed successfully with `adb install -r` on the
+  explicitly selected Samsung SM-S918U at
+  `100.112.167.36:44839`. Android reports package
+  `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 11:08:10`. Existing app data and Android Keystore
+  credentials were preserved. The app relaunched as PID 24130 with no matching
+  fatal exception in the initial filtered Logcat interval. No phone screen or
+  application content was inspected.
+- TTS host-capability focused Vitest: 5 files and 22 tests passed.
+- Complete Mobile client Vitest after the fallback: 40 files and 176 tests
+  passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- TTS-capability fallback APK size: 6,256,467 bytes.
+- TTS-capability fallback APK SHA-256:
+  `FB1FB9BD46ED89CCC9A49EA06FE013A62A1F11BDB9E8C8E04AE97B94ED2EF493`.
+- The fallback APK was installed successfully with `adb install -r` on the
+  explicitly selected Samsung SM-S918U at
+  `100.112.167.36:44839`. Android reports package
+  `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 10:54:55`. Existing app data and Android Keystore
+  credentials were preserved. No phone screen or application content was
+  inspected.
+- In-app plugin-installer focused Vitest: 2 files and 5 tests passed before the
+  final target-root guard; the final focused suite passes 6 tests.
+- Complete Mobile client Vitest after the installer: 38 files and 172 tests
+  passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  Android `assembleDebug` with Android Studio JDK 21, focused
+  `git diff --check`, and server-plugin Python compile: passed.
+- In-app plugin-installer APK size: 6,255,919 bytes.
+- In-app plugin-installer APK SHA-256:
+  `B92FB6DDA333DE85678FC3A34733B4AB24DB1B7F2A9C93327981FA95A772525C`.
+- The final guarded APK installed successfully in place on the authorized
+  Samsung SM-S918U at 2026-07-30 03:20:20 with app data and Android Keystore
+  state preserved. Android reports package `dev.hermes.mobile`, versionName
+  1.0, versionCode 1, live PID 29173 after launch, and
+  `HermesConnectionService` promoted in the foreground with notification ID
+  2201 and service type `remoteMessaging`.
+- Physical Control inspection kept the installer inside the phone viewport,
+  showed 12 files, 28.2 KiB, the 100 MiB host limit, and the exact
+  `/opt/data/plugins/hermes-mobile` target. The review card displayed the
+  overwrite scope and restart requirement before the final action.
+- Physical Cloud upload acceptance passed: all files were verified, plugin
+  enablement succeeded, and the final state reports host restart required.
+- Cloud core-gateway and saved-connection focused Vitest: 4 files and 15 tests
+  passed, including the native transport sequence that reproduced the device
+  failure.
+- Complete Mobile client Vitest after the repair: 37 files and 167 tests
+  passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  Android `assembleDebug` with Android Studio JDK 21, and focused
+  `git diff --check`: passed.
+- Cloud core-gateway and connection-management APK size: 6,244,503 bytes.
+- Cloud core-gateway and connection-management APK SHA-256:
+  `5694023CD5F416793FC6079904E7F343E271A1A3FA7981B3907D5CAB4F58C264`.
+- The replacement APK installed successfully in place on the authorized
+  Samsung SM-S918U at 2026-07-30 02:32:52 with app data and Android Keystore
+  state preserved. Android reports package `dev.hermes.mobile`, versionName
+  1.0, versionCode 1.
+- Physical Cloud acceptance passed immediately after relaunch. The app reused
+  the saved `mr mid tier` connection, displayed `Connected to mr mid tier`,
+  and loaded session cwd `/opt/data`. No Mobile plugin installation or token
+  entry was required on the Cloud instance.
+- Android reports `HermesConnectionService` in foreground with notification ID
+  2201 and service type `remoteMessaging`. Filtered Logcat showed no Hermes
+  connection exception or process crash during the acceptance interval.
+- Automatic Nous Cloud onboarding focused Vitest: 4 files and 13 tests passed.
+- Complete Mobile client Vitest suite after automatic Cloud routing: 36 files
+  and 162 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Automatic Nous Cloud onboarding APK size: 6,243,953 bytes.
+- Automatic Nous Cloud onboarding APK SHA-256:
+  `FB0FDFB09215039187DD4E232E3E709850C104618EF82A58FA9A1E2F25FA5B24`.
+- The replacement APK was installed in place through the already-authorized
+  wireless ADB target `100.112.167.36:34959` at 2026-07-30 02:17:04, using
+  `adb install -r` so the connection registry and Android Keystore data were
+  preserved. Android reports package `dev.hermes.mobile`, versionName 1.0,
+  versionCode 1. No phone screen or application content was inspected.
+- Physical Android Nous login, account inventory, per-agent sign-in, and core
+  gateway fallback acceptance remains pending. No Cloud machine was modified,
+  and no plugin installation was attempted or required.
+- Compact pet-sidechat popout focused Mobile Vitest: 1 file and 3 tests passed.
+- Complete Mobile client Vitest suite after the popout cleanup: 34 files and
+  155 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Compact pet-sidechat popout APK size: 6,243,115 bytes.
+- Compact pet-sidechat popout APK SHA-256:
+  `4913A44D35BE23A1B611BCA52F87D5E1051054D52A7110ABD8002AA6C528935C`.
+- The compact-popout replacement APK was installed in place on the explicitly
+  authorized Samsung SM-S918U at 2026-07-30 02:03:17 with app data preserved.
+  Android reported a successful cold launch of `dev.hermes.mobile/.MainActivity`
+  as PID 10353. No phone screen or application content was inspected.
+- The isolated in-app browser could not route to the workstation's local Vite
+  listener, so a rendered 360 by 800 visual pass was not claimed. Physical
+  Android layout acceptance remains pending.
+- Tab-stable pet drag and serial speech-queue focused Mobile Vitest: 2 files
+  and 17 tests passed.
+- Complete Mobile client Vitest suite after the lifecycle and speech-queue
+  repairs: 33 files and 152 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Tab-stable pet drag and non-interrupting speech-queue APK size:
+  6,242,429 bytes.
+- Tab-stable pet drag and non-interrupting speech-queue APK SHA-256:
+  `879B0F677A53FDBECBC7732CC9C18536B0B7A3612A9F16B3AD7E1F7138F0FC82`.
+- Direct-drag, sidechat, transcript-presentation, and transcript-reducer focused
+  Mobile Vitest: 4 files and 55 tests passed.
+- Complete Mobile client Vitest suite after restoring every pre-existing
+  Transcript regression: 33 files and 150 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Pet-sidechat backend Python compile and a direct fake-DB/fake-auxiliary
+  full-conversation dispatch smoke: passed. Python pytest was not run.
+- The Windows Mobile host was refreshed through the checked-in installer. The
+  scheduled service is running, loopback ports 9129 and 9130 are listening,
+  authenticated health is `ok`, compatibility is `compatible`, contract version
+  is 1, and Tailscale Serve remains configured. The credential was not printed.
+- Direct-drag/full-sidechat/subdued-dialogue APK size: 6,242,183 bytes.
+- Direct-drag/full-sidechat/subdued-dialogue APK SHA-256:
+  `C54ADCE422B10FA3AB5735E353320E4EB4E0B9C7DF1E60F2D40766A2FB1048C8`.
+- Mobile pet-bubble positioning, wrapping, and drag focused Vitest: 2 files and 15
+  tests passed.
+- Complete Mobile client Vitest suite: 33 files and 146 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Mobile viewport-safe pet-bubble replacement APK size: 6,241,007 bytes.
+- Mobile viewport-safe pet-bubble replacement APK SHA-256:
+  `564AC4A6223A91F8055E03A4DE95C2E6E22A9FEA185A77D6C3D2DE3876AA8640`.
+- Mobile sidechat-send/active-turn focused Vitest: 2 files and 13 tests passed.
+- Complete Mobile client Vitest suite: 33 files and 144 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- `git diff --check`: passed with only existing line-ending warnings.
+- Mobile sidechat-send/observer replacement APK size: 6,240,690 bytes.
+- Mobile sidechat-send/observer replacement APK SHA-256:
+  `96A44F4E3306EB0E83DDDE145702C25A55AD398269E3AE6D10EB7E476EF3C7DE`.
+- Windows Mobile host refresh regression: two consecutive checked-in
+  `mobile_host.py install` runs completed successfully. Each run replaced both
+  listener PIDs, left `Hermes_Mobile_Server` running, and stabilized fresh
+  loopback listeners on 9129 and 9130 instead of accepting the July 28 orphan
+  processes.
+- Live post-refresh pet RPC probe: all three `pet.sidechat.*` methods are
+  registered, `pet.commentary.generate` is registered, and the personality
+  catalog returned seven entries.
+- Live post-refresh durable sidechat projection: resumed a stored session and
+  loaded `pet.sidechat.history` successfully through the rebound handler.
+- Live Tool evidence observer and speech proof: commentary generation
+  completed without the old helper `NameError`, then the configured xAI pet
+  profile synthesized 86,743 bytes of audio through `/api/audio/speak`.
+- Mobile pet regression slice: 3 Vitest files and 11 tests passed.
+- Mobile TypeScript typecheck: passed.
+- Updated Windows installer PowerShell parser and focused `git diff --check`:
+  passed.
+- Final host status: scheduled service running, both loopback listeners live,
+  authenticated health `ok`, compatibility `compatible`, contract version 1,
+  and Tailscale Serve configured. The credential was not printed.
+- Pet-sidechat backend Python compile: passed.
+- Desktop pet-sidechat/typecheck and focused pet suite: 5 files and 37 tests
+  passed.
+- Desktop `npm run pack`: passed.
+- The normal `C:\Users\btgil\Desktop\Hermes.lnk` shortcut launched the exact
+  packaged executable, emitted `HERMES_BACKEND_READY port=61864`, and returned
+  HTTP 200 from both `/api/health` and `/api/status`.
+- Pet-sidechat Desktop executable size: 214,281,216 bytes.
+- Pet-sidechat Desktop executable SHA-256:
+  `BF80330FC68B72AAC6A05F5E4A4A34E7E4B500F194B55C0E1EF7FD2554CD9AAF`.
+- Corrected Desktop pet-audio regression slice: 4 files and 26 tests passed.
+- A direct gateway binding smoke passed for sidechat history, Progress
+  commentary, and Tool evidence commentary after module rebinding.
+- Authenticated xAI `orion` synthesis with the configured pitch/volume override
+  returned HTTP 200 and a valid 14,854-byte MPEG payload through the refreshed
+  Mobile host. The credential was not printed.
+- Mobile sidechat/roam focused suite passed before final assembly; the complete
+  client suite passed 33 files and 141 tests after the final focus/tap/drag
+  rescheduling and non-resetting observer trigger.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Pet-sidechat replacement APK size: 6,240,222 bytes.
+- Pet-sidechat replacement APK SHA-256:
+  `825BAA03AD2BFD614C6D14BB90DD5781B467156CDB997647740A6C5C756F5F73`.
+- Pet speech/lens focused Mobile Vitest: 1 file and 8 tests passed.
+- Complete Mobile client Vitest suite: 32 files and 139 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed after the
+  final zero-tool-observation correction.
+- A real 360 by 800 Chrome pass kept both Desktop-follow and independent pet
+  voice controls inside the viewport with no horizontal overflow or console
+  errors. Directional movement advanced right, turned, then advanced left
+  while preserving non-transparent sprite pixels.
+- Latest pet voice/lens APK size: 6,237,501 bytes.
+- Latest pet voice/lens APK SHA-256:
+  `7BD32BE44D7BC512728886DE3A7AE2B49CC1B24C40864FFA5B14F6C97E8B6613`.
+- Desktop pet/config focused Vitest: 2 files and 14 tests passed. The broader
+  pet, speech, profile-scope, commentary, and roam slice passed 8 files and 72
+  tests.
+- Desktop TypeScript typecheck and the final `npm run pack`: passed.
+- The regular `Hermes.lnk` target launched the rebuilt package, emitted a fresh
+  backend-ready port, and returned HTTP 200 from `/api/health`.
+- The live profile config contains only the shared pet speech record expected
+  by Mobile: enabled Hermes speech through xAI `orion`, speed 1, pitch +8.5,
+  and volume 0.45.
+- Final Desktop executable size: 214,281,216 bytes.
+- Final Desktop executable SHA-256:
+  `BC083AA4ADB04CF49523C9772255A49B5C9E23DE462CF3D981E9F3CEDC6E18E9`.
+- Mobile pet focused Vitest: 4 files and 41 tests passed.
+- Complete Mobile client Vitest suite: 32 files and 135 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- A real 360 by 800 Chrome render loaded non-transparent pixels from the
+  bundled Alien Child spritesheet, rendered a 68-pixel walking lane above the
+  composer, kept the Pet section collapsed by default, expanded it without
+  horizontal overflow, and logged no browser warnings or errors.
+- Alien Child debug APK size: 6,233,504 bytes.
+- Alien Child debug APK SHA-256:
+  `4B2F9F0400AB65F93C45851DBBB2C4626DD63B09D041803F983881E0A03148D7`.
+- TTS-speed focused Vitest: 2 files and 15 tests passed.
+- Complete Mobile client Vitest suite: 31 files and 129 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- TTS-speed replacement APK size: 5,241,609 bytes.
+- TTS-speed replacement APK SHA-256:
+  `63A3B391681F30A5CAF5BC8AA7675E3C37E5A33BB31AD79D4EF8FDF786E67241`.
+- `git diff --check`: passed with only existing line-ending warnings.
 - The Windows/AppData Mobile host was refreshed again at
   `2026-07-29 19:37 -06:00` after the adjacent Hermes core performance pass.
   The scheduled service is running, loopback backend 9129 and validating proxy
@@ -752,6 +1437,16 @@ Validation completed:
 
 Known constraints:
 
+- The bundled Alien Child sprite and local interaction lines work without pet
+  gateway methods. Mobile now detects that boundary per connection and stays
+  visual-only without invoking unsupported pet methods. AI generation, host
+  personality discovery, durable commentary recording, sidechat, and
+  auxiliary-model assignment still require the connected Hermes host to expose
+  the existing pet commentary and model/config APIs.
+- Following Desktop pet speech requires the rebuilt Desktop to publish the
+  active profile's `pet.speech` record. Older/cloud hosts without that shared
+  record fall back to host-default speech; Independent Mobile pet voice remains
+  available.
 - The initial mobile gateway delegates to Hermes's current dispatcher and
   transport implementation through a compatibility adapter.
 - Complete cross-process run observation is outside the first milestone.
