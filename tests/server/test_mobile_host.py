@@ -123,6 +123,24 @@ class MobileHostTests(unittest.TestCase):
         self.assertIn("# X-Hermes-Mobile=true", unit)
         self.assertIn("linux.tail.example.ts.net", unit)
 
+    def test_windows_manager_command_uses_checked_in_lifecycle_script(self) -> None:
+        original_which = mobile_host.shutil.which
+        try:
+            mobile_host.shutil.which = lambda _name: "C:/Program Files/PowerShell/7/pwsh.exe"
+            command = mobile_host.windows_manager_command("Stop")
+        finally:
+            mobile_host.shutil.which = original_which
+
+        self.assertEqual(command[-2:], ["-Action", "Stop"])
+        self.assertIn(
+            mobile_host.PROJECT_ROOT / "scripts" / "manage-mobile-server.ps1",
+            command,
+        )
+
+    def test_parser_accepts_explicit_windows_startup_policy(self) -> None:
+        args = mobile_host.build_parser().parse_args(["install", "--startup", "desktop"])
+        self.assertEqual(args.startup, "desktop")
+
     @unittest.skipIf(os.name == "nt", "POSIX entry-point symlink contract")
     def test_locate_hermes_preserves_the_venv_facing_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

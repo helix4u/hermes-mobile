@@ -440,7 +440,40 @@ def install_systemd(
     return unit_path
 
 
-def install_windows(hermes_home: Path, hermes_executable: Path) -> None:
+def windows_manager_command(action: str) -> list[str | os.PathLike[str]]:
+    powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+    if not powershell:
+        raise HostInstallError("PowerShell is required for the Windows host manager")
+    return [
+        powershell,
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        PROJECT_ROOT / "scripts" / "manage-mobile-server.ps1",
+        "-Action",
+        action,
+    ]
+
+
+def manage_windows(action: str) -> dict[str, Any]:
+    result = run_checked(
+        windows_manager_command(action),
+        capture_output=True,
+    )
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise HostInstallError(
+            f"Windows host manager returned an invalid response for {action}"
+        ) from exc
+
+
+def install_windows(
+    hermes_home: Path,
+    hermes_executable: Path,
+    startup_mode: str,
+) -> None:
     powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
     if not powershell:
         raise HostInstallError("PowerShell is required for the Windows host installer")
@@ -456,6 +489,8 @@ def install_windows(hermes_home: Path, hermes_executable: Path) -> None:
             hermes_home,
             "-HermesExecutable",
             hermes_executable,
+            "-StartupMode",
+            startup_mode,
         ],
     )
 
@@ -531,33 +566,36 @@ def service_state() -> str:
         )
         return result.stdout.strip() or "stopped"
     if os.name == "nt":
-        result = run_checked(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-Command",
-                f"(Get-ScheduledTask -TaskName '{WINDOWS_TASK}').State",
-            ],
-            capture_output=True,
-            check=False,
-        )
-        return result.stdout.strip().lower() or "stopped"
+        metadata = manage_windows("Status")
+        if not metadata.get("Installed"):
+            return "not-installed"
+        state = str(metadata.get("TaskState", "stopped")).lower()
+        if (
+            state == "running"
+            and metadata.get("StartupMode") == "desktop"
+            and not metadata.get("BackendListening")
+        ):
+            return "waiting-for-desktop"
+        return state
     return "unsupported"
 
 
 def inspect_host(hermes_home: Path, tailscale: Path) -> dict[str, Any]:
     token_path = state_paths(hermes_home)["token"]
-    if not token_path.exists():
-        raise HostInstallError(f"Hermes Mobile credential does not exist: {token_path}")
-    token = token_path.read_text(encoding="utf-8").strip()
-    health = request_json(
-        f"http://127.0.0.1:{BACKEND_PORT}/api/plugins/hermes-mobile/v1/health",
-        token,
-    )
-    capabilities = request_json(
-        f"http://127.0.0.1:{BACKEND_PORT}/api/plugins/hermes-mobile/v1/capabilities",
-        token,
-    )
+    backend_listening = port_is_listening(BACKEND_PORT)
+    proxy_listening = port_is_listening(PROXY_PORT)
+    health: dict[str, Any] = {}
+    capabilities: dict[str, Any] = {}
+    if token_path.exists() and backend_listening:
+        token = token_path.read_text(encoding="utf-8").strip()
+        health = request_json(
+            f"http://127.0.0.1:{BACKEND_PORT}/api/plugins/hermes-mobile/v1/health",
+            token,
+        )
+        capabilities = request_json(
+            f"http://127.0.0.1:{BACKEND_PORT}/api/plugins/hermes-mobile/v1/capabilities",
+            token,
+        )
     serve_result = run_checked(
         [tailscale, "serve", "status", "--json"],
         capture_output=True,
@@ -568,12 +606,14 @@ def inspect_host(hermes_home: Path, tailscale: Path) -> dict[str, Any]:
     except json.JSONDecodeError:
         serve_payload = {}
     dns_name, ip_address = tailscale_identity(tailscale)
+    windows_metadata = manage_windows("Status") if os.name == "nt" else {}
     return {
         "service": service_state(),
+        "startup_mode": windows_metadata.get("StartupMode", "persistent"),
         "backend": f"127.0.0.1:{BACKEND_PORT}",
-        "backend_listening": port_is_listening(BACKEND_PORT),
+        "backend_listening": backend_listening,
         "proxy": f"127.0.0.1:{PROXY_PORT}",
-        "proxy_listening": port_is_listening(PROXY_PORT),
+        "proxy_listening": proxy_listening,
         "health": health.get("status"),
         "compatibility": capabilities.get("status"),
         "contract_version": capabilities.get("contract_version"),
@@ -669,6 +709,25 @@ def run_forever(
             time.sleep(5)
 
 
+def manage_service(action: str) -> None:
+    if action not in {"start", "stop", "restart"}:
+        raise HostInstallError(f"Unsupported lifecycle action: {action}")
+    if sys.platform == "darwin":
+        service = f"gui/{os.getuid()}/{LAUNCHD_LABEL}"
+        if action == "start":
+            run_checked(["launchctl", "kickstart", service])
+        elif action == "stop":
+            run_checked(["launchctl", "kill", "SIGTERM", service], check=False)
+        else:
+            run_checked(["launchctl", "kickstart", "-k", service])
+    elif sys.platform.startswith("linux"):
+        run_checked(["systemctl", "--user", action, SYSTEMD_UNIT])
+    elif os.name == "nt":
+        manage_windows(action.title())
+    else:
+        raise HostInstallError(f"Unsupported platform: {sys.platform}")
+
+
 def uninstall_service() -> None:
     if sys.platform == "darwin":
         plist_path = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
@@ -690,10 +749,7 @@ def uninstall_service() -> None:
             unit_path.unlink()
             run_checked(["systemctl", "--user", "daemon-reload"])
     elif os.name == "nt":
-        raise HostInstallError(
-            "Use Windows Task Scheduler to remove Hermes_Mobile_Server; "
-            "automatic Windows uninstall is not yet provided."
-        )
+        manage_windows("Uninstall")
     else:
         raise HostInstallError(f"Unsupported platform: {sys.platform}")
 
@@ -710,8 +766,10 @@ def install(args: argparse.Namespace) -> None:
         # current-user-only ACL. Do not pre-create it through the generic path,
         # or the runner would correctly preserve the file but never get the
         # chance to apply its ACL.
-        install_windows(hermes_home, hermes_executable)
+        install_windows(hermes_home, hermes_executable, args.startup)
     elif sys.platform == "darwin":
+        if args.startup != "persistent":
+            raise HostInstallError("--startup is currently configurable only on Windows")
         ensure_token(hermes_home)
         install_launchd(
             python_executable=hermes_python(hermes_executable),
@@ -720,6 +778,8 @@ def install(args: argparse.Namespace) -> None:
             tailnet_host=tailnet_host,
         )
     elif sys.platform.startswith("linux"):
+        if args.startup != "persistent":
+            raise HostInstallError("--startup is currently configurable only on Windows")
         ensure_token(hermes_home)
         install_systemd(
             python_executable=hermes_python(hermes_executable),
@@ -730,7 +790,12 @@ def install(args: argparse.Namespace) -> None:
     else:
         raise HostInstallError(f"Unsupported platform: {sys.platform}")
 
-    wait_until_ready(hermes_home)
+    windows_metadata = manage_windows("Status") if os.name == "nt" else {}
+    if not (
+        args.startup == "desktop"
+        and windows_metadata.get("DesktopRunning") is False
+    ):
+        wait_until_ready(hermes_home)
     configure_tailscale_serve(tailscale)
     report = inspect_host(hermes_home, tailscale)
     print(json.dumps(report, indent=2, sort_keys=True))
@@ -766,6 +831,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     install_parser = subparsers.add_parser("install", help="Install or refresh the host service")
     add_common(install_parser)
+    install_parser.add_argument(
+        "--startup",
+        choices=("desktop", "persistent", "manual"),
+        default="persistent",
+        help=(
+            "Windows startup policy: follow packaged Desktop, stay persistent, "
+            "or require explicit start"
+        ),
+    )
 
     run_parser = subparsers.add_parser("run", help="Run the supervised loopback services")
     add_common(run_parser)
@@ -773,6 +847,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_parser = subparsers.add_parser("status", help="Verify the live host without printing its token")
     add_common(status_parser)
+
+    for command in ("start", "stop", "restart"):
+        lifecycle_parser = subparsers.add_parser(
+            command,
+            help=f"{command.title()} the installed host service",
+        )
+        add_common(lifecycle_parser)
 
     show_parser = subparsers.add_parser("show", help="Show connection fields")
     add_common(show_parser)
@@ -798,6 +879,20 @@ def main() -> int:
                 tailnet_host=args.tailnet_host,
             )
         elif args.command == "status":
+            report = inspect_host(
+                Path(args.hermes_home).expanduser().resolve(),
+                locate_tailscale(),
+            )
+            print(json.dumps(report, indent=2, sort_keys=True))
+        elif args.command in {"start", "stop", "restart"}:
+            manage_service(args.command)
+            if args.command != "stop":
+                metadata = manage_windows("Status") if os.name == "nt" else {}
+                if not (
+                    metadata.get("StartupMode") == "desktop"
+                    and metadata.get("DesktopRunning") is False
+                ):
+                    wait_until_ready(Path(args.hermes_home).expanduser().resolve())
             report = inspect_host(
                 Path(args.hermes_home).expanduser().resolve(),
                 locate_tailscale(),

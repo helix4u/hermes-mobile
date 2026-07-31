@@ -1,6 +1,6 @@
 # Hermes Mobile Installation
 
-This guide installs the standalone Hermes Mobile server plugin and a persistent
+This guide installs the standalone Hermes Mobile server plugin and a managed
 tailnet-only Hermes backend. It does not modify Hermes core.
 
 The automated host manager supports Windows, macOS, and Linux. It detects the
@@ -55,6 +55,25 @@ listeners, publishes the validating proxy with Tailscale Serve, and performs an
 authenticated health check. Existing unrelated Tailscale Serve configuration
 is never replaced automatically.
 
+On Windows, choose the service startup policy explicitly:
+
+```text
+python scripts/mobile_host.py install --startup desktop
+python scripts/mobile_host.py install --startup persistent
+python scripts/mobile_host.py install --startup manual
+```
+
+`desktop` keeps the scheduled supervisor registered but starts the backend and
+proxy only while the packaged Hermes Desktop process is running. `persistent`
+keeps Mobile reachable independently after Desktop quits. `manual` registers
+no logon trigger and runs only after an explicit start. Re-running install with
+a different policy safely replaces the prior task and its verified listener
+processes.
+
+The default remains `persistent` for unattended phone access. A workstation
+that should never retain a Mobile backend after Desktop exits should select
+`desktop`.
+
 Verify the installation without printing the credential:
 
 ```text
@@ -63,6 +82,29 @@ python scripts/mobile_host.py status
 
 The verification must report the scheduled task, both listeners, authenticated
 health, and a compatible or explicitly degraded compatibility response.
+When a desktop-bound host is idle, status reports `waiting-for-desktop` and
+both listeners as stopped instead of failing or pretending the service is
+uninstalled.
+
+## Start, stop, restart, or remove the host
+
+Use the checked-in lifecycle manager on every platform:
+
+```text
+python scripts/mobile_host.py start
+python scripts/mobile_host.py stop
+python scripts/mobile_host.py restart
+python scripts/mobile_host.py status
+python scripts/mobile_host.py uninstall
+```
+
+On Windows, stop and uninstall first verify that the scheduled task action and
+both loopback listener command lines belong to Hermes Mobile. They refuse to
+kill an unrelated task or process. Stop removes the task wrapper and any
+verified backend/proxy descendants that Task Scheduler left outside its job
+object. Uninstall also removes the scheduled-task definition, while preserving
+the plugin link, credential, and Tailscale Serve configuration for deliberate
+reuse.
 
 ## Put the connection on the phone
 
@@ -192,7 +234,7 @@ python scripts/mobile_host.py status
 The plugin link follows the checkout. Reinstalling refreshes and restarts the
 matching native service so the Hermes process imports the updated plugin code.
 
-Remove the macOS or Linux native service definition with:
+Remove the native service definition with:
 
 ```text
 python scripts/mobile_host.py uninstall
@@ -200,8 +242,7 @@ python scripts/mobile_host.py uninstall
 
 Uninstall intentionally leaves the credential, plugin link, and Tailscale Serve
 configuration in place. This avoids silently deleting reusable credentials or
-unrelated Serve routes. Windows service removal remains an explicit Task
-Scheduler operation.
+unrelated Serve routes.
 
 ## Agent handoff contract
 
@@ -219,7 +260,6 @@ It must not print or return the session token. The user performs the explicit
 
 ## Current limits
 
-- Windows service removal remains manual.
 - Native mobile connections require HTTPS/WSS.
 - Tailscale Serve setup is tailnet-only, not public internet hosting.
 - The repository is an alpha side project and currently has no public release

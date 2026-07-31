@@ -30,6 +30,12 @@ python scripts/mobile_host.py install
 python scripts/mobile_host.py status
 ```
 
+Windows can bind the Mobile backend to Desktop lifetime with
+`python scripts/mobile_host.py install --startup desktop`, keep it independent
+with `--startup persistent`, or require explicit starts with `--startup manual`.
+The same manager exposes `start`, `stop`, `restart`, and `uninstall`; see
+`INSTALL.md` for the ownership and cleanup guarantees.
+
 The final connection token is intentionally revealed only by a separate,
 explicit user command documented in `INSTALL.md`.
 
@@ -94,6 +100,13 @@ The server API is mounted under:
 The authenticated API exposes health, capability, observation, and one-use
 WebSocket-ticket routes. The gateway route delegates JSON-RPC to Hermes's real
 TUI gateway transport and dispatcher.
+
+The Mobile app's Control page can also install the bundled server package on a
+connected host. When the plugin is already active, **Force update server
+plugin** resolves its exact path through Hermes's authenticated plugin
+registry, requires an explicit confirmation, and overwrites the verified
+package files even when the reported semantic version is unchanged. Restart
+the host afterward so its plugin routes reload the replacement source.
 
 The host manager stores a random 384-bit session credential under
 `<Hermes home>/mobile-server/session-token` with current-user-only access,

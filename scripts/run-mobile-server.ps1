@@ -4,7 +4,8 @@ param(
     [int]$ProxyPort = 9130,
     [string]$TailnetHost = '',
     [string]$HermesHome = (Join-Path $env:LOCALAPPDATA 'hermes'),
-    [string]$HermesExecutable = ''
+    [string]$HermesExecutable = '',
+    [string]$DesktopExecutable = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,6 +46,25 @@ $serverWorkingDirectory = if (
     $env:USERPROFILE
 } else {
     $HermesHome
+}
+
+function Test-DesktopRunning {
+    if (-not $DesktopExecutable) {
+        return $true
+    }
+    $expected = [System.IO.Path]::GetFullPath($DesktopExecutable)
+    $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'Hermes.exe'" -ErrorAction SilentlyContinue)
+    foreach ($process in $processes) {
+        $candidate = [string]$process.ExecutablePath
+        if ($candidate -and [string]::Equals(
+            [System.IO.Path]::GetFullPath($candidate),
+            $expected,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            return $true
+        }
+    }
+    return $false
 }
 
 if (-not (Test-Path -LiteralPath $proxyScript)) {
@@ -93,7 +113,20 @@ if (-not $mutex.WaitOne(0)) {
 
 try {
     $env:HERMES_DASHBOARD_SESSION_TOKEN = $token
+    $waitingLogged = $false
     while ($true) {
+        if (-not (Test-DesktopRunning)) {
+            if (-not $waitingLogged) {
+                [System.IO.File]::AppendAllText(
+                    $launcherLog,
+                    "[$([DateTimeOffset]::Now.ToString('O'))] desktop-bound mode waiting for $DesktopExecutable`r`n"
+                )
+                $waitingLogged = $true
+            }
+            Start-Sleep -Seconds 2
+            continue
+        }
+        $waitingLogged = $false
         [System.IO.File]::AppendAllText(
             $launcherLog,
             "[$([DateTimeOffset]::Now.ToString('O'))] starting Hermes Mobile server on 127.0.0.1:$Port with proxy 127.0.0.1:$ProxyPort for $TailnetHost`r`n"
@@ -132,14 +165,30 @@ try {
             -RedirectStandardError $proxyStderrPath `
             -PassThru
 
-        while (-not $server.HasExited -and -not $proxy.HasExited) {
+        while (
+            -not $server.HasExited -and
+            -not $proxy.HasExited -and
+            (Test-DesktopRunning)
+        ) {
             Start-Sleep -Seconds 2
             $server.Refresh()
             $proxy.Refresh()
         }
 
-        $exitedName = if ($server.HasExited) { 'server' } else { 'proxy' }
-        $exitCode = if ($server.HasExited) { $server.ExitCode } else { $proxy.ExitCode }
+        $exitedName = if (-not (Test-DesktopRunning)) {
+            'desktop'
+        } elseif ($server.HasExited) {
+            'server'
+        } else {
+            'proxy'
+        }
+        $exitCode = if ($server.HasExited) {
+            $server.ExitCode
+        } elseif ($proxy.HasExited) {
+            $proxy.ExitCode
+        } else {
+            0
+        }
         foreach ($process in @($server, $proxy)) {
             if ($process -and -not $process.HasExited) {
                 Stop-Process -Id $process.Id -Force
@@ -149,7 +198,7 @@ try {
 
         [System.IO.File]::AppendAllText(
             $launcherLog,
-            "[$([DateTimeOffset]::Now.ToString('O'))] $exitedName exited with code $exitCode; restarting both processes in 5 seconds`r`n"
+            "[$([DateTimeOffset]::Now.ToString('O'))] $exitedName ended with code $exitCode; reevaluating lifecycle in 5 seconds`r`n"
         )
         Start-Sleep -Seconds 5
     }
