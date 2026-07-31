@@ -74,6 +74,14 @@ describe('voice helpers', () => {
     )
   })
 
+  test('keeps the startup segment near its requested runway instead of splitting at an early sentence', () => {
+    const text = `${'Brief sentence. '.repeat(80)}${'word '.repeat(200)}`
+    const chunks = splitSpeechTextForStartup(text, 1_050, 900)
+    expect(chunks[0].length).toBeGreaterThanOrEqual(Math.floor(1_050 * 0.72))
+    expect(chunks[0].length).toBeLessThanOrEqual(1_050)
+    expect(chunks.slice(1).every(chunk => chunk.length <= 900)).toBe(true)
+  })
+
   test('normalizes speech queue buffering to the supported range', () => {
     expect(normalizeSpeechSequenceBufferAhead(undefined)).toBe(3)
     expect(normalizeSpeechSequenceBufferAhead(0)).toBe(0)
@@ -273,6 +281,38 @@ describe('voice helpers', () => {
     gates[2].resolve('later')
     await new Promise(resolve => setTimeout(resolve, 0))
     gates[3].resolve('last')
+    await expect(playback).resolves.toBe(true)
+  })
+
+  test('can start the next synthesis alongside the startup segment', async () => {
+    function deferred<T>() {
+      let resolve!: (value: T) => void
+      const promise = new Promise<T>(done => {
+        resolve = done
+      })
+      return { promise, resolve }
+    }
+    const items = ['startup', 'next', 'later'].map(id => ({ id, text: id }))
+    const gates = items.map(() => deferred<string>())
+    const starts: number[] = []
+    const playback = runBufferedSpeechQueue(items, {
+      bufferAhead: 0,
+      initialBufferAhead: 1,
+      bufferAheadFor: () => 2,
+      synthesize: async (_item, index) => {
+        starts.push(index)
+        return gates[index].promise
+      },
+      play: async () => {},
+    })
+
+    await Promise.resolve()
+    expect(starts).toEqual([0, 1])
+    gates[0].resolve('startup')
+    gates[1].resolve('next')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(starts).toEqual([0, 1, 2])
+    gates[2].resolve('later')
     await expect(playback).resolves.toBe(true)
   })
 

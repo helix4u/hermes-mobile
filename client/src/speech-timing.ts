@@ -1,14 +1,19 @@
 export const HOST_DEFAULT_SPEECH_PROVIDER = '__host_default__'
-export const DEFAULT_STARTUP_SPEECH_CHARS = 420
-export const MIN_STARTUP_SPEECH_CHARS = 180
-export const MAX_STARTUP_SPEECH_CHARS = 700
+export const DEFAULT_STARTUP_SPEECH_CHARS = 700
+export const MIN_STARTUP_SPEECH_CHARS = 480
+export const MAX_STARTUP_SPEECH_CHARS = 1_400
+export const DEFAULT_ADAPTIVE_SPEECH_CHARS = 900
+export const MIN_ADAPTIVE_SPEECH_CHARS = 480
+export const MAX_ADAPTIVE_SPEECH_CHARS = 1_200
 export const DEFAULT_ADAPTIVE_BUFFER_AHEAD = 3
 export const MAX_ADAPTIVE_BUFFER_AHEAD = 6
 
 const SPEECH_TIMING_VERSION = 1
 const MAX_PROVIDER_ROWS = 24
 const MAX_SAMPLE_WEIGHT = 100
-const TARGET_STARTUP_SYNTHESIS_MS = 1_500
+const STARTUP_RUNWAY_MARGIN = 1.15
+const LATER_CHUNK_RUNWAY_TARGET = 0.85
+const MIN_ADAPTIVE_BUFFER_AHEAD = 2
 
 export interface SpeechTimingStorage {
   getItem(key: string): string | null
@@ -247,23 +252,68 @@ function providerTiming(
 export function adaptiveStartupSpeechChars(
   store: SpeechTimingStore,
   provider: unknown,
+  playbackRate = 1,
+): number {
+  const normalizedRate = Math.max(0.7, Math.min(1.5, playbackRate))
+  const playbackRateFloor = Math.round(
+    DEFAULT_STARTUP_SPEECH_CHARS * normalizedRate,
+  )
+  const timing = providerTiming(store, provider)
+  if (
+    !timing ||
+    timing.synthesisSamples < 1 ||
+    timing.audioSamples < 1 ||
+    timing.averageSynthesisMsPerChar <= 0 ||
+    timing.averageAudioMsPerChar <= 0
+  ) {
+    return Math.max(
+      MIN_STARTUP_SPEECH_CHARS,
+      Math.min(MAX_STARTUP_SPEECH_CHARS, playbackRateFloor),
+    )
+  }
+  const playbackMsPerChar = timing.averageAudioMsPerChar / normalizedRate
+  const learnedRunway = Math.ceil(
+    (DEFAULT_ADAPTIVE_SPEECH_CHARS *
+      timing.averageSynthesisMsPerChar *
+      STARTUP_RUNWAY_MARGIN) /
+      playbackMsPerChar,
+  )
+  return Math.max(
+    MIN_STARTUP_SPEECH_CHARS,
+    Math.min(
+      MAX_STARTUP_SPEECH_CHARS,
+      Math.max(playbackRateFloor, learnedRunway),
+    ),
+  )
+}
+
+export function adaptiveSpeechChunkChars(
+  store: SpeechTimingStore,
+  provider: unknown,
+  playbackRate: number,
+  startupChars: number,
 ): number {
   const timing = providerTiming(store, provider)
   if (
     !timing ||
     timing.synthesisSamples < 1 ||
-    timing.averageSynthesisMsPerChar <= 0
+    timing.audioSamples < 1 ||
+    timing.averageSynthesisMsPerChar <= 0 ||
+    timing.averageAudioMsPerChar <= 0
   ) {
-    return DEFAULT_STARTUP_SPEECH_CHARS
+    return DEFAULT_ADAPTIVE_SPEECH_CHARS
   }
+  const normalizedRate = Math.max(0.7, Math.min(1.5, playbackRate))
+  const playbackMsPerChar = timing.averageAudioMsPerChar / normalizedRate
+  const sustainableChars = Math.floor(
+    (Math.max(MIN_STARTUP_SPEECH_CHARS, startupChars) *
+      playbackMsPerChar *
+      LATER_CHUNK_RUNWAY_TARGET) /
+      timing.averageSynthesisMsPerChar,
+  )
   return Math.max(
-    MIN_STARTUP_SPEECH_CHARS,
-    Math.min(
-      MAX_STARTUP_SPEECH_CHARS,
-      Math.round(
-        TARGET_STARTUP_SYNTHESIS_MS / timing.averageSynthesisMsPerChar,
-      ),
-    ),
+    MIN_ADAPTIVE_SPEECH_CHARS,
+    Math.min(MAX_ADAPTIVE_SPEECH_CHARS, sustainableChars),
   )
 }
 
@@ -285,10 +335,13 @@ export function adaptiveSpeechBufferAhead(
   const normalizedRate = Math.max(0.7, Math.min(1.5, playbackRate))
   const playbackMsPerChar = timing.averageAudioMsPerChar / normalizedRate
   return Math.max(
-    1,
+    MIN_ADAPTIVE_BUFFER_AHEAD,
     Math.min(
       MAX_ADAPTIVE_BUFFER_AHEAD,
-      Math.ceil(timing.averageSynthesisMsPerChar / playbackMsPerChar),
+      Math.ceil(
+        (timing.averageSynthesisMsPerChar * STARTUP_RUNWAY_MARGIN) /
+          playbackMsPerChar,
+      ),
     ),
   )
 }
