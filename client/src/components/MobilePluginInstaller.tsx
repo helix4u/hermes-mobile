@@ -32,7 +32,7 @@ export function MobilePluginInstaller({
   const [progress, setProgress] =
     useState<MobilePluginInstallProgress | null>(null)
   const [result, setResult] = useState<MobilePluginInstallResult | null>(null)
-  const [reviewing, setReviewing] = useState(false)
+  const [reviewMode, setReviewMode] = useState<'install' | 'force' | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const packageBytes = useMemo(() => bundledPluginBytes(), [])
@@ -45,7 +45,7 @@ export function MobilePluginInstaller({
     try {
       const next = await inspectMobilePluginHost(transport)
       setInspection(next)
-      setReviewing(false)
+      setReviewMode(null)
     } catch (caught) {
       setInspection(null)
       setError(caught instanceof Error ? caught.message : 'Host check failed')
@@ -58,11 +58,11 @@ export function MobilePluginInstaller({
     setInspection(null)
     setProgress(null)
     setResult(null)
-    setReviewing(false)
+    setReviewMode(null)
     setError('')
   }, [transport])
 
-  async function install() {
+  async function install(forceUpdate: boolean) {
     if (!inspection?.targetPath || busy) return
     setBusy(true)
     setError('')
@@ -72,11 +72,15 @@ export function MobilePluginInstaller({
         transport,
         inspection.targetPath,
         setProgress,
+        undefined,
+        forceUpdate,
       )
       setResult(installed)
-      setReviewing(false)
+      setReviewMode(null)
       onNotice(
-        `Hermes Mobile ${installed.version} uploaded and enabled. Restart the Hermes host to activate it.`,
+        forceUpdate
+          ? `The bundled Hermes Mobile code was force-updated. Restart the Hermes host to activate it.`
+          : `Hermes Mobile ${installed.version} uploaded and enabled. Restart the Hermes host to activate it.`,
       )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Plugin upload failed')
@@ -87,7 +91,9 @@ export function MobilePluginInstaller({
   }
 
   const summary = result
-    ? 'Uploaded, host restart required'
+    ? result.operation === 'force-update'
+      ? 'Force-updated, host restart required'
+      : 'Uploaded, host restart required'
     : inspection?.installed
       ? `Installed ${inspection.installedVersion}`
       : inspection
@@ -159,25 +165,57 @@ export function MobilePluginInstaller({
         {inspection?.canUpload &&
           !inspection.installed &&
           !result &&
-          !reviewing && (
+          !reviewMode && (
             <button
               className="primary-button"
               disabled={busy}
               type="button"
-              onClick={() => setReviewing(true)}
+              onClick={() => setReviewMode('install')}
             >
               Review upload
             </button>
           )}
 
-        {reviewing && inspection?.targetPath && (
+        {inspection?.installed &&
+          inspection.canForceUpdate &&
+          !result &&
+          !reviewMode && (
+            <button
+              className="quiet-button"
+              disabled={busy}
+              type="button"
+              onClick={() => setReviewMode('force')}
+            >
+              Force update server plugin
+            </button>
+          )}
+
+        {inspection?.installed &&
+          !inspection.canForceUpdate &&
+          inspection.forceUpdateUnavailableReason && (
+            <p className="advanced-copy">
+              Force update unavailable: {inspection.forceUpdateUnavailableReason}
+            </p>
+          )}
+
+        {reviewMode && inspection?.targetPath && (
           <div className="plugin-confirm-card" role="group">
-            <strong>Upload and enable Mobile plugin?</strong>
+            <strong>
+              {reviewMode === 'force'
+                ? 'Force update this server plugin?'
+                : 'Upload and enable Mobile plugin?'}
+            </strong>
             <p>
               This overwrites only the bundled plugin files beneath the exact
               target shown above, then enables <code>hermes-mobile</code> in
               the host config. It does not upload credentials.
             </p>
+            {reviewMode === 'force' && (
+              <p>
+                This deliberately ignores the reported plugin version and
+                replaces it with the source code bundled in this app build.
+              </p>
+            )}
             <p>
               The Hermes host must be restarted afterward because plugin API
               routes are mounted during server startup.
@@ -187,7 +225,7 @@ export function MobilePluginInstaller({
                 className="quiet-button"
                 disabled={busy}
                 type="button"
-                onClick={() => setReviewing(false)}
+                onClick={() => setReviewMode(null)}
               >
                 Cancel
               </button>
@@ -195,9 +233,9 @@ export function MobilePluginInstaller({
                 className="primary-button"
                 disabled={busy}
                 type="button"
-                onClick={() => void install()}
+                onClick={() => void install(reviewMode === 'force')}
               >
-                Upload and enable
+                {reviewMode === 'force' ? 'Force update' : 'Upload and enable'}
               </button>
             </div>
           </div>
@@ -223,7 +261,11 @@ export function MobilePluginInstaller({
 
         {result && (
           <div className="plugin-result-card" aria-live="polite">
-            <strong>Upload complete</strong>
+            <strong>
+              {result.operation === 'force-update'
+                ? 'Force update complete'
+                : 'Upload complete'}
+            </strong>
             <p>
               {result.fileCount} files ({formatByteCount(result.byteCount)})
               were verified and the plugin was enabled.

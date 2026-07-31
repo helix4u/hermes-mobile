@@ -8,6 +8,21 @@ pending
 
 Current state:
 
+- The persistent Windows Mobile host is no longer an implicit Task Scheduler
+  side effect with no ordinary shutdown path. `mobile_host.py` now exposes
+  start, stop, restart, status, and uninstall on every supported platform.
+- Windows stop/restart/uninstall verifies the `Hermes_Mobile_Server` action and
+  the exact 9129 backend and 9130 proxy command lines before using process-tree
+  termination. This closes the known gap where `Stop-ScheduledTask` ended the
+  wrapper but left its `Start-Process` descendants listening.
+- Windows installation now has explicit `desktop`, `persistent`, and `manual`
+  startup policies. Desktop-bound mode watches the exact packaged
+  `Hermes.exe`, starts both Mobile listeners only while that process exists,
+  and tears both children down when Desktop exits. Persistent mode retains the
+  previous always-available phone behavior; manual mode has no logon trigger.
+- Stopped and desktop-idle status is now inspectable without requiring a live
+  token-authenticated health route. It reports the selected startup policy and
+  listener state instead of failing with a connection error.
 - Automatic pet commentary now has a turn-scoped request gate. Only one
   automatic request may be active, and a terminal `message.complete`, explicit
   Stop, connection change, or turn transition invalidates its result before it
@@ -30,7 +45,7 @@ Current state:
   bytes. SHA-256:
   `50EC6A2E1A67EBF4CD4DF2FAFDF730A96C8B066FE91734C8BD49C834623C5090`.
 - The combined replacement installed successfully with `adb install -r` on the
-  explicitly authorized Android test device. Android
+  explicitly selected Samsung SM-S918U through an authorized wireless-ADB target. Android
   reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-31 03:20:24`. Saved connections, application data,
   and Android Keystore state were preserved. No phone screen or application
@@ -97,8 +112,8 @@ Current state:
 - Cue-enabled hands-free openWakeWord APK size: 126,879,231 bytes. SHA-256:
   `E1EDF8F3021D1CBFFB2ABB4C8FD1942B3DAEA1ACA13DABA212BD2F7EE8A01C5F`.
 - The cue-enabled replacement installed successfully with `adb install -r` on
-  the explicitly selected Android device. Android reports package
-  `dev.hermes.mobile`,
+  the explicitly selected Samsung SM-S918U through
+  an authorized wireless-ADB target. Android reports package `dev.hermes.mobile`,
   versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-31 02:41:36`. Saved connections, app data, and
   Android Keystore state were preserved. No phone screen or application
@@ -2130,3 +2145,58 @@ Known constraints:
   Hermes product claim.
 - The machine default Java 25 is too new for Gradle 8.14.3; Android builds use
   Android Studio's bundled JDK 21.
+
+## 2026-07-31 backend lifecycle and replacement builds
+
+- Windows Mobile hosting now has explicit `start`, `stop`, `restart`,
+  `status`, and `uninstall` controls through `scripts/mobile_host.py` and
+  `scripts/manage-mobile-server.ps1`. Stop/restart validate the registered
+  task action and exact backend/proxy listener roles before terminating their
+  process trees, so a stopped scheduled-task wrapper cannot leave orphaned
+  listeners behind.
+- The Windows installer now supports `--startup desktop`, `persistent`, and
+  `manual`. This workstation is installed in `desktop` mode: the lightweight
+  supervisor may remain registered, but ports 9129 and 9130 exist only while
+  the exact packaged Desktop executable is running.
+- Live acceptance closed the Desktop process and observed both Mobile
+  listeners disappear. Relaunching the normal Desktop shortcut restored both
+  listeners and returned `health=ok`, `compatibility=compatible`, and contract
+  version 1. The checked-in `test-mobile-server.ps1` probe also passed.
+- Desktop typecheck and packaging passed. The packaged executable and the
+  normal shortcut target are byte-identical at 214,281,216 bytes with SHA-256
+  `EF729AA1A3FF4CD791304EF6608ED4C553599EAF70DC0EEFAF89101D56F0DEE5`.
+- Mobile lifecycle unit coverage passed: 11 tests run, 6 passed, and 5
+  platform-specific skips. Client typecheck, all 51 Vitest files and 236
+  tests, the production web build, Capacitor sync, and a forced Android debug
+  build with JDK 21 passed.
+- The replacement debug APK is 126,879,731 bytes with SHA-256
+  `77F9CA085E0A9C0C3F5E097FCF9C006A7CA53B7818EB85AC7B748E16DFD92E7C`.
+  It installed in place with app data preserved on the explicitly selected
+  Galaxy S23 Ultra ADB target. Android reports package `dev.hermes.mobile`,
+  version 1.0, version code 1, updated at 2026-07-31 13:25:23.
+
+## 2026-07-31 forced connected-server plugin update
+
+- Control now offers `Force update server plugin` after an active
+  `hermes-mobile` plugin is detected. This action deliberately does not compare
+  the hardcoded semantic version before replacing files, so locally changed
+  plugin source can be deployed even when both builds report `0.1.0`.
+- The update target comes from Hermes's authenticated plugin registry rather
+  than session cwd, a guessed home, or the local file-browser root. The same
+  exact `plugins/hermes-mobile` suffix guard, per-file size/path validation,
+  verified upload responses, discovery-files-last ordering, separate review,
+  enablement-after-upload, and restart requirement remain in force.
+- Live Workstation inspection resolved the registered plugin to
+  `<Hermes home>\plugins\hermes-mobile`. First-install
+  and forced-update eligibility are reported separately, so a compatible
+  active plugin remains usable if an older host cannot expose a safe update
+  target.
+- Focused plugin-installer coverage passes 10 tests, including same-version
+  forced replacement, authenticated registry resolution, unsafe-path refusal,
+  and graceful unavailable-registry behavior. The complete client suite passes
+  51 files and 239 tests; TypeScript, production build, Capacitor sync, and the
+  forced Android debug build also pass.
+- The replacement APK is 126,880,147 bytes with SHA-256
+  `AF3787A74F6A11DADBC656805E32163A9AFEAE3CBD17A93A7707A14EBE69B131`.
+  It installed successfully in place with app data preserved on the explicitly
+  selected Samsung SM-S918U through an authorized wireless-ADB target.

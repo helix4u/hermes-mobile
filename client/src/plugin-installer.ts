@@ -24,6 +24,8 @@ export interface MobilePluginHostInspection {
   targetPath: string
   canUpload: boolean
   uploadUnavailableReason: string
+  canForceUpdate: boolean
+  forceUpdateUnavailableReason: string
 }
 
 export interface MobilePluginInstallProgress {
@@ -39,6 +41,16 @@ export interface MobilePluginInstallResult {
   byteCount: number
   version: string
   restartRequired: boolean
+  operation: 'install' | 'force-update'
+}
+
+interface AgentPluginHubEntry {
+  name?: string
+  path?: string
+}
+
+interface AgentPluginsHub {
+  plugins?: AgentPluginHubEntry[]
 }
 
 export function mobilePluginUploadUnavailableReason(
@@ -133,6 +145,27 @@ function normalizeComparablePath(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
+function assertPluginTargetPath(value: string): string {
+  const target = trimTrailingSeparators(value.trim())
+  if (
+    !target ||
+    !normalizeComparablePath(target).endsWith('/plugins/hermes-mobile')
+  ) {
+    throw new Error(
+      'The host did not report the standard plugins/hermes-mobile directory.',
+    )
+  }
+  return target
+}
+
+export function resolveInstalledPluginTarget(hub: AgentPluginsHub): string {
+  const plugin = (hub.plugins || []).find(entry => entry.name === 'hermes-mobile')
+  if (!plugin?.path) {
+    throw new Error('The host plugin registry did not report hermes-mobile.')
+  }
+  return assertPluginTargetPath(plugin.path)
+}
+
 export async function inspectMobilePluginHost(
   transport: HermesTransport,
 ): Promise<MobilePluginHostInspection> {
@@ -143,8 +176,21 @@ export async function inspectMobilePluginHost(
   let managedRoot = ''
   let targetPath = ''
   let uploadUnavailableReason = ''
+  let forceUpdateUnavailableReason = ''
 
-  if (!installed) {
+  if (installed) {
+    try {
+      const hub = await transport.requestJson<AgentPluginsHub>(
+        '/api/dashboard/plugins/hub',
+      )
+      targetPath = resolveInstalledPluginTarget(hub)
+    } catch (error) {
+      forceUpdateUnavailableReason =
+        error instanceof Error
+          ? error.message
+          : 'The host plugin registry is unavailable'
+    }
+  } else {
     try {
       const listing =
         await transport.requestJson<ManagedFilesListing>('/api/files')
@@ -163,8 +209,10 @@ export async function inspectMobilePluginHost(
     installedVersion: installed ? capabilities.plugin_version : '',
     managedRoot,
     targetPath,
-    canUpload: Boolean(targetPath),
+    canUpload: !installed && Boolean(targetPath),
     uploadUnavailableReason,
+    canForceUpdate: installed && Boolean(targetPath),
+    forceUpdateUnavailableReason,
   }
 }
 
@@ -173,18 +221,9 @@ export async function installBundledMobilePlugin(
   targetPath: string,
   onProgress?: (progress: MobilePluginInstallProgress) => void,
   files: readonly BundledPluginFile[] = MOBILE_PLUGIN_FILES,
+  forceUpdate = false,
 ): Promise<MobilePluginInstallResult> {
-  const cleanTarget = trimTrailingSeparators(targetPath.trim())
-  if (!cleanTarget) throw new Error('The plugin target path is missing')
-  if (
-    !normalizeComparablePath(cleanTarget).endsWith(
-      '/plugins/hermes-mobile',
-    )
-  ) {
-    throw new Error(
-      'The upload target must end with plugins/hermes-mobile',
-    )
-  }
+  const cleanTarget = assertPluginTargetPath(targetPath)
   if (files.length === 0) throw new Error('The bundled plugin is empty')
   files.forEach(assertSafePluginFile)
 
@@ -237,6 +276,7 @@ export async function installBundledMobilePlugin(
     byteCount: bundledPluginBytes(files),
     version: MOBILE_PLUGIN_VERSION,
     restartRequired: true,
+    operation: forceUpdate ? 'force-update' : 'install',
   }
 }
 

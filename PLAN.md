@@ -623,6 +623,13 @@ Acceptance:
 - [x] Refuse to replace unrelated plugin links, native services, or Tailscale
       Serve configuration.
 - [x] Add cross-platform status and explicit credential-display commands.
+- [x] Add explicit start, stop, restart, and uninstall lifecycle commands on
+      Windows, macOS, and Linux. Windows cleanup verifies the task action and
+      exact loopback listener command lines before retiring process trees.
+- [x] Add Windows desktop-bound, persistent, and manual startup policies.
+      Desktop-bound mode keeps the supervisor visible in Task Scheduler but
+      runs the backend and proxy only while the exact packaged Desktop process
+      is alive.
 - [x] Add focused tests for token permissions, Tailscale identity, and native
       service definitions.
 - [x] Install the macOS launchd service and verify authenticated HTTPS and WSS
@@ -988,6 +995,14 @@ Acceptance:
       state even when a local workstation intentionally exposes an unlocked
       file-browser policy. Skip the remote-upload preflight and never render
       its missing locked-root guard as an active-plugin error.
+- [x] Expose a separately confirmed Force update server plugin action for an
+      already-active host. Resolve the installed path from Hermes's
+      authenticated plugin registry, retain the exact
+      `plugins/hermes-mobile` target guard, and deliberately upload the current
+      app-bundled source even when the semantic plugin version is unchanged.
+- [x] Keep force-update availability distinct from first-install upload
+      availability so an active plugin remains healthy when an older host does
+      not expose the plugin-registry path needed for safe replacement.
 
 ### Milestone 5L: Mobile Companion device foundation
 
@@ -1364,8 +1379,8 @@ SHA-256:
 `E1EDF8F3021D1CBFFB2ABB4C8FD1942B3DAEA1ACA13DABA212BD2F7EE8A01C5F`
 
 The cue-enabled APK installed successfully with `adb install -r` on the
-explicitly selected Android device. Android reports package
-`dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+explicitly selected Samsung SM-S918U through an authorized wireless-ADB target. Android
+reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
 `lastUpdateTime=2026-07-31 02:41:36`. Saved connections, application data, and
 Android Keystore state were preserved. No phone screen or application content
 was opened or inspected.
@@ -1390,7 +1405,7 @@ SHA-256:
 `50EC6A2E1A67EBF4CD4DF2FAFDF730A96C8B066FE91734C8BD49C834623C5090`
 
 The replacement installed successfully with `adb install -r` on the explicitly
-authorized Android test device. Android reports
+selected Samsung SM-S918U through an authorized wireless-ADB target. Android reports
 package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
 `lastUpdateTime=2026-07-31 03:20:24`. Saved connections, application data, and
 Android Keystore state were preserved. No phone screen or application content
@@ -2209,3 +2224,22 @@ overnight/background and long-TTS acceptance remains useful during ordinary
 future use, but is intentionally not blocking on an immediate user-driven test.
 After the APK is proven on-device, resume Milestone 3's revisioned event journal,
 snapshot watermark, replay, and idempotent mutation receipts.
+
+## 2026-07-31 lifecycle acceptance checkpoint
+
+The Windows host lifecycle work is implemented and accepted locally. The
+checked-in manager exposes start, stop, restart, status, and uninstall; startup
+policy is selectable as Desktop-bound, persistent, or manual. The workstation
+is using Desktop-bound mode, and a real close/reopen cycle proved that Mobile's
+9129/9130 listeners stop with Desktop and return through the normal Desktop
+shortcut. The rebuilt Desktop passed typecheck and packaging. The Mobile host
+unit coverage, full client test suite, typecheck, production build, Capacitor
+sync, and forced Android build passed, and the replacement APK was installed in
+place on the physical Galaxy S23 Ultra with its existing application data
+preserved.
+
+The next acceptance activity is ordinary user testing of the installed client.
+If unattended Mobile access is wanted while Desktop is closed, deliberately
+switch the host to persistent mode; use manual mode when no automatic host
+startup is wanted. Lifecycle policy is now explicit rather than an orphaned
+background-process side effect.

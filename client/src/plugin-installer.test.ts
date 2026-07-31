@@ -5,13 +5,21 @@ import {
   installBundledMobilePlugin,
   joinManagedPath,
   mobilePluginUploadUnavailableReason,
+  resolveInstalledPluginTarget,
   resolveManagedPluginTarget,
 } from './plugin-installer'
 import type { HermesTransport } from './transport/hermes-transport'
 
 describe('mobile plugin upload installer', () => {
   test('does not report upload policy as an error when the plugin is already active', async () => {
-    const requestJson = vi.fn()
+    const requestJson = vi.fn().mockResolvedValue({
+      plugins: [
+        {
+          name: 'hermes-mobile',
+          path: 'C:\\Hermes\\plugins\\hermes-mobile',
+        },
+      ],
+    })
     const capabilities = vi.fn().mockResolvedValue({
       contract_version: 1,
       features: {},
@@ -28,12 +36,53 @@ describe('mobile plugin upload installer', () => {
 
     expect(inspection).toMatchObject({
       canUpload: false,
+      canForceUpdate: true,
       installed: true,
       installedVersion: '0.1.0',
+      targetPath: 'C:\\Hermes\\plugins\\hermes-mobile',
       uploadUnavailableReason: '',
     })
-    expect(requestJson).not.toHaveBeenCalled()
+    expect(requestJson).toHaveBeenCalledWith('/api/dashboard/plugins/hub')
     expect(mobilePluginUploadUnavailableReason(inspection)).toBe('')
+  })
+
+  test('keeps an active plugin healthy when its update path is unavailable', async () => {
+    const transport = {
+      capabilities: vi.fn().mockResolvedValue({
+        contract_version: 1,
+        features: {},
+        hermes_version: '0.19.0',
+        plugin_version: '0.1.0',
+        status: 'compatible',
+      }),
+      requestJson: vi.fn().mockRejectedValue(new Error('Plugin hub missing')),
+    } as unknown as HermesTransport
+
+    const inspection = await inspectMobilePluginHost(transport)
+
+    expect(inspection).toMatchObject({
+      installed: true,
+      canForceUpdate: false,
+      uploadUnavailableReason: '',
+      forceUpdateUnavailableReason: 'Plugin hub missing',
+    })
+    expect(mobilePluginUploadUnavailableReason(inspection)).toBe('')
+  })
+
+  test('accepts only the authoritative standard installed-plugin path', () => {
+    expect(
+      resolveInstalledPluginTarget({
+        plugins: [
+          { name: 'other', path: '/opt/data/plugins/other' },
+          { name: 'hermes-mobile', path: '/opt/data/plugins/hermes-mobile' },
+        ],
+      }),
+    ).toBe('/opt/data/plugins/hermes-mobile')
+    expect(() =>
+      resolveInstalledPluginTarget({
+        plugins: [{ name: 'hermes-mobile', path: '/tmp/hermes-mobile' }],
+      }),
+    ).toThrow(/standard/i)
   })
 
   test('keeps a missing locked root actionable when installation is needed', () => {
@@ -66,6 +115,8 @@ describe('mobile plugin upload installer', () => {
         managedRoot: '',
         targetPath: '',
         uploadUnavailableReason: 'Locked root unavailable',
+        canForceUpdate: false,
+        forceUpdateUnavailableReason: '',
       }),
     ).toBe('Locked root unavailable')
   })
@@ -151,9 +202,34 @@ describe('mobile plugin upload installer', () => {
     )
     expect(result).toMatchObject({
       fileCount: 2,
+      operation: 'install',
       restartRequired: true,
       targetPath: '/opt/data/plugins/hermes-mobile',
     })
+  })
+
+  test('force update uploads and enables even when the semantic version is unchanged', async () => {
+    const requestJson = vi.fn(
+      async (path: string, body?: Record<string, unknown>) => {
+        if (path === '/api/files/upload') {
+          return { ok: true, entry: { path: String(body?.path || '') } }
+        }
+        return { ok: true }
+      },
+    )
+    const transport = { requestJson } as unknown as HermesTransport
+
+    const result = await installBundledMobilePlugin(
+      transport,
+      '/opt/data/plugins/hermes-mobile',
+      undefined,
+      [{ relativePath: 'plugin.yaml', content: 'version: "0.1.0"\n' }],
+      true,
+    )
+
+    expect(result.operation).toBe('force-update')
+    expect(result.version).toBe('0.1.0')
+    expect(requestJson).toHaveBeenCalledTimes(2)
   })
 
   test('does not enable after an unverified upload response', async () => {

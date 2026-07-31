@@ -5,58 +5,28 @@ param(
     [string]$TailnetHost = '',
     [string]$TaskName = 'Hermes_Mobile_Server',
     [string]$HermesHome = (Join-Path $env:LOCALAPPDATA 'hermes'),
-    [string]$HermesExecutable = ''
+    [string]$HermesExecutable = '',
+    [ValidateSet('desktop', 'persistent', 'manual')]
+    [string]$StartupMode = 'persistent'
 )
 
 $ErrorActionPreference = 'Stop'
 
+if (-not $HermesExecutable) {
+    $HermesExecutable = Join-Path $HermesHome 'hermes-agent\venv\Scripts\hermes.exe'
+}
+if (-not (Test-Path -LiteralPath $HermesExecutable)) {
+    throw "Hermes executable not found: $HermesExecutable"
+}
+
 $runner = Join-Path $PSScriptRoot 'run-mobile-server.ps1'
+$manager = Join-Path $PSScriptRoot 'manage-mobile-server.ps1'
 $proxyScript = Join-Path $PSScriptRoot 'mobile_proxy.py'
 if (-not (Test-Path -LiteralPath $runner)) {
     throw "Mobile server runner not found: $runner"
 }
-
-function Stop-HermesMobileListener {
-    param(
-        [Parameter(Mandatory = $true)]
-        [int]$ListenerPort,
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('server', 'proxy')]
-        [string]$Role
-    )
-
-    $listeners = @(
-        Get-NetTCPConnection `
-            -LocalAddress 127.0.0.1 `
-            -LocalPort $ListenerPort `
-            -State Listen `
-            -ErrorAction SilentlyContinue
-    )
-    foreach ($listener in $listeners) {
-        $process = Get-CimInstance `
-            -ClassName Win32_Process `
-            -Filter "ProcessId = $($listener.OwningProcess)" `
-            -ErrorAction SilentlyContinue
-        if (-not $process) {
-            continue
-        }
-
-        $commandLine = [string]$process.CommandLine
-        $owned = if ($Role -eq 'server') {
-            $commandLine -match '(?i)(?:^|\s)serve(?:\s|$)' -and
-            $commandLine -match '(?i)--host\s+127\.0\.0\.1(?:\s|$)' -and
-            $commandLine -match "(?i)--port\s+$ListenerPort(?:\s|$)"
-        } else {
-            $commandLine.Contains($proxyScript, [StringComparison]::OrdinalIgnoreCase) -and
-            $commandLine -match "(?i)--port\s+$ListenerPort(?:\s|$)" -and
-            $commandLine -match "(?i)--upstream\s+http://127\.0\.0\.1:$Port(?:\s|$)"
-        }
-        if (-not $owned) {
-            throw "Refusing to stop unrelated process $($process.ProcessId) listening on 127.0.0.1:$ListenerPort"
-        }
-
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
-    }
+if (-not (Test-Path -LiteralPath $manager)) {
+    throw "Mobile server manager not found: $manager"
 }
 
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -67,47 +37,9 @@ if ($existing) {
     if (-not ($existingActions -match [regex]::Escape($runner))) {
         throw "Refusing to replace unrelated scheduled task: $TaskName"
     }
-    if ($existing.State -eq 'Running') {
-        Stop-ScheduledTask -TaskName $TaskName
-        $deadline = [DateTimeOffset]::Now.AddSeconds(20)
-        do {
-            Start-Sleep -Milliseconds 250
-            $existing = Get-ScheduledTask -TaskName $TaskName
-        } while (
-            $existing.State -eq 'Running' -and
-            [DateTimeOffset]::Now -lt $deadline
-        )
-        if ($existing.State -eq 'Running') {
-            throw "Timed out stopping existing scheduled task: $TaskName"
-        }
-    }
 }
 
-# Stop-ScheduledTask terminates the scheduled PowerShell process, but Windows
-# does not reliably keep Start-Process children in the task's job object. A
-# refresh could therefore leave the old backend and proxy listening while the
-# replacement task crash-looped against their occupied ports. Retire only
-# listeners whose command lines match this Mobile server's exact loopback
-# roles, then require both ports to be free before registering the replacement.
-$cleanupDeadline = [DateTimeOffset]::Now.AddSeconds(20)
-do {
-    Stop-HermesMobileListener -ListenerPort $Port -Role server
-    Stop-HermesMobileListener -ListenerPort $ProxyPort -Role proxy
-    $remainingListeners = @(
-        Get-NetTCPConnection `
-            -LocalAddress 127.0.0.1 `
-            -LocalPort $Port, $ProxyPort `
-            -State Listen `
-            -ErrorAction SilentlyContinue
-    )
-    if ($remainingListeners.Count -eq 0) {
-        break
-    }
-    Start-Sleep -Milliseconds 250
-} while ([DateTimeOffset]::Now -lt $cleanupDeadline)
-if ($remainingListeners.Count -ne 0) {
-    throw "Timed out retiring the previous Hermes Mobile listeners on ports $Port and $ProxyPort"
-}
+& $manager -Action Stop -Port $Port -ProxyPort $ProxyPort -TaskName $TaskName -Runner $runner | Out-Null
 
 $powerShell = (Get-Command pwsh.exe -ErrorAction Stop).Source
 $arguments = @(
@@ -133,13 +65,39 @@ if ($TailnetHost) {
 if ($HermesExecutable) {
     $arguments = "$arguments -HermesExecutable `"$HermesExecutable`""
 }
+if ($StartupMode -eq 'desktop') {
+    $agentRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $HermesExecutable))
+    $runningDesktop = @(
+        Get-CimInstance Win32_Process -Filter "Name = 'Hermes.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.ExecutablePath -and
+                ([string]$_.ExecutablePath).EndsWith(
+                    'apps\desktop\release\win-unpacked\Hermes.exe',
+                    [StringComparison]::OrdinalIgnoreCase
+                )
+            }
+    ) | Select-Object -First 1
+    $desktopExecutable = if ($runningDesktop) {
+        [string]$runningDesktop.ExecutablePath
+    } else {
+        Join-Path $agentRoot 'apps\desktop\release\win-unpacked\Hermes.exe'
+    }
+    if (-not (Test-Path -LiteralPath $desktopExecutable)) {
+        throw "Desktop-bound startup requires the packaged Desktop executable: $desktopExecutable"
+    }
+    $arguments = "$arguments -DesktopExecutable `"$desktopExecutable`""
+}
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction `
     -Execute $powerShell `
     -Argument $arguments `
     -WorkingDirectory $PSScriptRoot
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity
+$trigger = if ($StartupMode -in @('desktop', 'persistent')) {
+    New-ScheduledTaskTrigger -AtLogOn -User $identity
+} else {
+    $null
+}
 $principal = New-ScheduledTaskPrincipal `
     -UserId $identity `
     -LogonType Interactive `
@@ -151,14 +109,18 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero)
 
-Register-ScheduledTask `
-    -TaskName $TaskName `
-    -Action $action `
-    -Trigger $trigger `
-    -Principal $principal `
-    -Settings $settings `
-    -Description 'Persistent loopback Hermes backend for Hermes Mobile over Tailscale Serve.' `
-    -Force | Out-Null
+$register = @{
+    TaskName = $TaskName
+    Action = $action
+    Principal = $principal
+    Settings = $settings
+    Description = "Hermes Mobile loopback backend. Startup mode: $StartupMode. Manage with scripts/mobile_host.py."
+    Force = $true
+}
+if ($trigger) {
+    $register.Trigger = $trigger
+}
+Register-ScheduledTask @register | Out-Null
 
 Start-ScheduledTask -TaskName $TaskName
 
@@ -186,4 +148,4 @@ if (-not $backendListener -or -not $proxyListener -or $task.State -ne 'Running')
     throw "Hermes Mobile server did not stabilize on ports $Port and $ProxyPort. Check $stateDirectory"
 }
 
-Write-Host "Hermes Mobile server is listening on 127.0.0.1:$Port with proxy 127.0.0.1:$ProxyPort"
+Write-Host "Hermes Mobile server is listening on 127.0.0.1:$Port with proxy 127.0.0.1:$ProxyPort (startup: $StartupMode)"
