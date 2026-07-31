@@ -1,12 +1,64 @@
 # Hermes Mobile Status
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
-Current milestone: Mobile state continuity, Reader/STT controls, and vertical
-session browsing implemented and packaged; physical Android acceptance pending
+Current milestone: cue-enabled hands-free openWakeWord capture built and
+installed; physical conversational acceptance pending
 
 Current state:
 
+- Mobile wake-word detection now runs the same openWakeWord `hey_hermes` model
+  and shared ONNX feature stack as Hermes Desktop on this Windows workstation.
+  The three packaged assets are byte-identical to Desktop's active model files.
+- Android no longer starts or repeatedly restarts `SpeechRecognizer`. A
+  phone-owned `AudioRecord` loop captures 16 kHz mono PCM and runs all inference
+  inside the app with Desktop's 0.60 threshold and three-frame confirmation.
+  Ambient wake audio is never sent to Hermes, and the OEM recognition service
+  no longer owns a lifecycle in which Samsung can emit start/stop cues.
+- The local model stays loaded while the Capacitor plugin lives, but PCM capture
+  still follows Mobile's existing foreground, connection, and voice-idle
+  gates. Ordinary STT releases wake capture before opening its own recorder.
+- Detection no longer tears down and reopens the microphone before recording
+  the request. The existing `AudioRecord` stream retains about 1.44 seconds of
+  pre-roll, captures the command continuously, and writes a standard 16 kHz
+  mono WAV after roughly 1.12 seconds of sustained silence.
+- The physical-phone failure showed the first end gate could close before a
+  real follow-up established speech. The repaired detector learns its starting
+  ambient floor from the quiet quartile of the existing pre-roll, ignores the
+  first three post-detection frames containing the ready cue, and requires two
+  consecutive request frames before silence may end the capture.
+- A request now has about six seconds to begin. Once speech begins, roughly
+  1.12 seconds of sustained silence ends it; continuous capture remains bounded
+  at about 36 seconds. This separates no request, a real completed request, and
+  maximum-duration completion without treating the cue as the follow-up.
+- One short app-owned ready cue now plays after openWakeWord accepts the phrase,
+  and a distinct done cue plays after silence closes the request capture. These
+  are single capture-boundary signals, not the prior OEM recognizer's repeated
+  start/stop lifecycle beeps.
+- The connected Hermes host transcribes the completed utterance. Mobile strips
+  a leading “Hey Hermes” or “Hermes” before presenting or sending the command.
+- Wake mode is connection-scoped and now supports Off, Review, and Auto-send.
+  Review fills an editable composer card with Send and Cancel; Auto-send starts
+  the ordinary Hermes turn without another tap.
+- Chat now keeps compact Wake and Replies selectors above the transcript.
+  Replies selects Manual or Auto-play and uses the same setting as collapsed
+  Voice controls.
+- Wake capture pauses while a transcript review is pending or an agent turn is
+  active. The composer microphone can cancel an active hands-free capture
+  without invoking the normal manual recorder.
+- Complete Mobile Vitest passes 51 files and 232 tests. Four focused Android
+  end-detector tests, TypeScript typecheck, Vite production build, Capacitor
+  Android sync, Android Java compilation, and forced debug assembly with
+  Android Studio JDK 21 pass.
+- Cue-enabled hands-free openWakeWord APK size: 126,879,231 bytes. SHA-256:
+  `E1EDF8F3021D1CBFFB2ABB4C8FD1942B3DAEA1ACA13DABA212BD2F7EE8A01C5F`.
+- The cue-enabled replacement installed successfully with `adb install -r` on
+  the explicitly selected Android device. Android reports package
+  `dev.hermes.mobile`,
+  versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-31 02:41:36`. Saved connections, app data, and
+  Android Keystore state were preserved. No phone screen or application
+  content was opened or inspected.
 - Adaptive interactive speech no longer rewards a slow provider with a tiny
   first segment. The default opener is 700 characters at 1.00x and scales to
   1,050 characters at 1.50x before provider history is available.
@@ -1102,13 +1154,16 @@ Current state:
 
 Next action:
 
-Install the provider, Reader-source, and wake-word APK when explicitly
-requested. On one connected Android host, enable Listen for “Hey Hermes”, say
-the phrase while voice is idle, and confirm ordinary recording begins exactly
-once. Verify it pauses during playback, recording, backgrounding, and
-disconnection, then resumes on the same foreground idle connection. Exercise
-one supported API-key or OAuth setup and one Reader script whose source
-appendix must remain unspoken and absent from the saved podcast.
+On the installed build, set Wake to Review on one connected host, say
+“Hey Hermes” followed immediately by a request, and pause. Confirm one ready
+cue follows wake acceptance, one different done cue follows silence closure,
+the complete request reaches the editable review card, and the prior Samsung
+recognition lifecycle beeps remain gone. Repeat with Auto-send and Replies
+Auto-play. Verify capture pauses during playback, recording, backgrounding, an
+active turn, and disconnection, then resumes on the same foreground idle
+connection without a recognizer restart loop. Exercise one supported API-key
+or OAuth setup and one Reader script whose source appendix must remain unspoken
+and absent from the saved podcast.
 
 On the installed adaptive-TTS build, compare 0.70x, 1.00x, and 1.50x through
 an ordinary assistant Listen action, auto-speak, and pet speech. Then play the

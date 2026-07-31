@@ -92,7 +92,15 @@ export interface WakeWordDetectedEvent {
 export interface WakeWordStateEvent {
   error?: string
   sessionId: string
-  state: 'error' | 'listening' | 'stopped' | 'unsupported'
+  state: 'capturing' | 'error' | 'listening' | 'stopped' | 'unsupported'
+}
+
+export interface WakeWordUtteranceEvent {
+  dataUrl: string
+  durationMs: number
+  endReason: 'max_duration' | 'no_speech' | 'silence'
+  mimeType: string
+  sessionId: string
 }
 
 interface HermesNativePlugin {
@@ -199,6 +207,10 @@ interface HermesNativePlugin {
   addListener(
     eventName: 'wakeWordDetected',
     listener: (event: WakeWordDetectedEvent) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(
+    eventName: 'wakeWordUtterance',
+    listener: (event: WakeWordUtteranceEvent) => void,
   ): Promise<PluginListenerHandle>
   addListener(
     eventName: 'wakeWordState',

@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 Project root: `F:\Symlinks\hermes-data\hermes\hermes-mobile`
 
@@ -1099,8 +1099,8 @@ Acceptance:
 
 ### Milestone 5N: Mobile provider onboarding and wake word
 
-Current milestone: implementation and Android build complete, physical-device
-acceptance pending
+Current milestone: hands-free wake capture, cue-enabled Android build, and
+installation complete; physical conversational acceptance pending
 
 Acceptance:
 
@@ -1118,16 +1118,42 @@ Acceptance:
       storage.
 - [x] Add a connection-scoped, off-by-default Listen for “Hey Hermes” toggle
       to Mobile Voice settings.
-- [x] Use Android's on-device recognizer only while Mobile is foregrounded,
-      connected, enabled, and otherwise voice-idle. Release it before normal
-      microphone recording and never send ambient wake-word audio to Hermes.
-- [x] Add native session identities, stale-callback filtering, bounded
-      recognizer restart, app/voice lifecycle pause, and unsupported-device
-      status.
+- [x] Initially prove the foreground, connection, and voice-idle lifecycle with
+      Android's on-device recognizer, then remove that recognizer completely
+      when the app-owned openWakeWord path replaces it.
+- [x] Add native session identities, stale-callback filtering, app/voice
+      lifecycle pause, and unsupported-device status.
+- [x] Replace Android's restart-driven speech-recognition service with the same
+      app-owned openWakeWord `hey_hermes` ONNX model and feature stack used by
+      Hermes Desktop on Windows.
+- [x] Capture 16 kHz PCM directly through `AudioRecord`, keep ambient audio
+      inside the Android process, and remove the OEM recognition lifecycle that
+      emitted repeated start/stop cues.
+- [x] Keep the openWakeWord audio stream alive after detection, retain a short
+      pre-roll so an immediate command is not clipped, and capture the request
+      continuously until sustained silence or a bounded maximum duration.
+- [x] Transcribe the completed local utterance through the connected Hermes
+      host, remove the leading wake phrase, and support both explicit
+      transcript review and fully automatic send modes.
+- [x] Add compact Chat selectors for Wake Off/Review/Auto-send and Replies
+      Manual/Auto-play, backed by the same connection-scoped preferences as
+      the collapsed Voice settings.
+- [x] Keep a wake-review card directly above the composer with editable text,
+      Send, and Cancel. Let the microphone button cancel an active wake
+      capture without invoking the ordinary manual recorder.
+- [x] Play one short app-owned ready cue after the wake phrase is accepted and
+      one distinct done cue after silence closes the command capture, without
+      restoring the OEM recognizer's repeated lifecycle beeps.
+- [x] Add pure Android end-detector tests covering no-speech, speech followed
+      by silence, and maximum-duration capture.
 - [x] Pass focused and complete Mobile tests, TypeScript typecheck, Vite
       production build, Capacitor sync, Android Java compilation, and forced
       Android debug assembly.
-- [ ] Install the replacement APK and accept wake detection, foreground pause,
+- [x] Install the current cue-enabled replacement APK in place on the selected
+      physical Android device without clearing saved connections or Android
+      Keystore state.
+- [ ] Accept quiet wake detection, continuous command capture, silence end
+      detection, review/auto-send, auto-play handoff, foreground pause, manual
       microphone handoff, Reader appendix omission, and provider setup on the
       physical Android device.
 
@@ -1285,12 +1311,56 @@ integration tests, not by optimistic version ranges.
 
 ## Current Next Action
 
-Validate and package the latest Milestone 5O speech and navigation slice. The
-Reader queue now has a true pause/resume state, microphone capture can suspend
-Reader playback without discarding its buffered work, and Reader keeps an
-on-screen Play/Pause/Stop dock. Chat has a direct New action. Sessions now uses
-a vertical accordion of Recent and project branches, with cwd/source folders
-that render their session rows only when expanded.
+Validate the installed cue-enabled hands-free openWakeWord build on the physical
+phone. Set Chat's Wake selector to Review, say “Hey Hermes” followed
+immediately by a request, then pause. Confirm the full request survives the
+detector handoff, capture ends after sustained silence, the leading wake phrase
+is removed from the transcript, and the review card can edit, Send, or Cancel
+it. Repeat with Auto-send and Replies Auto-play for the complete hands-free
+loop. Confirm one soft ready cue plays after the wake phrase is accepted and
+one distinct done cue plays when silence closes command capture. The prior
+Samsung recognition start/stop loop must remain gone.
+Backgrounding, reply audio, Reader audio, manual recording, transcribing,
+review hold, an active agent turn, or disconnecting must release or pause the
+PCM capture; foreground voice-idle must re-arm it without a cue or recognizer
+restart loop.
+
+The build packages byte-identical copies of Desktop's
+`melspectrogram.onnx`, `embedding_model.onnx`, and `hey_hermes.onnx` assets.
+It uses the same 0.60 threshold and three consecutive confirmation frames as
+the current Desktop configuration. Wake capture retains 18 openWakeWord frames
+(about 1.44 seconds) of pre-roll and derives a device-local ambient floor from
+its quiet quartile. The end detector ignores the first three post-detection
+frames containing the ready cue, waits up to 75 frames (about six seconds) for
+two consecutive real request frames, ends only after 14 later quiet frames
+(about 1.12 seconds), and caps continuous capture at 450 frames (about
+36 seconds). The complete Mobile suite passed 51 files and 232 tests. The four
+focused Android end-detector tests, TypeScript typecheck, Vite production
+build, Capacitor sync, Android Java compilation, and forced Android debug
+assembly with Android Studio JDK 21 passed.
+
+Latest cue-enabled hands-free openWakeWord debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `126,879,231` bytes
+
+SHA-256:
+`E1EDF8F3021D1CBFFB2ABB4C8FD1942B3DAEA1ACA13DABA212BD2F7EE8A01C5F`
+
+The cue-enabled APK installed successfully with `adb install -r` on the
+explicitly selected Android device. Android reports package
+`dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+`lastUpdateTime=2026-07-31 02:41:36`. Saved connections, application data, and
+Android Keystore state were preserved. No phone screen or application content
+was opened or inspected.
+
+Then continue validating and packaging the latest Milestone 5O speech and
+navigation slice. The Reader queue now has a true pause/resume state, microphone
+capture can suspend Reader playback without discarding its buffered work, and
+Reader keeps an on-screen Play/Pause/Stop dock. Chat has a direct New action.
+Sessions now uses a vertical accordion of Recent and project branches, with
+cwd/source folders that render their session rows only when expanded.
 
 The earlier state-continuity work remains intact. The current
 tree persists enabled Reader providers by connection before reconciling stored

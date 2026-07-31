@@ -15,7 +15,7 @@ import { MOBILE_THEME_OPTIONS, type MobileThemeSelection } from '../state/theme'
 import { formatDisplayValue, redactDisplayValue } from '../state/transcript'
 import type { HermesTransport } from '../transport/hermes-transport'
 import type { VoicePhase } from '../voice'
-import type { WakeWordStatus } from '../wake-word'
+import type { WakeWordMode, WakeWordStatus } from '../wake-word'
 import { configPatch, HostSettings } from './HostSettings'
 import { MobileCompanionSettings } from './MobileCompanionSettings'
 import { MobilePluginInstaller } from './MobilePluginInstaller'
@@ -67,7 +67,7 @@ interface ControlPanelProps {
   themeSelection: MobileThemeSelection
   autoSpeak: boolean
   wakeWordAvailable: boolean
-  wakeWordEnabled: boolean
+  wakeWordMode: WakeWordMode
   wakeWordStatus: WakeWordStatus
   transport: HermesTransport | null
   voiceSelection: VoiceSelection
@@ -88,7 +88,7 @@ interface ControlPanelProps {
     onTest: () => void | Promise<void>
   }
   onAutoSpeakChange: (enabled: boolean) => void
-  onWakeWordChange: (enabled: boolean) => void
+  onWakeWordModeChange: (mode: WakeWordMode) => void
   onThemeSelectionChange: (selection: MobileThemeSelection) => void
   onNotice: (message: string) => void
   onOpenWorkspace: () => void
@@ -205,7 +205,7 @@ export function ControlPanel({
   connected,
   gateway,
   onAutoSpeakChange,
-  onWakeWordChange,
+  onWakeWordModeChange,
   onNotice,
   onOpenWorkspace,
   onStopSpeech,
@@ -222,7 +222,7 @@ export function ControlPanel({
   voiceSelection,
   voicePhase,
   wakeWordAvailable,
-  wakeWordEnabled,
+  wakeWordMode,
   wakeWordStatus,
 }: ControlPanelProps) {
   const [loading, setLoading] = useState(false)
@@ -835,28 +835,37 @@ export function ControlPanel({
             />
             <span>Automatically read completed replies aloud</span>
           </label>
-          <label className="toggle-row">
-            <input
-              checked={wakeWordEnabled}
+          <label>
+            <span>“Hey Hermes” behavior</span>
+            <select
               disabled={!wakeWordAvailable}
-              type="checkbox"
-              onChange={event => onWakeWordChange(event.target.checked)}
-            />
-            <span>Listen for “Hey Hermes”</span>
+              value={wakeWordMode}
+              onChange={event =>
+                onWakeWordModeChange(event.target.value as WakeWordMode)
+              }
+            >
+              <option value="off">Off</option>
+              <option value="review">Transcribe and review</option>
+              <option value="send">Transcribe and send automatically</option>
+            </select>
           </label>
           <p className="advanced-copy">
             {wakeWordStatus === 'listening'
-              ? 'Listening on-device. Ambient audio is not sent to Hermes.'
+              ? 'Listening locally with the same openWakeWord model as Desktop. Ambient audio is not sent to Hermes.'
+              : wakeWordStatus === 'capturing'
+                ? 'Wake phrase heard. Listening locally until you pause.'
+                : wakeWordStatus === 'transcribing'
+                  ? 'Request ended. Transcribing it with the connected Hermes host…'
               : wakeWordStatus === 'starting'
-                ? 'Starting Android on-device recognition…'
+                ? 'Loading the local openWakeWord model…'
                 : wakeWordStatus === 'paused'
                   ? 'Paused until the app is foregrounded, connected, and other voice activity is idle.'
                   : wakeWordStatus === 'unsupported'
-                    ? 'On-device wake-word recognition is unavailable on this device.'
+                    ? 'Local wake-word detection is unavailable on this device.'
                     : wakeWordStatus === 'error'
                       ? 'Wake-word listening stopped. Toggle it off and on to retry.'
                       : wakeWordAvailable
-                        ? 'Off. Recognition runs only on this Android device when enabled.'
+                        ? 'Off. The bundled openWakeWord model runs only on this Android device when enabled.'
                         : 'Wake word is available in the Android app.'}
           </p>
           <VoiceSettings
