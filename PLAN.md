@@ -698,6 +698,9 @@ Acceptance:
       remote-safe filesystem route as inline image, audio, and video
       attachments; keep host paths out of the rendered transcript, clipboard,
       and TTS projection.
+- [x] Render completed Markdown and plain-text `MEDIA:` attachments as bounded
+      inline source previews with Download, Open preview, and Open in Reader
+      actions, while keeping the host path out of the visible transcript.
 - [x] Add connection-scoped third-party rich-embed preferences matching
       Desktop's ask, always, and off modes without writing a host theme or
       config setting.
@@ -1039,6 +1042,41 @@ Phase 5, presence and experimental interaction:
       foreground-only, and fully on-device until battery, privacy, and utility
       are proven.
 
+### Milestone 5M: Revisioned machine map
+
+Current milestone: architecture specified, implementation pending
+
+The detailed cache, storage, privacy, and client contract is recorded in
+`MACHINE_MAP.md`.
+
+Acceptance:
+
+- [x] Define a profile-safe machine identity that does not use serials, MAC
+      addresses, Android ID, public IPs, or another tracking identifier.
+- [x] Separate automatically observed facts, user-confirmed notes, path
+      mappings, capabilities, and operational quirks with provenance,
+      confidence, freshness, and conflict state.
+- [x] Define immutable machine revisions and plugin-owned session bindings
+      without adding columns to or contending with Hermes `state.db`.
+- [x] Preserve Hermes prompt caching by binding one revision at session start,
+      injecting its deterministic projection through the first-turn
+      `pre_llm_call` sidecar, and deferring ordinary edits to new sessions.
+- [ ] Add a separate profile-scoped plugin SQLite store with WAL, bounded busy
+      handling, optimistic revision checks, and no cross-database transaction.
+- [ ] Add conservative fixed read-only probes for runtime OS, shell/backend,
+      cwd, safe path dialects, Hermes version/profile, and advertised
+      capability families.
+- [ ] Add confirmed-note, path-mapping, quirk, revision-history, conflict
+      review, and forget operations.
+- [ ] Add authenticated versioned Mobile-plugin routes plus a
+      `hermes machine-map` CLI tree without adding a permanent model tool.
+- [ ] Bind new sessions and compression children to exact map revisions, and
+      add an explicit cache-boundary-disclosed Refresh session context action.
+- [ ] Add collapsed Mobile and Desktop inspectors with machine/revision session
+      badges, stale-map visibility, editing, probe, history, and refresh.
+- [ ] Add focused privacy, concurrency, revision, lineage, deterministic
+      projection, cache-replay, and cross-connection isolation tests.
+
 ### Milestone 6: Profiles, projects, and recoverable attention
 
 Acceptance:
@@ -1140,6 +1178,104 @@ integration tests, not by optimistic version ranges.
    fallback handling.
 
 ## Current Next Action
+
+The 2026-07-30 Nous-main reconciliation is complete. The Windows/AppData
+Hermes checkout is pinned to upstream Nous `main` at
+`cc4cab2f592e60a197e796506de9168f74baf3ea` (Hermes 0.19.1, release
+2026.7.30), with the complete private-experiments and local layer restored as
+ordinary visible worktree changes. The exact validated reconciled tree is
+recoverable from `backup/final-latest-nous-validated-20260730-184222` at
+`093cb6ca4b50c9c55f2d7a2c327d1ee7cadf6463`.
+
+The regular Desktop shortcut target was rebuilt and launched. The packaged
+executable is `214,281,216` bytes with SHA-256
+`ACAEC726C93A038999045191DE752A2684EEEC55C6FB38172B4010610C2DC7FB`.
+Its fresh backend emitted `HERMES_BACKEND_READY port=64056`; `/api/status` and
+`/api/health` both returned HTTP 200. Hermes reports version 0.19.1, healthy
+dashboard and storage components, and a degraded overall label only because
+the separately managed messaging gateway is stopped.
+
+The forced Mobile rebuild passed the complete 45-file, 197-test client suite,
+TypeScript typecheck, Vite production build, Capacitor sync, and Android
+`assembleDebug --rerun-tasks` with Android Studio JDK 21. The replacement APK
+was installed in place on the authorized Samsung SM-S918U through
+`100.112.167.36:46275`; Android reports
+`lastUpdateTime=2026-07-30 18:50:54`. `adb install -r` preserved saved
+connections, app data, and Android Keystore state. No phone screen or
+application content was opened or inspected.
+
+The exact Mobile local layer, excluding the unrelated `.playwright-cli`
+working artifacts, is recoverable from
+`backup/mobile-final-latest-nous-validated-20260730-185600`. Visible Mobile
+`main` remains at
+`d3baff84e9df9e7c2ddfd28a503be315be00eef7` with the same source and progress
+changes left as ordinary unstaged local dirt.
+
+Latest reconciled Mobile debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,085,414` bytes
+
+SHA-256:
+`7D0431EFFAA00272FB8536AEB1D1B71F33A1DAF7B218265DCD5CEBEFFEC98C6F`
+
+Physical acceptance now begins from the normal Desktop shortcut and the
+installed Android package. Recheck the nested-scroll attachment path, the
+Windows path guidance in a new cache-stable Hermes session, and the existing
+Mobile pet, Reader, media, connection, and background-lifecycle acceptance
+items during normal use.
+
+The nested-scroll replacement APK is installed in place on the authorized
+Samsung SM-S918U. Android reports
+`lastUpdateTime=2026-07-30 17:13:47`. The installation used `adb install -r`,
+so saved connections, app data, and Android Keystore state were preserved. No
+phone screen or application content was opened or inspected.
+
+It lets inline transcript/file/Reader panes chain a vertical gesture to their
+surrounding page at either edge while keeping modal and full-screen scroll
+owners contained.
+
+Latest nested-scroll replacement debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,260,215` bytes
+
+SHA-256:
+`13565E348FDBF774E5A6D3232A6D03819D17E3215906F3B5948FE2726A73A0BC`
+
+Open the installed app normally, scroll inside the inline Markdown attachment,
+and keep swiping at its top and bottom. The transcript should continue without
+requiring a narrow touch target outside the preview. Repeat with one expanded
+long tool call and Reader File Preview.
+
+The inline-document-attachment replacement APK is installed in place on the
+authorized Samsung SM-S918U with saved connections, app data, and Android
+Keystore state preserved. Android reports
+`lastUpdateTime=2026-07-30 16:47:29`.
+
+Reopen the reported conversation containing the Markdown attachment. Confirm
+the chat card shows a bounded, independently scrollable source preview instead
+of the old no-preview message. Download should open the Android save flow, Open
+preview should switch to Reader's rendered File Preview surface, and Open in
+Reader should load the same document into normal Reader playback. None of the
+three surfaces should expose the remote host path.
+
+Latest inline-document-attachment debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,260,214` bytes
+
+SHA-256:
+`5DF0755EBC58480A224C6EF2B9A3854CDE8DDD16FCECC218FE1C4655526000A8`
+
+The adjacent local Hermes prompt builder now documents the native Windows,
+Git Bash/MSYS, file-tool, Python, and native-program path boundaries. A related
+runtime repair normalizes a resolved `search_files` path before dispatching it
+to native ripgrep. Start a new Hermes session to exercise the rebuilt system
+prompt because an existing session keeps its cache-stable original prompt.
 
 The active-plugin-state replacement APK is installed in place on the authorized
 Samsung SM-S918U. Android reports `lastUpdateTime=2026-07-30 14:12:09`;

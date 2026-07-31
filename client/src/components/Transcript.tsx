@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { writeClipboardText } from '../clipboard'
 import { displayTextForMediaMarkers } from '../media-markers'
+import type { PreviewDocument } from '../preview'
 import {
   formatDisplayValue,
   type RequestTranscriptData,
@@ -19,6 +20,8 @@ interface TranscriptProps {
   toolDetailMode: ToolDetailMode
   transport?: HermesTransport | null
   voicePhase: VoicePhase
+  onOpenDocumentPreviewer?: (document: PreviewDocument) => void
+  onOpenDocumentReader?: (document: PreviewDocument) => void
   onSpeak: (text: string, itemId: string) => void
   onRespond: (
     request: RequestTranscriptData,
@@ -358,6 +361,8 @@ export function Transcript({
   activeSpeechId,
   connectionId,
   items,
+  onOpenDocumentPreviewer,
+  onOpenDocumentReader,
   onRespond,
   onSpeak,
   toolDetailMode,
@@ -483,6 +488,8 @@ export function Transcript({
               <p>{item.text}</p>
             ) : (
               <MarkdownContent
+                onOpenDocumentPreviewer={onOpenDocumentPreviewer}
+                onOpenDocumentReader={onOpenDocumentReader}
                 resolveMediaMarkers={!item.streaming}
                 transport={transport}
               >

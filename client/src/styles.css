@@ -933,7 +933,7 @@ h3 {
   overflow: auto;
   margin: 0;
   padding: 0.75rem;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
 }
 
 .markdown-code-block pre code {
@@ -1320,7 +1320,12 @@ h3 {
   max-height: min(60dvh, 32rem);
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  /*
+   * Tool details live inside the transcript scroller. Let a vertical gesture
+   * continue through the transcript once this nested pane reaches either
+   * edge, instead of trapping the finger over the card.
+   */
+  overscroll-behavior-y: auto;
   background: color-mix(in srgb, var(--surface-2) 68%, transparent);
   padding: 0.75rem;
   touch-action: pan-y;
@@ -2058,7 +2063,7 @@ h3 {
 .file-preview textarea {
   min-height: 24rem;
   overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
   resize: vertical;
   border: 0;
   background: #080a0e;
@@ -2101,7 +2106,7 @@ h3 {
 .file-text-preview {
   min-height: 24rem;
   overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
   margin: 0;
   background: #080a0e;
   padding: 0.8rem;
@@ -3565,7 +3570,7 @@ textarea:focus {
   min-height: 18rem;
   max-height: min(60dvh, 42rem);
   overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
   padding: 0.8rem;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
@@ -3776,6 +3781,71 @@ textarea:focus {
   color: var(--danger);
   font-size: 0.64rem;
   line-height: 1.45;
+}
+
+.remote-text-attachment {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 100%;
+}
+
+.remote-file-title {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.remote-file-title small {
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.remote-file-title > span,
+.remote-file-note {
+  color: var(--muted);
+  font-size: 0.6rem;
+  line-height: 1.4;
+}
+
+.remote-text-preview {
+  display: block;
+  width: 100%;
+  max-height: min(22rem, 48dvh);
+  overflow: auto;
+  /*
+   * This is an inline transcript surface, not a modal scroll owner. Preserve
+   * its bounded preview, but chain at the top and bottom so the same swipe can
+   * keep moving through the conversation.
+   */
+  overscroll-behavior-y: auto;
+  border: 1px solid color-mix(in srgb, var(--stroke) 78%, transparent);
+  border-radius: 0.62rem;
+  background: color-mix(in srgb, var(--background) 78%, transparent);
+  padding: 0.72rem;
+  color: var(--text);
+  font-size: 0.72rem;
+  line-height: 1.55;
+  touch-action: pan-y;
+}
+
+.remote-text-preview .markdown-body {
+  font-size: inherit;
+}
+
+.remote-text-preview .markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.remote-text-preview .markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.remote-text-plain {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .rich-embed iframe {

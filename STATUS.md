@@ -7,6 +7,114 @@ built, installed, and physically accepted
 
 Current state:
 
+- The 2026-07-30 reconciliation is pinned to Nous `main` at
+  `cc4cab2f592e60a197e796506de9168f74baf3ea` (Hermes 0.19.1, release
+  2026.7.30). The complete private-experiments and local layer is restored as
+  ordinary visible Windows/AppData worktree changes with zero staged or
+  unmerged paths and a clean `git diff --check`.
+- The exact validated reconciled Agent/Desktop tree is preserved at
+  `backup/final-latest-nous-validated-20260730-184222` commit
+  `093cb6ca4b50c9c55f2d7a2c327d1ee7cadf6463`. A binary recovery patch from
+  the pinned upstream commit is stored at
+  `C:\Users\btgil\AppData\Local\hermes\worktrees\recovery-20260730-180905\latest-nous-validated-093cb6ca4.patch`.
+- Changed Python source compiled through the Windows/AppData venv. Direct
+  SessionDB, prompt, pet, and TTS smokes passed without running Hermes pytest.
+  Desktop TypeScript typecheck passed for renderer, Electron, and E2E
+  projects. The changed-surface Desktop suite passed 41 files and 480 tests
+  with four workers.
+- A broad Desktop Vitest attempt exposed 20 failures in five untouched
+  upstream Windows Electron filesystem/SSH tests and then retained worker
+  processes. Only that verified Vitest process tree was stopped. The five
+  failing files are outside the local layer; the focused changed-surface suite
+  remains green.
+- Desktop packaging passed from the repository's resolved `F:` path after an
+  initial AppData-alias attempt hit Vite 8's mixed junction-path rejection.
+  The normal `C:\Users\btgil\Desktop\Hermes.lnk` target was replaced and
+  launched with a visible main window.
+- Reconciled Desktop executable size: 214,281,216 bytes. SHA-256:
+  `ACAEC726C93A038999045191DE752A2684EEEC55C6FB38172B4010610C2DC7FB`.
+- The fresh Desktop backend emitted `HERMES_BACKEND_READY port=64056`.
+  `/api/status` and `/api/health` returned HTTP 200. Dashboard and storage are
+  healthy; the overall degraded label reflects only the separately stopped
+  messaging gateway.
+- The complete reconciled Mobile client suite passed 45 files and 197 tests.
+  TypeScript typecheck, Vite production build, Capacitor Android sync, and a
+  forced Android `assembleDebug --rerun-tasks` with Android Studio JDK 21
+  passed.
+- The exact Mobile source and progress layer, excluding unrelated
+  `.playwright-cli` artifacts, is preserved at
+  `backup/mobile-final-latest-nous-validated-20260730-185600`. Visible Mobile
+  `main` remains at `d3baff84e9df9e7c2ddfd28a503be315be00eef7` with the same
+  changes restored as ordinary unstaged local dirt.
+- Reconciled Mobile APK size: 6,085,414 bytes. SHA-256:
+  `7D0431EFFAA00272FB8536AEB1D1B71F33A1DAF7B218265DCD5CEBEFFEC98C6F`.
+- The reconciled APK installed successfully with `adb install -r` on the
+  explicitly authorized Samsung SM-S918U at `100.112.167.36:46275`. Android
+  reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 18:50:54`. Saved connections, app data, and
+  Android Keystore state were preserved. No phone screen or application
+  content was opened or inspected.
+- Transcript-embedded scroll panes now hand vertical gestures back to their
+  surrounding owner at either edge. Inline text attachments, Markdown code
+  blocks, expanded tool details, Files text preview/editors, and Reader
+  document previews retain bounded internal scrolling without trapping the
+  user over the card after its content reaches the top or bottom.
+- Full-screen and modal scroll owners remain contained, so the change does not
+  bleed gestures through sidechat, sheets, the image viewer, the top-level
+  transcript, or the Files viewport.
+- Focused attachment Vitest passed 2 tests. The complete Mobile suite passed 45
+  files and 197 tests; TypeScript typecheck, Vite production build, Capacitor
+  Android sync, Android debug assembly with JDK 21, and `git diff --check`
+  passed.
+- Nested-scroll replacement APK size: 6,260,215 bytes. SHA-256:
+  `13565E348FDBF774E5A6D3232A6D03819D17E3215906F3B5948FE2726A73A0BC`.
+- The replacement installed successfully with `adb install -r` on the
+  explicitly authorized Samsung SM-S918U at
+  `100.112.167.36:38979`. Android reports package
+  `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 17:13:47`. Existing app data and Android
+  Keystore state were preserved; no screen or application content was opened
+  or inspected.
+- The revisioned Machine Map architecture is now specified in
+  `MACHINE_MAP.md` and tracked as Milestone 5M. It separates observed facts
+  from user-confirmed guidance, uses a profile-scoped plugin database instead
+  of Hermes `state.db`, binds sessions to immutable revisions, and projects one
+  deterministic first-turn context block through Hermes's cache-safe
+  `pre_llm_call` sidecar.
+- Ordinary map edits are deferred to new sessions. An explicit future Refresh
+  session context action may append one bounded delta to a later user turn
+  while disclosing that it creates a new prompt-cache boundary at that tail.
+- Completed Markdown and plain-text `MEDIA:` attachments no longer fall through
+  the image/audio/video renderer into the generic no-preview card. The
+  authenticated preview loader's existing text document now reaches a bounded,
+  touch-scrollable inline source preview.
+- Each inline text attachment exposes Download, Open preview, and Open in
+  Reader. Both handoffs reuse the existing Reader document contract and switch
+  to the requested Preview or Reader surface without exposing the host path.
+- The adjacent local Hermes system prompt now identifies the exact Windows
+  runtime boundary: terminal commands use Git for Windows Bash/MSYS, `C:/...`
+  is the portable spelling across Hermes tools and native programs, `/c/...`
+  is Bash's displayed drive spelling, `/mnt/c/...` is WSL-only, and file-tool
+  path fields take raw paths without shell quoting.
+- Live Git Bash proof on this workstation showed both `cd C:/Users/btgil` and
+  `cd /c/Users/btgil` returning `/c/Users/btgil` from `pwd -P`.
+- AppData logs exposed the sibling runtime leak behind many failures:
+  `search_files` correctly resolved an MSYS drive path for safety checks but
+  passed the original `/c/...` string to native `rg.exe`. The current
+  `agent.log` contains 179 such path-search failures dated 2026-07-30.
+- `search_files` now dispatches its resolved host path, so a Windows
+  `/c/Users/...` input reaches native ripgrep as `C:\Users\...`. Container and
+  POSIX paths retain their existing resolution branch.
+- Complete Mobile Vitest passed 45 files and 197 tests. TypeScript typecheck,
+  Vite production build, Capacitor Android sync, Android debug assembly, both
+  direct Windows path smokes, and focused diff checks passed.
+- Inline-document-attachment APK size: 6,260,214 bytes. SHA-256:
+  `5DF0755EBC58480A224C6EF2B9A3854CDE8DDD16FCECC218FE1C4655526000A8`.
+- The replacement APK installed successfully with `adb install -r` on the
+  explicitly supplied target `100.112.167.36:38979`. Android reports package
+  `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 16:47:29`; app data and Keystore state were
+  preserved, and no phone screen or application content was inspected.
 - Live Android/WebView instrumentation isolated an intermittent rest-window
   drag failure. Physical `touchstart`, `touchmove`, and `touchend` events reached
   Alien Child and the new coordinates persisted, but the rendered rect remained
@@ -821,6 +929,26 @@ Current state:
 
 Next action:
 
+Reopen the chat attachment from the reported session. Scroll inside the
+bounded Markdown/plain text preview, then keep swiping at its top and bottom.
+The transcript should continue in the same gesture without requiring a narrow
+strip outside the card. Repeat once in an expanded long tool call and in Reader
+File Preview.
+Download should still use Android's save flow, Open preview should render the
+document, Open in Reader should load the same content, and no host path should
+be visible.
+
+Milestone 5M implementation begins with its isolated plugin store and
+deterministic projection tests. Do not add machine-map fields to Hermes
+`state.db`, do not inject revisions into the system prompt mid-session, and do
+not collect hardware identifiers, credentials, public IPs, or broad installed
+application inventories.
+
+Start a fresh local Hermes session before judging the Windows path guidance,
+because existing sessions retain their original cache-stable system prompt.
+Exercise a terminal `pwd`, a native `C:/...` path, a Bash-displayed `/c/...`
+path passed into `search_files`, and a relative file-tool path after `cd`.
+
 Milestone 5L physical acceptance is complete. The next implementation slice is
 the bounded, local device-event journal for battery, charging, connectivity,
 and foreground/background changes. Notification access remains a separate
@@ -964,6 +1092,28 @@ the regular shortcut as well.
 
 Validation completed:
 
+- Nested-scroll focused attachment Vitest: 1 file and 2 tests passed.
+- Complete Mobile Vitest after scroll chaining: 45 files and 197 tests passed.
+- TypeScript typecheck, Vite production build, Capacitor Android sync, Android
+  `assembleDebug` with Android Studio JDK 21, and `git diff --check`: passed.
+- Nested-scroll replacement APK size: 6,260,215 bytes.
+- Nested-scroll replacement APK SHA-256:
+  `13565E348FDBF774E5A6D3232A6D03819D17E3215906F3B5948FE2726A73A0BC`.
+- Nested-scroll APK installed successfully with `adb install -r` on the
+  authorized Samsung SM-S918U at `100.112.167.36:38979`; Android reports
+  `lastUpdateTime=2026-07-30 17:13:47`. No phone content was inspected.
+- Inline-document attachment focused and complete Mobile Vitest: 45 files and
+  197 tests passed.
+- Mobile TypeScript typecheck, Vite production build, Capacitor Android sync,
+  and Android `assembleDebug` with Android Studio JDK 21: passed.
+- Direct Windows prompt-builder and `search_files` MSYS-to-native dispatch
+  smokes: passed. Hermes pytest was not run.
+- Inline-document-attachment APK size: 6,260,214 bytes.
+- Inline-document-attachment APK SHA-256:
+  `5DF0755EBC58480A224C6EF2B9A3854CDE8DDD16FCECC218FE1C4655526000A8`.
+- The replacement APK installed successfully with `adb install -r` on the
+  explicitly supplied Samsung target `100.112.167.36:38979`; Android reports
+  `lastUpdateTime=2026-07-30 16:47:29`. No screen or app content was opened.
 - The tool-evidence replacement APK installed successfully with
   `adb install -r` on the explicitly selected Samsung SM-S918U at
   `100.112.167.36:36879`. Android reports package `dev.hermes.mobile`,
