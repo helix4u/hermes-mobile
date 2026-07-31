@@ -11,7 +11,7 @@ describe('mobile Control settings disclosures', () => {
           activeSkinName="default"
           autoSpeak={false}
           wakeWordAvailable
-          wakeWordEnabled={false}
+          wakeWordMode="off"
           wakeWordStatus="off"
           connected
           gateway={null}
@@ -62,7 +62,7 @@ describe('mobile Control settings disclosures', () => {
             onTest: () => {},
           }}
           onAutoSpeakChange={() => {}}
-          onWakeWordChange={() => {}}
+          onWakeWordModeChange={() => {}}
           onNotice={() => {}}
           onOpenWorkspace={() => {}}
           onStopSpeech={() => {}}
@@ -77,7 +77,9 @@ describe('mobile Control settings disclosures', () => {
     expect(html).toContain('Mobile companion')
     expect(html).toContain('Rich link embeds')
     expect(html).toContain('API credentials and account sign-in')
-    expect(html).toContain('Listen for “Hey Hermes”')
+    expect(html).toContain('“Hey Hermes” behavior')
+    expect(html).toContain('Transcribe and send automatically')
+    expect(html).toContain('bundled openWakeWord model')
     expect(html).not.toMatch(/<details[^>]*\sopen(?:=|>)/)
   })
 })

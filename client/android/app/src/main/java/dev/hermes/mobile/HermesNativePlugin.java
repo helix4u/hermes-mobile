@@ -14,21 +14,19 @@ import android.content.SharedPreferences;
 import android.app.Dialog;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.media.AudioManager;
 import android.media.MediaRecorder;
+import android.media.ToneGenerator;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
-import android.speech.RecognitionListener;
-import android.speech.RecognizerIntent;
-import android.speech.SpeechRecognizer;
 import android.util.Base64;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
@@ -66,7 +64,6 @@ import java.security.Key;
 import java.security.KeyStore;
 import java.lang.ref.WeakReference;
 import java.util.Iterator;
-import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -197,10 +194,9 @@ public class HermesNativePlugin extends Plugin {
     private MediaRecorder recorder;
     private File recordingFile;
     private long recordingStartedAt;
-    private SpeechRecognizer wakeWordRecognizer;
+    private OpenWakeWordEngine wakeWordEngine;
+    private WakeWordAudioLoop wakeWordAudioLoop;
     private String wakeWordSessionId = "";
-    private Runnable wakeWordRestart;
-    private int wakeWordRetryCount;
 
     @Override
     public void load() {
@@ -1613,54 +1609,119 @@ public class HermesNativePlugin extends Plugin {
             return;
         }
 
-        mainHandler.post(() -> {
+        ioExecutor.execute(() -> {
             if (cancelledWakeWordSessionIds.remove(sessionId)) {
                 pendingWakeWordSessionIds.remove(sessionId);
                 call.reject("Wake word start was cancelled");
                 return;
             }
-            if (
-                Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                !SpeechRecognizer.isOnDeviceRecognitionAvailable(getContext())
-            ) {
-                pendingWakeWordSessionIds.remove(sessionId);
-                JSObject result = new JSObject();
-                result.put("supported", false);
-                result.put("state", "unsupported");
-                call.resolve(result);
-                publishWakeWordState(
-                    sessionId,
-                    "unsupported",
-                    "On-device speech recognition is unavailable"
-                );
-                return;
-            }
 
             try {
                 stopWakeWordInternal("", false);
-                SpeechRecognizer recognizer =
-                    SpeechRecognizer.createOnDeviceSpeechRecognizer(
-                        getContext()
-                    );
+                OpenWakeWordEngine engine = getWakeWordEngine();
+                if (cancelledWakeWordSessionIds.remove(sessionId)) {
+                    pendingWakeWordSessionIds.remove(sessionId);
+                    call.reject("Wake word start was cancelled");
+                    return;
+                }
+                WakeWordAudioLoop audioLoop = new WakeWordAudioLoop(
+                    engine,
+                    new WakeWordAudioLoop.Listener() {
+                        @Override
+                        public void onListening() {
+                            if (isActiveWakeWordSession(sessionId)) {
+                                publishWakeWordState(
+                                    sessionId,
+                                    "listening",
+                                    null
+                                );
+                            }
+                        }
+
+                        @Override
+                        public void onDetected() {
+                            if (!isActiveWakeWordSession(sessionId)) {
+                                return;
+                            }
+                            playWakeCue(true);
+                            publishWakeWordState(
+                                sessionId,
+                                "capturing",
+                                null
+                            );
+                            JSObject event = new JSObject();
+                            event.put("sessionId", sessionId);
+                            event.put("phrase", phrase);
+                            event.put("transcript", phrase);
+                            event.put("provider", "openwakeword");
+                            notifyListeners("wakeWordDetected", event);
+                        }
+
+                        @Override
+                        public void onUtterance(
+                            byte[] wavBytes,
+                            long durationMs,
+                            String endReason
+                        ) {
+                            if (!isActiveWakeWordSession(sessionId)) {
+                                return;
+                            }
+                            stopWakeWordInternal(sessionId, false);
+                            playWakeCue(false);
+                            JSObject event = new JSObject();
+                            event.put("sessionId", sessionId);
+                            event.put(
+                                "dataUrl",
+                                "data:audio/wav;base64," +
+                                Base64.encodeToString(
+                                    wavBytes,
+                                    Base64.NO_WRAP
+                                )
+                            );
+                            event.put("mimeType", "audio/wav");
+                            event.put("durationMs", durationMs);
+                            event.put("endReason", endReason);
+                            notifyListeners("wakeWordUtterance", event);
+                        }
+
+                        @Override
+                        public void onError(Exception error) {
+                            if (!isActiveWakeWordSession(sessionId)) {
+                                return;
+                            }
+                            publishWakeWordState(
+                                sessionId,
+                                "error",
+                                "Local wake-word audio stopped (" +
+                                error.getClass().getSimpleName() +
+                                ")"
+                            );
+                            stopWakeWordInternal(sessionId, false);
+                        }
+                    }
+                );
                 synchronized (wakeWordLock) {
-                    wakeWordRecognizer = recognizer;
+                    wakeWordAudioLoop = audioLoop;
                     wakeWordSessionId = sessionId;
-                    wakeWordRetryCount = 0;
+                }
+                audioLoop.start();
+                if (!isActiveWakeWordSession(sessionId)) {
+                    audioLoop.close();
+                    pendingWakeWordSessionIds.remove(sessionId);
+                    call.reject("Wake word start was cancelled");
+                    return;
                 }
                 pendingWakeWordSessionIds.remove(sessionId);
-                recognizer.setRecognitionListener(
-                    wakeWordListener(sessionId, phrase)
-                );
-                startWakeWordListening(sessionId);
                 JSObject result = new JSObject();
                 result.put("supported", true);
                 result.put("state", "listening");
+                result.put("provider", "openwakeword");
                 call.resolve(result);
-            } catch (RuntimeException error) {
+            } catch (Exception error) {
                 pendingWakeWordSessionIds.remove(sessionId);
                 stopWakeWordInternal(sessionId, false);
                 call.reject(
-                    "Could not start on-device wake word (" +
+                    "Could not start local openWakeWord (" +
                     error.getClass().getSimpleName() +
                     ")"
                 );
@@ -1678,176 +1739,36 @@ public class HermesNativePlugin extends Plugin {
         if (pendingWakeWordSessionIds.contains(sessionId)) {
             cancelledWakeWordSessionIds.add(sessionId);
         }
-        mainHandler.post(() -> {
+        ioExecutor.execute(() -> {
             stopWakeWordInternal(sessionId, true);
             call.resolve();
         });
     }
 
-    private RecognitionListener wakeWordListener(
-        final String sessionId,
-        final String phrase
-    ) {
-        return new RecognitionListener() {
-            @Override
-            public void onReadyForSpeech(Bundle params) {
-                synchronized (wakeWordLock) {
-                    if (!sessionId.equals(wakeWordSessionId)) return;
-                    wakeWordRetryCount = 0;
-                }
-                publishWakeWordState(sessionId, "listening", null);
-            }
-
-            @Override
-            public void onBeginningOfSpeech() {}
-
-            @Override
-            public void onRmsChanged(float rmsdB) {}
-
-            @Override
-            public void onBufferReceived(byte[] buffer) {}
-
-            @Override
-            public void onEndOfSpeech() {}
-
-            @Override
-            public void onError(int error) {
-                if (!isActiveWakeWordSession(sessionId)) return;
-                if (
-                    error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
-                ) {
-                    publishWakeWordState(
-                        sessionId,
-                        "error",
-                        "Microphone permission was removed"
-                    );
-                    stopWakeWordInternal(sessionId, false);
-                    return;
-                }
-                scheduleWakeWordRestart(sessionId, error);
-            }
-
-            @Override
-            public void onResults(Bundle results) {
-                if (
-                    detectWakeWord(sessionId, phrase, recognitionRows(results))
-                ) {
-                    return;
-                }
-                synchronized (wakeWordLock) {
-                    if (!sessionId.equals(wakeWordSessionId)) return;
-                    wakeWordRetryCount = 0;
-                }
-                scheduleWakeWordRestart(sessionId, 0);
-            }
-
-            @Override
-            public void onPartialResults(Bundle partialResults) {
-                detectWakeWord(
-                    sessionId,
-                    phrase,
-                    recognitionRows(partialResults)
-                );
-            }
-
-            @Override
-            public void onEvent(int eventType, Bundle params) {}
-        };
-    }
-
-    private ArrayList<String> recognitionRows(Bundle bundle) {
-        if (bundle == null) return new ArrayList<>();
-        ArrayList<String> rows = bundle.getStringArrayList(
-            SpeechRecognizer.RESULTS_RECOGNITION
-        );
-        return rows == null ? new ArrayList<>() : rows;
-    }
-
-    private boolean detectWakeWord(
-        String sessionId,
-        String phrase,
-        ArrayList<String> rows
-    ) {
-        if (!isActiveWakeWordSession(sessionId)) return false;
-        for (String row : rows) {
-            String normalized = normalizeWakeWords(row);
-            if (
-                normalized.equals(phrase) ||
-                normalized.startsWith(phrase + " ") ||
-                normalized.endsWith(" " + phrase) ||
-                normalized.contains(" " + phrase + " ")
-            ) {
-                stopWakeWordInternal(sessionId, true);
-                JSObject event = new JSObject();
-                event.put("sessionId", sessionId);
-                event.put("phrase", phrase);
-                event.put("transcript", row == null ? "" : row);
-                notifyListeners("wakeWordDetected", event);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void scheduleWakeWordRestart(String sessionId, int errorCode) {
-        final int retry;
+    private OpenWakeWordEngine getWakeWordEngine() throws Exception {
         synchronized (wakeWordLock) {
-            if (!sessionId.equals(wakeWordSessionId)) return;
-            retry = ++wakeWordRetryCount;
-            if (wakeWordRestart != null) {
-                mainHandler.removeCallbacks(wakeWordRestart);
-            }
-            if (retry > 5) {
-                wakeWordRestart = null;
-            } else {
-                wakeWordRestart = () -> startWakeWordListening(sessionId);
-                mainHandler.postDelayed(
-                    wakeWordRestart,
-                    errorCode == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
-                        ? 900
-                        : 350
-                );
-                return;
+            if (wakeWordEngine != null) {
+                return wakeWordEngine;
             }
         }
-        publishWakeWordState(
-            sessionId,
-            "error",
-            "On-device wake word recognition stopped"
-        );
-        stopWakeWordInternal(sessionId, false);
-    }
-
-    private void startWakeWordListening(String sessionId) {
-        final SpeechRecognizer recognizer;
+        OpenWakeWordEngine created =
+            new OpenWakeWordEngine(getContext().getApplicationContext());
         synchronized (wakeWordLock) {
-            if (!sessionId.equals(wakeWordSessionId)) return;
-            recognizer = wakeWordRecognizer;
-            wakeWordRestart = null;
+            if (wakeWordEngine == null) {
+                wakeWordEngine = created;
+                return created;
+            }
         }
-        if (recognizer == null) return;
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
-        try {
-            recognizer.startListening(intent);
-        } catch (RuntimeException error) {
-            scheduleWakeWordRestart(
-                sessionId,
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY
-            );
+        created.close();
+        synchronized (wakeWordLock) {
+            return wakeWordEngine;
         }
     }
 
     private boolean isActiveWakeWordSession(String sessionId) {
         synchronized (wakeWordLock) {
             return (
-                wakeWordRecognizer != null &&
+                wakeWordAudioLoop != null &&
                 sessionId.equals(wakeWordSessionId)
             );
         }
@@ -1857,7 +1778,7 @@ public class HermesNativePlugin extends Plugin {
         String expectedSessionId,
         boolean publish
     ) {
-        final SpeechRecognizer recognizer;
+        final WakeWordAudioLoop audioLoop;
         final String stoppedSessionId;
         synchronized (wakeWordLock) {
             if (
@@ -1866,25 +1787,13 @@ public class HermesNativePlugin extends Plugin {
             ) {
                 return;
             }
-            recognizer = wakeWordRecognizer;
+            audioLoop = wakeWordAudioLoop;
             stoppedSessionId = wakeWordSessionId;
-            if (wakeWordRestart != null) {
-                mainHandler.removeCallbacks(wakeWordRestart);
-            }
-            wakeWordRestart = null;
-            wakeWordRecognizer = null;
+            wakeWordAudioLoop = null;
             wakeWordSessionId = "";
-            wakeWordRetryCount = 0;
         }
-        if (recognizer != null) {
-            try {
-                recognizer.cancel();
-            } catch (RuntimeException ignored) {
-            }
-            try {
-                recognizer.destroy();
-            } catch (RuntimeException ignored) {
-            }
+        if (audioLoop != null) {
+            audioLoop.close();
         }
         if (publish && !stoppedSessionId.isEmpty()) {
             publishWakeWordState(stoppedSessionId, "stopped", null);
@@ -1903,6 +1812,33 @@ public class HermesNativePlugin extends Plugin {
             event.put("error", error);
         }
         notifyListeners("wakeWordState", event);
+    }
+
+    private void playWakeCue(boolean started) {
+        mainHandler.post(() -> {
+            final ToneGenerator tone;
+            try {
+                tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 28);
+            } catch (RuntimeException error) {
+                return;
+            }
+            int durationMs = started ? 72 : 56;
+            int toneType = started
+                ? ToneGenerator.TONE_PROP_PROMPT
+                : ToneGenerator.TONE_PROP_ACK;
+            try {
+                tone.startTone(toneType, durationMs);
+            } catch (RuntimeException error) {
+                tone.release();
+                return;
+            }
+            mainHandler.postDelayed(() -> {
+                try {
+                    tone.release();
+                } catch (RuntimeException ignored) {
+                }
+            }, durationMs + 100L);
+        });
     }
 
     private static String normalizeWakeWords(String value) {
@@ -1979,6 +1915,17 @@ public class HermesNativePlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         stopWakeWordInternal("", false);
+        OpenWakeWordEngine engine;
+        synchronized (wakeWordLock) {
+            engine = wakeWordEngine;
+            wakeWordEngine = null;
+        }
+        if (engine != null) {
+            try {
+                engine.close();
+            } catch (Exception ignored) {
+            }
+        }
         synchronized (recorderLock) {
             releaseRecorderLocked();
             deleteRecordingFileLocked();

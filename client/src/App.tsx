@@ -113,8 +113,9 @@ import {
   useVoice,
 } from './voice'
 import {
-  loadWakeWordEnabled,
-  persistWakeWordEnabled,
+  loadWakeWordMode,
+  persistWakeWordMode,
+  type WakeWordMode,
   useWakeWord,
 } from './wake-word'
 import { markdownToSpeechText } from './markdown'
@@ -284,11 +285,12 @@ export function App() {
   const [autoSpeak, setAutoSpeak] = useState(() =>
     typeof window === 'undefined' ? false : loadAutoSpeak(initialConnection.id),
   )
-  const [wakeWordEnabled, setWakeWordEnabled] = useState(() =>
+  const [wakeWordMode, setWakeWordMode] = useState<WakeWordMode>(() =>
     typeof window === 'undefined'
-      ? false
-      : loadWakeWordEnabled(initialConnection.id),
+      ? 'off'
+      : loadWakeWordMode(initialConnection.id),
   )
+  const [wakeReviewPending, setWakeReviewPending] = useState(false)
   const [appIsActive, setAppIsActive] = useState(true)
   const [voiceSelection, setVoiceSelection] = useState<VoiceSelection>(() =>
     typeof window === 'undefined'
@@ -307,6 +309,7 @@ export function App() {
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const autoConnectStartedRef = useRef(false)
   const autoSpeakRef = useRef(autoSpeak)
+  const wakeWordModeRef = useRef(wakeWordMode)
   const connectionRef = useRef(connection)
   const selectedStoredIdRef = useRef(selectedStoredId)
   const runtimeSessionIdRef = useRef(runtimeSessionId)
@@ -421,17 +424,32 @@ export function App() {
     activeSpeechId,
     playbackPaused,
   )
-  const wakeWordStatus = useWakeWord({
+  const {
+    cancelCapture: cancelWakeCapture,
+    status: wakeWordStatus,
+  } = useWakeWord({
     appActive: appIsActive,
+    available: !busy && !turnActive && !wakeReviewPending,
     connected,
     connectionId: connection.id,
-    enabled: wakeWordEnabled,
+    enabled: wakeWordMode !== 'off',
+    getTransport,
     nativeClient,
     onDetected: () => {
-      setNotice('Hey Hermes heard. Listening…')
-      toggleRecording()
+      setNotice('Hey Hermes heard. Say your request, then pause.')
     },
     onError: setError,
+    onNotice: setNotice,
+    onTranscript: text => {
+      setActiveTab('chat')
+      if (wakeWordModeRef.current === 'send') {
+        void sendWakeTranscript(text)
+        return
+      }
+      setDraft(text)
+      setWakeReviewPending(true)
+      setNotice('Request transcribed. Review it or send it to Hermes.')
+    },
     voicePhase,
   })
   const pet = usePetCompanion({
@@ -535,7 +553,10 @@ export function App() {
   }, [connected, connection.id, preferredWorkspace])
   useEffect(() => {
     setAutoSpeak(loadAutoSpeak(connection.id))
-    setWakeWordEnabled(loadWakeWordEnabled(connection.id))
+    const nextWakeWordMode = loadWakeWordMode(connection.id)
+    setWakeWordMode(nextWakeWordMode)
+    wakeWordModeRef.current = nextWakeWordMode
+    setWakeReviewPending(false)
     setVoiceSelection(loadVoiceSelection(connection.id))
     stopPlayback()
   }, [connection.id, stopPlayback])
@@ -1642,15 +1663,14 @@ export function App() {
     }
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    const text = draft.trim()
+  async function sendTextToHermes(text: string): Promise<boolean> {
     const transport = transportRef.current
-    if (!text || !transport) return
+    if (!text || !transport) return false
 
     setBusy(true)
     setError('')
     setDraft('')
+    setWakeReviewPending(false)
     transcriptFollowRef.current = true
     try {
       if (text.startsWith('/')) {
@@ -1667,6 +1687,7 @@ export function App() {
         ])
         await submitPrompt(text, sessionId)
       }
+      return true
     } catch (submitError) {
       setDraft(text)
       setError(
@@ -1674,9 +1695,22 @@ export function App() {
           ? submitError.message
           : String(submitError),
       )
+      return false
     } finally {
       setBusy(false)
     }
+  }
+
+  async function sendWakeTranscript(text: string): Promise<void> {
+    const sent = await sendTextToHermes(text.trim())
+    if (sent) setNotice('Wake request sent to Hermes.')
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    const text = draft.trim()
+    if (!text) return
+    await sendTextToHermes(text)
   }
 
   async function stop() {
@@ -1741,6 +1775,7 @@ export function App() {
     setRuntimeSessionId('')
     setTurnActive(false)
     setBusy(false)
+    setWakeReviewPending(false)
     setSessionCwd('')
     setTranscript([])
     setError('')
@@ -1754,9 +1789,14 @@ export function App() {
     if (!enabled) stopPlayback()
   }
 
-  function changeWakeWord(enabled: boolean) {
-    setWakeWordEnabled(enabled)
-    persistWakeWordEnabled(connection.id, enabled)
+  function changeWakeWordMode(mode: WakeWordMode) {
+    setWakeWordMode(mode)
+    wakeWordModeRef.current = mode
+    persistWakeWordMode(connection.id, mode)
+    if (mode === 'off') {
+      cancelWakeCapture()
+      setWakeReviewPending(false)
+    }
   }
 
   function changeVoiceSelection(selection: VoiceSelection) {
@@ -1923,6 +1963,9 @@ export function App() {
     }
   }
 
+  const wakeCaptureActive = wakeWordStatus === 'capturing'
+  const wakeTranscribing = wakeWordStatus === 'transcribing'
+
   return (
     <EmbedPreferencesProvider connectionId={connection.id}>
       <main className="app-shell">
@@ -2006,6 +2049,39 @@ export function App() {
               </strong>
               <small>Change</small>
             </button>
+            <div
+              aria-label="Session voice controls"
+              className="chat-voice-controls"
+            >
+              <label>
+                <span>Wake</span>
+                <select
+                  aria-label="Wake word behavior"
+                  disabled={!nativeClient}
+                  value={wakeWordMode}
+                  onChange={event =>
+                    changeWakeWordMode(event.target.value as WakeWordMode)
+                  }
+                >
+                  <option value="off">Off</option>
+                  <option value="review">Review</option>
+                  <option value="send">Auto-send</option>
+                </select>
+              </label>
+              <label>
+                <span>Replies</span>
+                <select
+                  aria-label="Automatic reply playback"
+                  value={autoSpeak ? 'auto' : 'manual'}
+                  onChange={event =>
+                    changeAutoSpeak(event.target.value === 'auto')
+                  }
+                >
+                  <option value="manual">Manual</option>
+                  <option value="auto">Auto-play</option>
+                </select>
+              </label>
+            </div>
 
             <div
               className="transcript"
@@ -2047,6 +2123,34 @@ export function App() {
             </div>
 
             <form className="composer" onSubmit={event => void submit(event)}>
+              {wakeReviewPending && (
+                <div className="wake-review" role="status">
+                  <div>
+                    <strong>Wake request ready</strong>
+                    <span>{draft || 'No request text'}</span>
+                  </div>
+                  <div className="wake-review-actions">
+                    <button
+                      className="quiet-button"
+                      type="button"
+                      onClick={() => {
+                        setWakeReviewPending(false)
+                        setDraft('')
+                        setNotice('Wake request discarded.')
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="primary-button"
+                      disabled={!draft.trim() || busy}
+                      type="submit"
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+              )}
               {commandSuggestions.length > 0 && (
                 <div className="command-suggestions">
                   {commandSuggestions.map(suggestion => (
@@ -2064,20 +2168,28 @@ export function App() {
               <div className="composer-box">
                 <button
                   aria-label={
-                    voicePhase === 'recording'
+                    wakeCaptureActive
+                      ? 'Cancel wake request recording'
+                      : voicePhase === 'recording'
                       ? 'Stop recording and transcribe'
                       : 'Record a voice message'
                   }
                   className={`voice-button ${
-                    voicePhase === 'recording' ? 'recording' : ''
+                    wakeCaptureActive || voicePhase === 'recording'
+                      ? 'recording'
+                      : ''
                   }`}
                   disabled={
-                    !connected || !voiceRecordingAvailable
+                    !connected ||
+                    (!wakeCaptureActive &&
+                      (!voiceRecordingAvailable || wakeTranscribing))
                   }
                   type="button"
-                  onClick={toggleRecording}
+                  onClick={
+                    wakeCaptureActive ? cancelWakeCapture : toggleRecording
+                  }
                 >
-                  {voicePhase === 'recording' ? (
+                  {wakeCaptureActive || voicePhase === 'recording' ? (
                     <span className="recording-stop" />
                   ) : (
                     <MicrophoneIcon />
@@ -2114,7 +2226,11 @@ export function App() {
               </div>
               <div className="composer-meta">
                 <span>
-                  {voicePhase === 'recording'
+                  {wakeCaptureActive
+                    ? 'Listening for your request, pause when finished'
+                    : wakeTranscribing
+                      ? 'Hermes is transcribing your wake request'
+                    : voicePhase === 'recording'
                     ? 'Recording, tap stop to transcribe'
                     : voicePhase === 'transcribing'
                       ? 'Hermes is transcribing'
@@ -2244,7 +2360,7 @@ export function App() {
               themeSelection={themeSelection}
               autoSpeak={autoSpeak}
               wakeWordAvailable={nativeClient}
-              wakeWordEnabled={wakeWordEnabled}
+              wakeWordMode={wakeWordMode}
               wakeWordStatus={wakeWordStatus}
               transport={transportRef.current}
               voiceSelection={voiceSelection}
@@ -2265,7 +2381,7 @@ export function App() {
                 onTest: pet.generateCommentary,
               }}
               onAutoSpeakChange={changeAutoSpeak}
-              onWakeWordChange={changeWakeWord}
+              onWakeWordModeChange={changeWakeWordMode}
               onThemeSelectionChange={changeThemeSelection}
               onNotice={setNotice}
               onOpenWorkspace={() => setWorkspaceOpen(true)}
