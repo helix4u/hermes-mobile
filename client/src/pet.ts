@@ -137,6 +137,43 @@ export function petTurnActiveAfterEvent(
   return current
 }
 
+export interface PetCommentaryRequestGate {
+  begin: (automatic: boolean, turnActive: boolean) => number | null
+  cancel: () => void
+  canPublish: (
+    requestId: number,
+    automatic: boolean,
+    turnActive: boolean,
+  ) => boolean
+  finish: (requestId: number) => void
+}
+
+export function createPetCommentaryRequestGate(): PetCommentaryRequestGate {
+  let epoch = 0
+  let activeRequestId = 0
+
+  return {
+    begin(automatic, turnActive) {
+      if (activeRequestId || (automatic && !turnActive)) return null
+      activeRequestId = ++epoch
+      return activeRequestId
+    },
+    cancel() {
+      epoch += 1
+      activeRequestId = 0
+    },
+    canPublish(requestId, automatic, turnActive) {
+      return (
+        requestId === activeRequestId &&
+        (!automatic || turnActive)
+      )
+    },
+    finish(requestId) {
+      if (requestId === activeRequestId) activeRequestId = 0
+    },
+  }
+}
+
 export async function resolvePetRuntimeSession(
   runtimeSessionId: string,
   ensureSession: () => Promise<string>,

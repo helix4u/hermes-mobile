@@ -463,6 +463,7 @@ export function App() {
     transcript,
     transport: transportRef.current,
     turnActive,
+    speechBusy: Boolean(activeSpeechId) || voicePhase !== 'idle',
   })
   useEffect(() => {
     if (!pet.hostCapabilities.sidechat) setPetSidechatOpen(false)
@@ -470,6 +471,9 @@ export function App() {
 
   const appendEvent = useCallback(
     (event: GatewayEvent) => {
+      if (event.type === 'message.complete') {
+        pet.cancelCommentary()
+      }
       setTurnActive(current =>
         petTurnActiveAfterEvent(current, event.type),
       )
@@ -501,7 +505,7 @@ export function App() {
       const text = completedAssistantText(event)
       if (text) void speak(markdownToSpeechText(text), 'auto-response')
     },
-    [speak],
+    [pet.cancelCommentary, speak],
   )
 
   const disconnect = useCallback(() => {
@@ -1714,13 +1718,15 @@ export function App() {
   }
 
   async function stop() {
+    stopPlayback()
+    pet.cancelCommentary(true)
+    setTurnActive(false)
     const transport = transportRef.current
     if (!transport || !runtimeSessionId) return
     try {
       await transport.gateway.request('session.interrupt', {
         session_id: runtimeSessionId,
       })
-      setTurnActive(false)
       appendSystem('Interrupt requested.')
     } catch (stopError) {
       setError(

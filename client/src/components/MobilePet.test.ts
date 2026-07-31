@@ -7,6 +7,7 @@ import {
   MIN_PET_ROAM_SPEED,
   MobilePet,
   nextPetRoamStep,
+  PET_ROAM_BORDER_INSET,
   petPositionAtAnimationTime,
   petPositionFromPointer,
   settlePetRoamAnimation,
@@ -36,15 +37,53 @@ describe('mobile pet roaming', () => {
     )
   })
 
-  it('clamps destinations inside the transparent overlay', () => {
+  it('keeps automatic destinations inset from the transparent overlay border', () => {
     const values = [0.9, 0.9, 0.9, 0.9]
     const step = nextPetRoamStep(
       { x: 295, y: 435 },
       { height: 480, width: 360 },
       () => values.shift() ?? 0.9,
     )
-    expect(step.destination.x).toBeLessThanOrEqual(288)
-    expect(step.destination.y).toBeLessThanOrEqual(408)
+    expect(step.destination.x).toBeGreaterThanOrEqual(PET_ROAM_BORDER_INSET)
+    expect(step.destination.x).toBeLessThanOrEqual(
+      288 - PET_ROAM_BORDER_INSET,
+    )
+    expect(step.destination.y).toBeGreaterThanOrEqual(PET_ROAM_BORDER_INSET)
+    expect(step.destination.y).toBeLessThanOrEqual(
+      408 - PET_ROAM_BORDER_INSET,
+    )
+  })
+
+  it('turns inward instead of continuing to run into either side', () => {
+    const left = nextPetRoamStep(
+      { x: 0, y: 220 },
+      { height: 500, width: 360 },
+      () => 0,
+    )
+    const right = nextPetRoamStep(
+      { x: 288, y: 220 },
+      { height: 500, width: 360 },
+      () => 1,
+    )
+
+    expect(left.destination.x).toBeGreaterThan(0)
+    expect(right.destination.x).toBeLessThan(288)
+  })
+
+  it('steers vertical drift away from the nearest border', () => {
+    const nearTop = nextPetRoamStep(
+      { x: 140, y: 0 },
+      { height: 500, width: 360 },
+      () => 0,
+    )
+    const nearBottom = nextPetRoamStep(
+      { x: 140, y: 428 },
+      { height: 500, width: 360 },
+      () => 1,
+    )
+
+    expect(nearTop.destination.y).toBeGreaterThan(0)
+    expect(nearBottom.destination.y).toBeLessThan(428)
   })
 
   it('does not let a short roaming leg drop below the faster speed floor', () => {

@@ -15,6 +15,7 @@ import {
   BUILTIN_ALIEN_CHILD_SUMMARY,
   CHECKING_PET_HOST_CAPABILITIES,
   compactPetBubbleText,
+  createPetCommentaryRequestGate,
   deriveMobilePetState,
   effectivePetSpeech,
   FULL_PET_HOST_CAPABILITIES,
@@ -49,6 +50,7 @@ interface UsePetCompanionOptions {
   transcript: TranscriptItem[]
   transport: HermesTransport | null
   turnActive: boolean
+  speechBusy: boolean
   speak: (
     text: string,
     id: string,
@@ -74,6 +76,7 @@ export function usePetCompanion({
   transcript,
   transport,
   turnActive,
+  speechBusy,
 }: UsePetCompanionOptions) {
   const [preferences, setPreferences] = useState(() =>
     loadPetPreferences(connectionId),
@@ -108,8 +111,16 @@ export function usePetCompanion({
   const observerIdsRef = useRef<string[]>([])
   const observerSignatureRef = useRef('')
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const generatingRef = useRef(false)
-  const turnActiveRef = useRef(turnActive)
+  const firstCommentaryTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null)
+  const repeatingCommentaryTimerRef =
+    useRef<ReturnType<typeof setInterval> | null>(null)
+  const commentaryGateRef = useRef(createPetCommentaryRequestGate())
+  const currentTurnActiveRef = useRef(turnActive)
+  currentTurnActiveRef.current = turnActive
+  const previousTurnActiveRef = useRef(turnActive)
+  const speechBusyRef = useRef(speechBusy)
+  speechBusyRef.current = speechBusy
   const sidechatBusyRef = useRef(false)
   const observerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generateCommentaryRef = useRef<(force?: boolean) => Promise<void>>(
@@ -118,7 +129,38 @@ export function usePetCompanion({
   const activeConnectionIdRef = useRef(connectionId)
   activeConnectionIdRef.current = connectionId
 
+  const clearCommentarySchedule = useCallback(() => {
+    if (firstCommentaryTimerRef.current) {
+      clearTimeout(firstCommentaryTimerRef.current)
+      firstCommentaryTimerRef.current = null
+    }
+    if (repeatingCommentaryTimerRef.current) {
+      clearInterval(repeatingCommentaryTimerRef.current)
+      repeatingCommentaryTimerRef.current = null
+    }
+    if (observerTimerRef.current) {
+      clearTimeout(observerTimerRef.current)
+      observerTimerRef.current = null
+    }
+  }, [])
+
+  const cancelCommentary = useCallback(
+    (clearBubble = false) => {
+      commentaryGateRef.current.cancel()
+      clearCommentarySchedule()
+      if (clearBubble) {
+        if (bubbleTimerRef.current) {
+          clearTimeout(bubbleTimerRef.current)
+          bubbleTimerRef.current = null
+        }
+        setBubble('')
+      }
+    },
+    [clearCommentarySchedule],
+  )
+
   useLayoutEffect(() => {
+    cancelCommentary(true)
     const nextPreferences = loadPetPreferences(connectionId)
     preferencesRef.current = nextPreferences
     setPreferences(nextPreferences)
@@ -133,14 +175,13 @@ export function usePetCompanion({
     recentRef.current = []
     observerIdsRef.current = []
     observerSignatureRef.current = ''
-    generatingRef.current = false
     sidechatBusyRef.current = false
     setSidechatBusy(false)
     setDesktopSpeech(null)
     setSidechatMessages([])
     setSidechatError('')
     setError('')
-  }, [connected, connectionId])
+  }, [cancelCommentary, connected, connectionId])
 
   const updatePreferences = useCallback(
     (patch: Partial<PetPreferences>) => {
@@ -210,7 +251,10 @@ export function usePetCompanion({
       if (!clean) return
       showBubble(clean)
       recentRef.current = [...recentRef.current.filter(row => row !== clean), clean].slice(-12)
-      if (preferencesRef.current.speakCommentary) {
+      if (
+        preferencesRef.current.speakCommentary &&
+        (source !== 'generated' || !speechBusyRef.current)
+      ) {
         void speak(clean, `pet-${source}`, speechRef.current.config)
       }
       void record(clean, source)
@@ -403,7 +447,6 @@ export function usePetCompanion({
 
   const generateCommentary = useCallback(async (force = false) => {
     if (
-      generatingRef.current ||
       !hostCapabilities.commentary ||
       !gateway ||
       !runtimeSessionId ||
@@ -411,6 +454,12 @@ export function usePetCompanion({
     ) {
       return
     }
+    const automatic = !force
+    const requestId = commentaryGateRef.current.begin(
+      automatic,
+      currentTurnActiveRef.current,
+    )
+    if (requestId === null) return
     const lens = preferences.commentaryLens
     const frames = petObserverFramesFromTranscript(
       transcript,
@@ -432,15 +481,15 @@ export function usePetCompanion({
         (lens === 'tool' &&
           !petToolObserverHasSettledNewEvidence(frames.tool)))
     ) {
+      commentaryGateRef.current.finish(requestId)
       return
     }
-    generatingRef.current = true
     const requestedConnectionId = connectionId
     try {
       const result = await gateway.request<{ ok: boolean; text: string }>(
         'pet.commentary.generate',
         {
-          activity: turnActive
+          activity: currentTurnActiveRef.current
             ? 'Hermes is working on the current request.'
             : 'Hermes is ready.',
           context:
@@ -466,23 +515,39 @@ export function usePetCompanion({
         },
         { timeoutMs: 60_000 },
       )
-      if (activeConnectionIdRef.current !== requestedConnectionId) return
+      if (
+        activeConnectionIdRef.current !== requestedConnectionId ||
+        !commentaryGateRef.current.canPublish(
+          requestId,
+          automatic,
+          currentTurnActiveRef.current,
+        )
+      ) {
+        return
+      }
       if (result.ok && result.text) {
         observerIdsRef.current = frames.ids
         observerSignatureRef.current = observerSignature
         publish(result.text, 'generated')
       }
     } catch (commentaryError) {
-      if (activeConnectionIdRef.current !== requestedConnectionId) return
+      if (
+        activeConnectionIdRef.current !== requestedConnectionId ||
+        !commentaryGateRef.current.canPublish(
+          requestId,
+          automatic,
+          currentTurnActiveRef.current,
+        )
+      ) {
+        return
+      }
       setError(
         commentaryError instanceof Error
           ? commentaryError.message
           : String(commentaryError),
       )
     } finally {
-      if (activeConnectionIdRef.current === requestedConnectionId) {
-        generatingRef.current = false
-      }
+      commentaryGateRef.current.finish(requestId)
     }
   }, [
     gateway,
@@ -497,7 +562,6 @@ export function usePetCompanion({
     publish,
     runtimeSessionId,
     transcript,
-    turnActive,
   ])
 
   useEffect(() => {
@@ -515,18 +579,15 @@ export function usePetCompanion({
     ) {
       return
     }
-    const first = setTimeout(
+    firstCommentaryTimerRef.current = setTimeout(
       () => void generateCommentaryRef.current(false),
       preferences.delaySeconds * 1_000,
     )
-    const repeating = setInterval(
+    repeatingCommentaryTimerRef.current = setInterval(
       () => void generateCommentaryRef.current(false),
       preferences.intervalSeconds * 1_000,
     )
-    return () => {
-      clearTimeout(first)
-      clearInterval(repeating)
-    }
+    return clearCommentarySchedule
   }, [
     connected,
     hostCapabilities.commentary,
@@ -536,6 +597,7 @@ export function usePetCompanion({
     runtimeSessionId,
     status,
     turnActive,
+    clearCommentarySchedule,
   ])
 
   useEffect(() => {
@@ -572,14 +634,15 @@ export function usePetCompanion({
   ])
 
   useEffect(() => {
-    if (turnActiveRef.current && !turnActive) {
+    if (previousTurnActiveRef.current && !turnActive) {
+      cancelCommentary()
       setJustCompleted(true)
       const timer = setTimeout(() => setJustCompleted(false), 1_600)
-      turnActiveRef.current = turnActive
+      previousTurnActiveRef.current = turnActive
       return () => clearTimeout(timer)
     }
-    turnActiveRef.current = turnActive
-  }, [turnActive])
+    previousTurnActiveRef.current = turnActive
+  }, [cancelCommentary, turnActive])
 
   const awaitingInput = transcript.some(
     item => item.kind === 'request' && !item.request?.answered,
@@ -781,13 +844,14 @@ export function usePetCompanion({
   useEffect(
     () => () => {
       if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
-      if (observerTimerRef.current) clearTimeout(observerTimerRef.current)
+      cancelCommentary()
     },
-    [],
+    [cancelCommentary],
   )
 
   return {
     bubble,
+    cancelCommentary,
     catalog,
     desktopSpeech,
     desktopSpeechStatus,
