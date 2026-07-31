@@ -13,6 +13,43 @@ export interface ProjectSessionRow {
   session: SessionSummary
 }
 
+export interface SessionFolderGroup {
+  key: string
+  label: string
+  path: string
+  sessions: SessionSummary[]
+}
+
+function folderName(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean)
+  return parts.at(-1) || path
+}
+
+export function groupSessionsByFolder(
+  sessions: SessionSummary[],
+): SessionFolderGroup[] {
+  const grouped = new Map<
+    string,
+    { label: string; path: string; sessions: SessionSummary[] }
+  >()
+  for (const session of sessions) {
+    const path = String(session.cwd || session.git_repo_root || '').trim()
+    const source = String(session.source || '').trim()
+    const key = path || `source:${source || 'other'}`
+    const current = grouped.get(key)
+    if (current) {
+      current.sessions.push(session)
+      continue
+    }
+    grouped.set(key, {
+      label: path ? folderName(path) : source || 'Other sessions',
+      path,
+      sessions: [session],
+    })
+  }
+  return [...grouped.entries()].map(([key, group]) => ({ key, ...group }))
+}
+
 export function projectSessionRows(
   project: ProjectTree | null,
 ): ProjectSessionRow[] {
@@ -71,6 +108,13 @@ export function sessionMatches(
     context.groupLabel,
     context.groupPath,
   ].some(value => String(value ?? '').toLowerCase().includes(needle))
+}
+
+export function isCompactedSession(session: SessionSummary): boolean {
+  if (session.compacted === true) return true
+  return ['compact', 'compacted', 'compression', 'compressed'].includes(
+    String(session.end_reason ?? '').trim().toLowerCase(),
+  )
 }
 
 export function projectGroups(project: ProjectTree | null): SessionProjectGroup[] {

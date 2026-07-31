@@ -41,7 +41,7 @@ export interface HermesTransport {
 }
 
 export interface HermesRequestOptions {
-  method?: 'GET' | 'POST' | 'PUT'
+  method?: 'DELETE' | 'GET' | 'POST' | 'PUT'
   timeoutMs?: number
 }
 

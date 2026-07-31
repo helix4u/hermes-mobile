@@ -3,8 +3,10 @@ import {
   DEFAULT_READER_BUFFER_AHEAD,
   MAX_READER_BUFFER_AHEAD,
   loadReaderBufferAhead,
+  loadReaderProviders,
   parseReaderScript,
   persistReaderBufferAhead,
+  persistReaderProviders,
   reconcileReaderProviders,
   readerFallbackSelections,
   readerSpeakers,
@@ -25,11 +27,13 @@ import { useVoiceCatalog } from './useVoiceCatalog'
 
 interface ReaderViewProps {
   active: boolean
+  activeSpeechId: string
   connected: boolean
   connectionId: string
   latestText: string
   normalVoice: VoiceSelection
   phase: VoicePhase
+  playbackPaused: boolean
   transport: HermesTransport | null
   importedDocument: {
     document: PreviewDocument
@@ -44,6 +48,8 @@ interface ReaderViewProps {
     items: SpeechSequenceItem[],
     options?: SpeechRenderOptions,
   ) => Promise<Blob>
+  onPause: () => void
+  onResume: () => void
   onStop: () => void
 }
 
@@ -73,15 +79,19 @@ function loadAssignments(connectionId: string): Record<string, string> {
 
 export function ReaderView({
   active,
+  activeSpeechId,
   connected,
   connectionId,
   importedDocument,
   latestText,
   normalVoice,
+  onPause,
   onRender,
+  onResume,
   onSpeak,
   onStop,
   phase,
+  playbackPaused,
   transport,
 }: ReaderViewProps) {
   const [text, setText] = useState(() =>
@@ -98,7 +108,9 @@ export function ReaderView({
   const [downloadingDocument, setDownloadingDocument] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [renderProgress, setRenderProgress] = useState('')
-  const [selectedProviders, setSelectedProviders] = useState<string[]>([])
+  const [selectedProviders, setSelectedProviders] = useState<string[]>(() =>
+    typeof window === 'undefined' ? [] : loadReaderProviders(connectionId),
+  )
   const [assignments, setAssignments] = useState<Record<string, string>>(() =>
     typeof window === 'undefined' ? {} : loadAssignments(connectionId),
   )
@@ -136,7 +148,7 @@ export function ReaderView({
     setDocumentContent('')
     setSavedDocumentContent('')
     setSurface('reader')
-    setSelectedProviders([])
+    setSelectedProviders(loadReaderProviders(connectionId))
     setActiveBlock(null)
     setFollowPlayback(true)
     setError('')
@@ -179,6 +191,10 @@ export function ReaderView({
   }, [bufferAhead, connectionId])
 
   useEffect(() => {
+    persistReaderProviders(connectionId, selectedProviders)
+  }, [connectionId, selectedProviders])
+
+  useEffect(() => {
     if (!activeBlock || !followPlayback) return
     blockNodes.current.get(activeBlock)?.scrollIntoView({
       behavior: 'smooth',
@@ -187,6 +203,7 @@ export function ReaderView({
   }, [activeBlock, followPlayback])
 
   useEffect(() => {
+    if (catalogSupported !== true) return
     setSelectedProviders(current => {
       const next = reconcileReaderProviders(
         current,
@@ -198,7 +215,7 @@ export function ReaderView({
         ? current
         : next
     })
-  }, [normalVoice.provider, providers])
+  }, [catalogSupported, normalVoice.provider, providers])
 
   useEffect(() => {
     if (availableChoices.length === 0) return
@@ -296,11 +313,20 @@ export function ReaderView({
     })
   }
 
-  const reading = phase === 'speaking' || phase === 'synthesizing'
+  const readerActive = activeSpeechId === 'reader'
+  const reading =
+    readerActive &&
+    (playbackPaused ||
+      phase === 'speaking' ||
+      phase === 'synthesizing' ||
+      phase === 'recording' ||
+      phase === 'transcribing')
+  const recordingBusy = phase === 'recording' || phase === 'transcribing'
 
   function readFrom(index: number) {
     const items = sequence().slice(index)
     if (!items.length) return
+    if (readerActive) onStop()
     readerRun.current += 1
     const run = readerRun.current
     setFollowPlayback(true)
@@ -521,19 +547,6 @@ export function ReaderView({
               >
                 {rendering ? renderProgress || 'Rendering…' : 'Render & save'}
               </button>
-              {reading ? (
-                <button className="danger-button" onClick={stopReading}>
-                  Stop
-                </button>
-              ) : (
-                <button
-                  className="primary-button"
-                  disabled={!connected || !blocks.length || rendering}
-                  onClick={() => readFrom(0)}
-                >
-                  Read
-                </button>
-              )}
             </div>
             {renderProgress && !rendering && (
               <p className="reader-render-status">{renderProgress}</p>
@@ -668,6 +681,64 @@ export function ReaderView({
           </div>
         </>
       )}
+
+      <div
+        aria-label="Reader playback controls"
+        className="reader-playback-dock"
+        role="group"
+      >
+        <span className="reader-playback-state" aria-live="polite">
+          {readerActive
+            ? playbackPaused
+              ? 'Reader paused'
+              : phase === 'synthesizing'
+                ? 'Preparing Reader audio'
+                : recordingBusy
+                  ? 'Reader paused for voice input'
+                  : 'Reader playing'
+            : blocks.length
+              ? 'Reader ready'
+              : 'Add text to begin'}
+        </span>
+        <div className="reader-playback-buttons">
+          <button
+            className="primary-button"
+            disabled={
+              !connected ||
+              !blocks.length ||
+              rendering ||
+              (readerActive && !playbackPaused) ||
+              recordingBusy
+            }
+            onClick={() => {
+              if (playbackPaused) onResume()
+              else readFrom(0)
+            }}
+            type="button"
+          >
+            <span aria-hidden="true">▶</span>
+            {playbackPaused ? 'Resume' : 'Play'}
+          </button>
+          <button
+            className="quiet-button"
+            disabled={!readerActive || playbackPaused || recordingBusy}
+            onClick={onPause}
+            type="button"
+          >
+            <span aria-hidden="true">Ⅱ</span>
+            Pause
+          </button>
+          <button
+            className="danger-button"
+            disabled={!readerActive}
+            onClick={stopReading}
+            type="button"
+          >
+            <span aria-hidden="true">■</span>
+            Stop
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

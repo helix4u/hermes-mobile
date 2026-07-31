@@ -32,6 +32,7 @@ describe('Reader host compatibility', () => {
     const html = renderToStaticMarkup(
       <ReaderView
         active
+        activeSpeechId=""
         connected
         connectionId="cloud-old"
         importedDocument={null}
@@ -42,8 +43,11 @@ describe('Reader host compatibility', () => {
           voice: 'local-clone',
         }}
         phase="idle"
+        playbackPaused={false}
         transport={{} as HermesTransport}
+        onPause={vi.fn()}
         onRender={vi.fn()}
+        onResume={vi.fn()}
         onSpeak={vi.fn()}
         onStop={vi.fn()}
       />,
@@ -56,5 +60,44 @@ describe('Reader host compatibility', () => {
     expect(html).toContain('disabled=""')
     expect(html).not.toContain('aria-label="Narrator voice"')
     expect(html).not.toContain('inline-error')
+    expect(html).toContain('Reader playback controls')
+    expect(html).toContain('Reader ready')
+    expect(html).toContain('>Play</button>')
+    expect(html).toContain('>Pause</button>')
+    expect(html).toContain('>Stop</button>')
+  })
+
+  test('shows persistent resume and stop controls for paused Reader audio', () => {
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (key: string) =>
+          key.endsWith('.draft') ? '(Narrator)\nPaused here.' : null,
+        setItem: vi.fn(),
+      },
+    })
+
+    const html = renderToStaticMarkup(
+      <ReaderView
+        active
+        activeSpeechId="reader"
+        connected
+        connectionId="reader-paused"
+        importedDocument={null}
+        latestText=""
+        normalVoice={{ provider: '', speed: 1, voice: '' }}
+        phase="speaking"
+        playbackPaused
+        transport={{} as HermesTransport}
+        onPause={vi.fn()}
+        onRender={vi.fn()}
+        onResume={vi.fn()}
+        onSpeak={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain('Reader paused')
+    expect(html).toContain('>Resume</button>')
+    expect(html).toContain('>Stop</button>')
   })
 })

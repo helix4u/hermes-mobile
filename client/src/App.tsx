@@ -39,6 +39,11 @@ import {
   type TranscriptItem,
 } from './state/transcript'
 import {
+  cacheTranscript,
+  readCachedTranscript,
+  type TranscriptCache,
+} from './state/transcript-cache'
+import {
   createConnection,
   defaultConnection,
   loadConnection,
@@ -101,13 +106,23 @@ import {
   type SharedContent,
 } from './transport/native-bridge'
 import {
+  canToggleVoiceRecording,
   completedAssistantText,
   loadAutoSpeak,
   persistAutoSpeak,
   useVoice,
 } from './voice'
+import {
+  loadWakeWordEnabled,
+  persistWakeWordEnabled,
+  useWakeWord,
+} from './wake-word'
 import { markdownToSpeechText } from './markdown'
 import { petTurnActiveAfterEvent } from './pet'
+import {
+  pinTranscriptToBottom,
+  shouldFollowTranscriptAfterScroll,
+} from './transcript-follow'
 import { usePetCompanion } from './usePetCompanion'
 
 type AppTab = 'chat' | 'sessions' | 'reader' | 'files' | 'control'
@@ -269,15 +284,26 @@ export function App() {
   const [autoSpeak, setAutoSpeak] = useState(() =>
     typeof window === 'undefined' ? false : loadAutoSpeak(initialConnection.id),
   )
+  const [wakeWordEnabled, setWakeWordEnabled] = useState(() =>
+    typeof window === 'undefined'
+      ? false
+      : loadWakeWordEnabled(initialConnection.id),
+  )
+  const [appIsActive, setAppIsActive] = useState(true)
   const [voiceSelection, setVoiceSelection] = useState<VoiceSelection>(() =>
     typeof window === 'undefined'
       ? { provider: '', voice: '', speed: 1 }
       : loadVoiceSelection(initialConnection.id),
   )
   const transportRef = useRef<HermesTransport | null>(null)
+  const transcriptCacheRef = useRef<TranscriptCache>(new Map())
   const transportCleanupRef = useRef<(() => void) | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
   const transcriptFollowRef = useRef(true)
+  const transcriptLastScrollTopRef = useRef(0)
+  const transcriptManualScrollUntilRef = useRef(0)
+  const transcriptPinFrameRef = useRef<number | null>(null)
+  const transcriptPinRecoveryRef = useRef<number | null>(null)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const autoConnectStartedRef = useRef(false)
   const autoSpeakRef = useRef(autoSpeak)
@@ -290,6 +316,8 @@ export function App() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttemptRef = useRef(0)
   const connectionEpochRef = useRef(0)
+  const sessionSelectionEpochRef = useRef(0)
+  const projectSelectionEpochRef = useRef(0)
   const reconnectInFlightRef = useRef<{
     epoch: number
     task: Promise<void>
@@ -324,6 +352,15 @@ export function App() {
   selectedStoredIdRef.current = selectedStoredId
   runtimeSessionIdRef.current = runtimeSessionId
   themeSelectionRef.current = themeSelection
+
+  useEffect(() => {
+    cacheTranscript(
+      transcriptCacheRef.current,
+      connection.id,
+      selectedStoredIdRef.current,
+      transcript,
+    )
+  }, [connection.id, transcript])
 
   const commandSuggestions = useMemo(() => {
     const text = draft.trimStart()
@@ -361,19 +398,41 @@ export function App() {
   }, [])
   const {
     activeSpeechId,
+    pausePlayback,
     phase: voicePhase,
+    playbackPaused,
     renderSequence,
+    resumePlayback,
     speak,
     speakSequence,
     stopPlayback,
     toggleRecording,
     toggleSpeech,
   } = useVoice({
+    connectionId: connection.id,
     getDefaultTtsConfig,
     getTransport,
     nativeClient,
     onError: setError,
     onTranscript: appendVoiceTranscript,
+  })
+  const voiceRecordingAvailable = canToggleVoiceRecording(
+    voicePhase,
+    activeSpeechId,
+    playbackPaused,
+  )
+  const wakeWordStatus = useWakeWord({
+    appActive: appIsActive,
+    connected,
+    connectionId: connection.id,
+    enabled: wakeWordEnabled,
+    nativeClient,
+    onDetected: () => {
+      setNotice('Hey Hermes heard. Listening…')
+      toggleRecording()
+    },
+    onError: setError,
+    voicePhase,
   })
   const pet = usePetCompanion({
     connected,
@@ -476,6 +535,7 @@ export function App() {
   }, [connected, connection.id, preferredWorkspace])
   useEffect(() => {
     setAutoSpeak(loadAutoSpeak(connection.id))
+    setWakeWordEnabled(loadWakeWordEnabled(connection.id))
     setVoiceSelection(loadVoiceSelection(connection.id))
     stopPlayback()
   }, [connection.id, stopPlayback])
@@ -544,6 +604,7 @@ export function App() {
     const onActive = (isActive: boolean) => {
       const wasActive = appActiveRef.current
       appActiveRef.current = isActive
+      setAppIsActive(isActive)
       if (becameActive(wasActive, isActive)) scheduleReconnect(200)
     }
     const onVisibilityChange = () => {
@@ -552,6 +613,7 @@ export function App() {
 
     if (nativeClient) {
       appActiveRef.current = true
+      setAppIsActive(true)
       void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
         onActive(isActive)
       }).then(handle => {
@@ -564,6 +626,7 @@ export function App() {
     } else if (usesDocumentVisibility(nativeClient)) {
       document.addEventListener('visibilitychange', onVisibilityChange)
       appActiveRef.current = document.visibilityState !== 'hidden'
+      setAppIsActive(appActiveRef.current)
     }
 
     return () => {
@@ -576,18 +639,114 @@ export function App() {
     // Lifecycle callbacks operate entirely on current-value refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nativeClient])
-  useLayoutEffect(() => {
+  const pinTranscriptNow = useCallback(() => {
     const node = transcriptRef.current
     if (!node || !transcriptFollowRef.current) return
-    node.scrollTop = node.scrollHeight
-  }, [transcript])
+    if (Date.now() < transcriptManualScrollUntilRef.current) return
+    transcriptLastScrollTopRef.current = pinTranscriptToBottom(node)
+  }, [])
+  const scheduleTranscriptPin = useCallback(() => {
+    if (transcriptPinFrameRef.current !== null) return
+    transcriptPinFrameRef.current = window.requestAnimationFrame(() => {
+      transcriptPinFrameRef.current = null
+      pinTranscriptNow()
+    })
+  }, [pinTranscriptNow])
+  const scheduleTranscriptPinRecovery = useCallback(() => {
+    if (transcriptPinRecoveryRef.current !== null) {
+      window.clearTimeout(transcriptPinRecoveryRef.current)
+    }
+    const delay = Math.max(
+      16,
+      transcriptManualScrollUntilRef.current - Date.now() + 16,
+    )
+    transcriptPinRecoveryRef.current = window.setTimeout(() => {
+      transcriptPinRecoveryRef.current = null
+      scheduleTranscriptPin()
+    }, delay)
+  }, [scheduleTranscriptPin])
+  const markTranscriptManualScroll = useCallback(() => {
+    transcriptManualScrollUntilRef.current = Date.now() + 350
+    if (transcriptPinFrameRef.current !== null) {
+      window.cancelAnimationFrame(transcriptPinFrameRef.current)
+      transcriptPinFrameRef.current = null
+    }
+    scheduleTranscriptPinRecovery()
+  }, [scheduleTranscriptPinRecovery])
+  useLayoutEffect(() => {
+    scheduleTranscriptPin()
+  }, [scheduleTranscriptPin, transcript])
+  useEffect(() => {
+    const node = transcriptRef.current
+    if (!node) return
+
+    const observedChildren = new Set<Element>()
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => scheduleTranscriptPin())
+    const syncObservedChildren = () => {
+      if (!resizeObserver) return
+      for (const child of observedChildren) {
+        if (child.parentElement !== node) {
+          resizeObserver.unobserve(child)
+          observedChildren.delete(child)
+        }
+      }
+      for (const child of Array.from(node.children)) {
+        if (observedChildren.has(child)) continue
+        observedChildren.add(child)
+        resizeObserver.observe(child)
+      }
+    }
+
+    resizeObserver?.observe(node)
+    syncObservedChildren()
+    const mutationObserver =
+      typeof MutationObserver === 'undefined'
+        ? null
+        : new MutationObserver(() => {
+            syncObservedChildren()
+            scheduleTranscriptPin()
+          })
+    mutationObserver?.observe(node, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    })
+
+    return () => {
+      mutationObserver?.disconnect()
+      resizeObserver?.disconnect()
+      if (transcriptPinFrameRef.current !== null) {
+        window.cancelAnimationFrame(transcriptPinFrameRef.current)
+        transcriptPinFrameRef.current = null
+      }
+      if (transcriptPinRecoveryRef.current !== null) {
+        window.clearTimeout(transcriptPinRecoveryRef.current)
+        transcriptPinRecoveryRef.current = null
+      }
+    }
+  }, [scheduleTranscriptPin])
   const handleTranscriptScroll = useCallback(() => {
     const node = transcriptRef.current
     if (!node) return
-    const distanceFromBottom =
-      node.scrollHeight - node.clientHeight - node.scrollTop
-    transcriptFollowRef.current = distanceFromBottom <= 48
-  }, [])
+    const manualScroll =
+      Date.now() <= transcriptManualScrollUntilRef.current
+    transcriptFollowRef.current = shouldFollowTranscriptAfterScroll({
+      clientHeight: node.clientHeight,
+      manualScroll,
+      previousScrollTop: transcriptLastScrollTopRef.current,
+      scrollHeight: node.scrollHeight,
+      scrollTop: node.scrollTop,
+      wasFollowing: transcriptFollowRef.current,
+    })
+    transcriptLastScrollTopRef.current = node.scrollTop
+    if (manualScroll) {
+      transcriptManualScrollUntilRef.current = Date.now() + 350
+      scheduleTranscriptPinRecovery()
+    }
+  }, [scheduleTranscriptPinRecovery])
   useEffect(() => {
     const node = composerInputRef.current
     if (!node) return
@@ -867,38 +1026,39 @@ export function App() {
     profile = connection.profile,
   ): Promise<void> {
     if (!transport) return
-    const projectRequest =
-      profile === 'default'
-        ? transport.gateway
-            .request<ProjectsTreeResult>('projects.tree', {
-              preview_limit: 3,
-              session_limit: 2000,
-            })
-            .catch(() => null)
-        : Promise.resolve(null)
-    const [result, projectResult] = await Promise.all([
-      transport.gateway.request<SessionListResult>('session.list', {
+    const result = await transport.gateway.request<SessionListResult>(
+      'session.list',
+      {
         profile: profile === 'default' ? '' : profile,
         limit: 100,
-      }),
-      projectRequest,
-    ])
+      },
+    )
+    if (transportRef.current !== transport) return
     setSessions(result.sessions ?? [])
-    setProjects(projectResult?.projects ?? [])
-    if (!projectResult || !activeProjectId) {
-      if (!projectResult) {
-        setActiveProjectId('')
-        setProjectDetail(null)
-      }
+    if (profile !== 'default') {
+      setProjects([])
+      setActiveProjectId('')
+      setProjectDetail(null)
       return
     }
-    const detail = await transport.gateway
-      .request<ProjectSessionsResult>('projects.project_sessions', {
-        project_id: activeProjectId,
-        session_limit: 5000,
+
+    const projectId = activeProjectId
+    void transport.gateway
+      .request<ProjectsTreeResult>('projects.tree', {
+        preview_limit: 0,
+        session_limit: 2000,
       })
-      .catch(() => null)
-    setProjectDetail(detail?.project ?? null)
+      .then(projectResult => {
+        if (transportRef.current !== transport) return
+        setProjects(projectResult.projects ?? [])
+        if (projectId) void selectProject(projectId, transport)
+      })
+      .catch(() => {
+        if (transportRef.current !== transport) return
+        setProjects([])
+        setActiveProjectId('')
+        setProjectDetail(null)
+      })
   }
 
   async function refreshToolDetailMode(
@@ -912,11 +1072,15 @@ export function App() {
     setToolDetailMode(normalizeToolDetailMode(result.value))
   }
 
-  async function selectProject(projectId: string): Promise<void> {
+  async function selectProject(
+    projectId: string,
+    selectedTransport = transportRef.current,
+  ): Promise<void> {
+    const selectionEpoch = ++projectSelectionEpochRef.current
     setActiveProjectId(projectId)
     setProjectDetail(null)
     if (!projectId) return
-    const transport = transportRef.current
+    const transport = selectedTransport
     if (!transport) return
     setProjectLoading(true)
     try {
@@ -927,15 +1091,29 @@ export function App() {
           session_limit: 5000,
         },
       )
+      if (
+        projectSelectionEpochRef.current !== selectionEpoch ||
+        transportRef.current !== transport
+      ) {
+        return
+      }
       setProjectDetail(result.project ?? null)
     } catch (projectError) {
+      if (
+        projectSelectionEpochRef.current !== selectionEpoch ||
+        transportRef.current !== transport
+      ) {
+        return
+      }
       setError(
         projectError instanceof Error
           ? projectError.message
           : String(projectError),
       )
     } finally {
-      setProjectLoading(false)
+      if (projectSelectionEpochRef.current === selectionEpoch) {
+        setProjectLoading(false)
+      }
     }
   }
 
@@ -1074,6 +1252,8 @@ export function App() {
   }
 
   function prepareConnectionView(nextConnection: BrowserConnection) {
+    sessionSelectionEpochRef.current += 1
+    projectSelectionEpochRef.current += 1
     disconnect()
     transcriptFollowRef.current = true
     connectionRef.current = nextConnection
@@ -1093,6 +1273,7 @@ export function App() {
     setProjectDetail(null)
     hostSkinRef.current = null
     setCapabilities(null)
+    setBusy(false)
   }
 
   function newDirectConnection() {
@@ -1193,7 +1374,19 @@ export function App() {
   async function selectSession(session: SessionSummary): Promise<string> {
     const transport = transportRef.current
     if (!transport) throw new Error('Connect to Hermes first')
+    const selectionEpoch = ++sessionSelectionEpochRef.current
+    const connectionId = connectionRef.current.id
+    const selectionIsCurrent = () =>
+      sessionSelectionEpochRef.current === selectionEpoch &&
+      transportRef.current === transport &&
+      connectionRef.current.id === connectionId
     const previousStoredId = selectedStoredIdRef.current
+    cacheTranscript(
+      transcriptCacheRef.current,
+      connection.id,
+      previousStoredId,
+      transcript,
+    )
     setBusy(true)
     setError('')
     transcriptFollowRef.current = true
@@ -1206,6 +1399,7 @@ export function App() {
           cols: 100,
         },
       )
+      if (!selectionIsCurrent()) return ''
       const storedId = resumed.stored_session_id || session.id
       selectedStoredIdRef.current = storedId
       runtimeSessionIdRef.current = resumed.session_id
@@ -1222,18 +1416,33 @@ export function App() {
         const history = await transport.gateway.request<{
           messages?: unknown[]
         }>('session.history', { session_id: resumed.session_id })
+        if (!selectionIsCurrent()) return ''
         messages = history.messages ?? messages
       } catch {
         // session.resume already returns a compatible history projection.
       }
-      setTranscript(current =>
-        previousStoredId && previousStoredId === storedId
+      if (!selectionIsCurrent()) return ''
+      const cached =
+        readCachedTranscript(
+          transcriptCacheRef.current,
+          connection.id,
+          storedId,
+        ) ??
+        readCachedTranscript(
+          transcriptCacheRef.current,
+          connection.id,
+          session.id,
+        )
+      setTranscript(current => {
+        if (cached) return mergeResumedTranscript(cached, messages)
+        return previousStoredId && previousStoredId === storedId
           ? mergeResumedTranscript(current, messages)
-          : historyToTranscript(messages),
-      )
+          : historyToTranscript(messages)
+      })
       setActiveTab('chat')
       return resumed.session_id
     } catch (resumeError) {
+      if (!selectionIsCurrent()) return ''
       setError(
         resumeError instanceof Error
           ? resumeError.message
@@ -1241,7 +1450,7 @@ export function App() {
       )
       throw resumeError
     } finally {
-      setBusy(false)
+      if (selectionIsCurrent()) setBusy(false)
     }
   }
 
@@ -1523,6 +1732,7 @@ export function App() {
   }
 
   function startDraft() {
+    sessionSelectionEpochRef.current += 1
     stopPlayback()
     transcriptFollowRef.current = true
     selectedStoredIdRef.current = ''
@@ -1530,6 +1740,7 @@ export function App() {
     setSelectedStoredId('')
     setRuntimeSessionId('')
     setTurnActive(false)
+    setBusy(false)
     setSessionCwd('')
     setTranscript([])
     setError('')
@@ -1541,6 +1752,11 @@ export function App() {
     autoSpeakRef.current = enabled
     persistAutoSpeak(connection.id, enabled)
     if (!enabled) stopPlayback()
+  }
+
+  function changeWakeWord(enabled: boolean) {
+    setWakeWordEnabled(enabled)
+    persistWakeWordEnabled(connection.id, enabled)
   }
 
   function changeVoiceSelection(selection: VoiceSelection) {
@@ -1658,6 +1874,9 @@ export function App() {
           throw new Error('The selected session is no longer available')
         }
         sessionId = await selectSession(session)
+        if (!sessionId) {
+          throw new Error('Session selection was superseded')
+        }
       }
 
       if (
@@ -1758,12 +1977,23 @@ export function App() {
                 </p>
                 <h1>{activeSession?.title || 'New conversation'}</h1>
               </div>
-              {runtimeSessionId && (
-                <button className="stop-button" onClick={() => void stop()}>
-                  <span className="stop-square" />
-                  Stop
+              <div className="thread-actions">
+                <button
+                  className="thread-new-button quiet-button"
+                  disabled={!connected || busy || turnActive}
+                  onClick={startDraft}
+                  type="button"
+                >
+                  <span aria-hidden="true">＋</span>
+                  New
                 </button>
-              )}
+                {runtimeSessionId && (
+                  <button className="stop-button" onClick={() => void stop()}>
+                    <span className="stop-square" />
+                    Stop
+                  </button>
+                )}
+              </div>
             </div>
             <button
               className="session-workspace-button"
@@ -1781,7 +2011,10 @@ export function App() {
               className="transcript"
               aria-live="polite"
               ref={transcriptRef}
+              onPointerDown={markTranscriptManualScroll}
               onScroll={handleTranscriptScroll}
+              onTouchMove={markTranscriptManualScroll}
+              onWheel={markTranscriptManualScroll}
             >
               <Transcript
                 activeSpeechId={activeSpeechId}
@@ -1839,7 +2072,7 @@ export function App() {
                     voicePhase === 'recording' ? 'recording' : ''
                   }`}
                   disabled={
-                    !connected || !['idle', 'recording'].includes(voicePhase)
+                    !connected || !voiceRecordingAvailable
                   }
                   type="button"
                   onClick={toggleRecording}
@@ -1885,6 +2118,8 @@ export function App() {
                     ? 'Recording, tap stop to transcribe'
                     : voicePhase === 'transcribing'
                       ? 'Hermes is transcribing'
+                      : playbackPaused && activeSpeechId === 'reader'
+                        ? 'Reader paused, microphone remains available'
                       : voicePhase === 'synthesizing'
                         ? 'Hermes is preparing reply audio'
                         : voicePhase === 'speaking'
@@ -1937,15 +2172,20 @@ export function App() {
             }`}
           >
             <ReaderView
+              key={connection.id}
               active={activeTab === 'reader'}
+              activeSpeechId={activeSpeechId}
               connected={connected}
               connectionId={connection.id}
               latestText={latestAssistantText}
               normalVoice={voiceSelection}
               phase={voicePhase}
+              playbackPaused={playbackPaused}
               transport={transportRef.current}
               importedDocument={readerImport}
               onRender={renderSequence}
+              onPause={pausePlayback}
+              onResume={resumePlayback}
               onSpeak={speakSequence}
               onStop={stopPlayback}
             />
@@ -1957,6 +2197,7 @@ export function App() {
             }`}
           >
             <FilesView
+              key={connection.id}
               connected={connected}
               connectionId={connection.id}
               initialPath={
@@ -2002,6 +2243,9 @@ export function App() {
               activeSkinName={activeSkinName}
               themeSelection={themeSelection}
               autoSpeak={autoSpeak}
+              wakeWordAvailable={nativeClient}
+              wakeWordEnabled={wakeWordEnabled}
+              wakeWordStatus={wakeWordStatus}
               transport={transportRef.current}
               voiceSelection={voiceSelection}
               voicePhase={voicePhase}
@@ -2021,6 +2265,7 @@ export function App() {
                 onTest: pet.generateCommentary,
               }}
               onAutoSpeakChange={changeAutoSpeak}
+              onWakeWordChange={changeWakeWord}
               onThemeSelectionChange={changeThemeSelection}
               onNotice={setNotice}
               onOpenWorkspace={() => setWorkspaceOpen(true)}
@@ -2157,6 +2402,7 @@ export function App() {
           petSidechatTranscriptRef.current = target
         }}
         voicePhase={voicePhase}
+        voiceRecordingAvailable={voiceRecordingAvailable}
       />
     </EmbedPreferencesProvider>
   )

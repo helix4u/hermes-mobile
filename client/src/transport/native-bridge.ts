@@ -83,6 +83,18 @@ export interface WirelessDebuggingSettingsResult {
   destination: 'wireless-debugging' | 'developer-options' | 'settings'
 }
 
+export interface WakeWordDetectedEvent {
+  phrase: string
+  sessionId: string
+  transcript: string
+}
+
+export interface WakeWordStateEvent {
+  error?: string
+  sessionId: string
+  state: 'error' | 'listening' | 'stopped' | 'unsupported'
+}
+
 interface HermesNativePlugin {
   setCredential(options: { connectionId: string; token: string }): Promise<void>
   hasCredential(options: {
@@ -166,6 +178,12 @@ interface HermesNativePlugin {
   }>
   getMobileCompanionStatus(): Promise<MobileCompanionStatus>
   openWirelessDebuggingSettings(): Promise<WirelessDebuggingSettingsResult>
+  openExternalUrl(options: { url: string }): Promise<{ opened: boolean }>
+  startWakeWord(options: {
+    phrase: string
+    sessionId: string
+  }): Promise<{ state: 'listening' | 'unsupported'; supported: boolean }>
+  stopWakeWord(options: { sessionId: string }): Promise<void>
   addListener(
     eventName: 'socketMessage',
     listener: (event: NativeSocketMessage) => void,
@@ -177,6 +195,14 @@ interface HermesNativePlugin {
   addListener(
     eventName: 'shareReceived',
     listener: (event: SharedContent) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(
+    eventName: 'wakeWordDetected',
+    listener: (event: WakeWordDetectedEvent) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(
+    eventName: 'wakeWordState',
+    listener: (event: WakeWordStateEvent) => void,
   ): Promise<PluginListenerHandle>
 }
 

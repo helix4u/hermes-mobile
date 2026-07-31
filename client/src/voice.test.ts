@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { GatewayEvent } from './protocol/types'
 import {
   applySpeechPlaybackRate,
+  canToggleVoiceRecording,
   createSerialSpeechTaskQueue,
   completedAssistantText,
   maintainSpeechPlaybackRate,
@@ -12,11 +13,20 @@ import {
   speechItemForInteractivePlayback,
   speechPlaybackRate,
   splitSpeechText,
+  splitSpeechTextForStartup,
   synthesizeSpeechItem,
   voicePreferenceKey,
 } from './voice'
 
 describe('voice helpers', () => {
+  test('keeps microphone capture available while Reader playback is active', () => {
+    expect(canToggleVoiceRecording('speaking', 'reader')).toBe(true)
+    expect(canToggleVoiceRecording('synthesizing', 'reader')).toBe(true)
+    expect(canToggleVoiceRecording('speaking', 'assistant-message')).toBe(false)
+    expect(canToggleVoiceRecording('transcribing', 'reader', true)).toBe(false)
+    expect(canToggleVoiceRecording('recording', 'reader', true)).toBe(true)
+  })
+
   test('extracts only completed assistant text', () => {
     expect(
       completedAssistantText({
@@ -48,6 +58,17 @@ describe('voice helpers', () => {
     const chunks = splitSpeechText(text, 420)
     expect(chunks.length).toBeGreaterThan(2)
     expect(chunks.every(chunk => chunk.length <= 420)).toBe(true)
+    expect(chunks.join(' ').replace(/\s+/g, ' ').trim()).toBe(
+      text.replace(/\s+/g, ' ').trim(),
+    )
+  })
+
+  test('uses a short first segment and retains provider-safe later chunks', () => {
+    const text = `${'Quick opening sentence. '.repeat(30)}${'word '.repeat(600)}`
+    const chunks = splitSpeechTextForStartup(text, 260)
+    expect(chunks.length).toBeGreaterThan(2)
+    expect(chunks[0].length).toBeLessThanOrEqual(260)
+    expect(chunks.slice(1).every(chunk => chunk.length <= 1_800)).toBe(true)
     expect(chunks.join(' ').replace(/\s+/g, ' ').trim()).toBe(
       text.replace(/\s+/g, ' ').trim(),
     )
@@ -146,9 +167,38 @@ describe('voice helpers', () => {
     audio.playbackRate = 1
     listeners.get('playing')?.()
     expect(audio.playbackRate).toBe(1.5)
+    audio.playbackRate = 1
+    listeners.get('ratechange')?.()
+    expect(audio.playbackRate).toBe(1.5)
+    audio.playbackRate = 1
+    listeners.get('timeupdate')?.()
+    expect(audio.playbackRate).toBe(1.5)
 
     release()
     expect(listeners.size).toBe(0)
+  })
+
+  test('reasserts Android playback speed between media events', () => {
+    vi.useFakeTimers()
+    const audio = {
+      defaultPlaybackRate: 1,
+      playbackRate: 1,
+      preservesPitch: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }
+    const release = maintainSpeechPlaybackRate(
+      audio as unknown as HTMLAudioElement,
+      1.5,
+    )
+    audio.playbackRate = 1
+    vi.advanceTimersByTime(250)
+    expect(audio.playbackRate).toBe(1.5)
+    release()
+    audio.playbackRate = 1
+    vi.advanceTimersByTime(500)
+    expect(audio.playbackRate).toBe(1)
+    vi.useRealTimers()
   })
 
   test('buffers synthesis ahead while preserving playback order', async () => {
@@ -187,6 +237,43 @@ describe('voice helpers', () => {
     gates[3].resolve('three')
     await expect(playback).resolves.toBe(true)
     expect(plays).toEqual([0, 1, 2, 3])
+  })
+
+  test('synthesizes only the startup segment before adaptive lookahead begins', async () => {
+    function deferred<T>() {
+      let resolve!: (value: T) => void
+      const promise = new Promise<T>(done => {
+        resolve = done
+      })
+      return { promise, resolve }
+    }
+    const items = ['startup', 'next', 'later', 'last'].map(id => ({
+      id,
+      text: id,
+    }))
+    const gates = items.map(() => deferred<string>())
+    const starts: number[] = []
+    const playback = runBufferedSpeechQueue(items, {
+      bufferAhead: 0,
+      initialBufferAhead: 0,
+      bufferAheadFor: () => 2,
+      synthesize: async (_item, index) => {
+        starts.push(index)
+        return gates[index].promise
+      },
+      play: async () => {},
+    })
+
+    await Promise.resolve()
+    expect(starts).toEqual([0])
+    gates[0].resolve('startup')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(starts).toEqual([0, 1, 2])
+    gates[1].resolve('next')
+    gates[2].resolve('later')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    gates[3].resolve('last')
+    await expect(playback).resolves.toBe(true)
   })
 
   test('queues separate speech requests without interrupting active playback', async () => {

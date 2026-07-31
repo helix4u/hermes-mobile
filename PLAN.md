@@ -502,6 +502,14 @@ Acceptance:
 - [x] Buffer normal long-form Listen and auto-speak chunks with the same
       lookahead queue used by Reader so the next chunk synthesizes while the
       current chunk plays.
+- [x] Keep the selected interactive playback speed enforced across Android
+      metadata, readiness, playback, rate-change, and time-update events, with
+      a bounded watchdog for WebView resets between events.
+- [x] Start ordinary Listen, auto-speak, and pet speech with one short segment,
+      then choose subsequent lookahead from connection-scoped per-provider
+      synthesis and audio-duration averages. Persist only numeric timing
+      aggregates, never speech text, and leave Reader's explicit buffer setting
+      authoritative.
 - [x] Reconcile `message.interim` with `message.complete` by sealing streamed
       interim rows and settling matching, prefix-continuing, or explicitly
       previewed finals in place, while retaining genuinely distinct pre-tool
@@ -1027,6 +1035,12 @@ Phase 4, assistant and accessibility:
       connection.
 - [ ] Evaluate a lightweight `VoiceInteractionService` only after ACTION_ASSIST
       is reliable and keep it isolated from the heavy WebView process.
+- [ ] Design an opt-in Hermes Android keyboard/IME companion after the current
+      Mobile queue. Cover local STT dictation, selected-text rewrite or send,
+      and an explicit prompt-plus-screen-capture handoff to a chosen Hermes
+      connection/session. Keep screenshots user-triggered through Android's
+      consented capture/share surfaces, keep credentials in the native bridge,
+      and do not make the keyboard an ambient accessibility observer.
 - [ ] Add AccessibilityService or MediaProjection only for a concrete
       user-triggered assistive workflow with separate Android consent, visible
       active state, bounded capture, and no ambient window observation.
@@ -1076,6 +1090,92 @@ Acceptance:
       badges, stale-map visibility, editing, probe, history, and refresh.
 - [ ] Add focused privacy, concurrency, revision, lineage, deterministic
       projection, cache-replay, and cross-connection isolation tests.
+
+### Milestone 5N: Mobile provider onboarding and wake word
+
+Current milestone: implementation and Android build complete, physical-device
+acceptance pending
+
+Acceptance:
+
+- [x] Stop Mobile multivoice Reader playback and podcast export before
+      Primary sources, Sources, References, or Show Notes appendices, matching
+      the Desktop Reader parser.
+- [x] Add a collapsed provider-setup surface that loads the host's redacted,
+      profile-scoped credential catalog and supports save, replace, and remove
+      through the authenticated Hermes API.
+- [x] Add capability-driven OAuth account setup for PKCE, device-code, and
+      external Hermes CLI flows, including polling, cancellation, disconnect,
+      and graceful handling of older hosts without provider-setup routes.
+- [x] Keep entered API credentials only in ephemeral component memory. Never
+      persist provider secrets, OAuth codes, or account tokens in Mobile
+      storage.
+- [x] Add a connection-scoped, off-by-default Listen for “Hey Hermes” toggle
+      to Mobile Voice settings.
+- [x] Use Android's on-device recognizer only while Mobile is foregrounded,
+      connected, enabled, and otherwise voice-idle. Release it before normal
+      microphone recording and never send ambient wake-word audio to Hermes.
+- [x] Add native session identities, stale-callback filtering, bounded
+      recognizer restart, app/voice lifecycle pause, and unsupported-device
+      status.
+- [x] Pass focused and complete Mobile tests, TypeScript typecheck, Vite
+      production build, Capacitor sync, Android Java compilation, and forced
+      Android debug assembly.
+- [ ] Install the replacement APK and accept wake detection, foreground pause,
+      microphone handoff, Reader appendix omission, and provider setup on the
+      physical Android device.
+
+### Milestone 5O: Mobile state continuity and Android handoffs
+
+Current milestone: state-continuity, Reader/STT, and session-navigation slice
+complete; remaining Android handoffs pending
+
+Acceptance:
+
+- [x] Persist the enabled multivoice Reader provider set by saved connection,
+      load it before voice assignment reconciliation, and wait for a confirmed
+      host catalog before removing unavailable providers.
+- [x] Remount Reader and Files state at the saved-connection boundary so one
+      host cannot overwrite another host's draft, assignments, provider set,
+      buffering, path, or preview state.
+- [x] Keep an already-open Files document and its unsaved editor content
+      visible through transient disconnect and reconnect refreshes.
+- [x] Keep a bounded in-memory rich transcript cache by connection and durable
+      session, then merge its live tool arguments and results over thin
+      `session.history` rows after navigating away and back.
+- [x] Deduplicate compacted/reprojected durable pet commentary by its stable
+      event ID while retaining the latest projected presentation.
+- [x] Supersede stale asynchronous session resumes when the user chooses
+      another session, starts a new conversation, or switches connections.
+- [x] Replace the eager horizontal project/session strip with a vertical,
+      expandable project, cwd, and source browser. Load project detail only
+      when its branch opens, render session rows only after their folder opens,
+      and keep compression continuations hidden by default with an explicit
+      reveal control.
+- [x] Keep normal and pet-sidechat microphone input available while Reader
+      audio is active. Pause the Reader queue for capture instead of clearing
+      it, then leave it explicitly resumable after transcription.
+- [x] Keep a compact Play, Pause, and Stop dock visible on the Reader surface,
+      including while the user scrolls the script or file-preview workspace.
+- [x] Put an explicit New conversation action in the Chat heading and route it
+      through the existing stale-resume-safe draft reset.
+- [x] Keep transcript follow ownership stable during streaming: only a real
+      upward user gesture releases follow, content and viewport growth cannot
+      impersonate a scroll, nested row resizing is observed, and automatic
+      bottom corrections pause while the finger owns the viewport.
+- [ ] Add Android `ACTION_VIEW` handling for Markdown documents and import
+      them into the existing Reader Preview/Edit surface.
+- [ ] Add Android system-document upload from Files through the authenticated
+      remote-safe upload route with bounded native streaming and no JavaScript
+      credential exposure.
+- [ ] Add a guarded Force refresh package action for an already-installed
+      Mobile server plugin, retaining locked-root verification and the
+      restart-required boundary.
+- [ ] Add a plugin CLI plus skill request that lets Hermes ask Mobile to show
+      an in-app Wireless debugging confirmation and open Android's settings
+      only after the phone user accepts.
+- [x] Pass the complete Mobile suite, typecheck, production build, Capacitor
+      sync, Android Java compilation, and forced debug APK assembly.
 
 ### Milestone 6: Profiles, projects, and recoverable attention
 
@@ -1178,6 +1278,132 @@ integration tests, not by optimistic version ranges.
    fallback handling.
 
 ## Current Next Action
+
+Validate and package the latest Milestone 5O speech and navigation slice. The
+Reader queue now has a true pause/resume state, microphone capture can suspend
+Reader playback without discarding its buffered work, and Reader keeps an
+on-screen Play/Pause/Stop dock. Chat has a direct New action. Sessions now uses
+a vertical accordion of Recent and project branches, with cwd/source folders
+that render their session rows only when expanded.
+
+The earlier state-continuity work remains intact. The current
+tree persists enabled Reader providers by connection before reconciling stored
+speaker assignments, preserves open Files documents through reconnects, keeps
+rich tool payloads available when navigating away and back, deduplicates
+replayed pet commentary, and prevents stale session resumes from replacing a
+newer selection. Recent sessions now load without waiting for the project tree;
+project detail remains lazy and explicitly labelled compacted segments stay
+hidden unless the user reveals them.
+
+After the build, continue the unchecked Android handoff work in this order:
+Markdown `ACTION_VIEW` import, system file upload, guarded installed-plugin
+refresh, then the agent-requested Wireless debugging confirmation/skill bridge.
+The Android keyboard/IME, STT passthrough, selected-text actions, and explicit
+screen-capture prompt handoff are recorded later under the assistant and
+accessibility phase and do not displace this queue.
+
+Milestone 5O Reader/STT, navigation, and transcript-follow validation is
+complete. The focused scroll/transcript suite passed 4 files and 45 tests. The
+full Mobile suite passed 51 files and 227 tests. TypeScript typecheck, Vite
+production build, Capacitor Android sync, Android Java compilation, forced
+debug assembly with Android Studio JDK 21, and `git diff --check` passed. The
+built bundle no longer contains the old horizontal `project-tabs` selector. A
+real 360 by 800 Chrome probe grew the live transcript through twelve delayed
+render steps with monotonic bottom pinning, held the exact manual scroll
+position through a later 520-pixel row resize, and returned to zero bottom
+distance after the user resumed follow.
+
+Latest state-continuity debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,099,230` bytes
+
+SHA-256:
+`AB9AF893E2E7352F1CD04881EE4ECAEB01600D396B835CE666030EA5B15FD9DC`
+
+This transcript-follow replacement APK is installed in place on the explicitly
+selected Samsung SM-S918U through `100.112.167.36:37751`. Android reports
+package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+`lastUpdateTime=2026-07-30 23:33:59`. The installation used `adb install -r`,
+so saved connections, app data, and Android Keystore state were preserved. No
+phone screen or application content was opened or inspected.
+
+The next implementation slice remains Markdown `ACTION_VIEW`, authenticated
+Android system-file upload, guarded installed-plugin refresh, and the
+user-confirmed Wireless debugging request bridge.
+
+The Mobile provider-onboarding and wake-word build is ready for physical
+acceptance. Reader now stops before the same source appendix headings as
+Desktop, so source lists are excluded from ordinary playback and complete
+podcast export. Control now has one collapsed Providers section for redacted
+host API credentials and supported OAuth account flows. Entered secrets remain
+ephemeral in the WebView and are written only through the active authenticated,
+profile-scoped Hermes API.
+
+Voice now has an off-by-default, connection-scoped Listen for “Hey Hermes”
+toggle. Android uses only its on-device speech recognizer, listens only while
+the app is foregrounded, connected, and voice-idle, and releases the recognizer
+before starting normal microphone capture. Backgrounding, disconnecting,
+speaking, recording, or transcribing pauses listening without clearing the
+saved toggle.
+
+The complete Mobile suite passed 48 files and 212 tests. TypeScript typecheck,
+Vite production build, Capacitor sync, Android Java compilation, forced Android
+debug assembly, and `git diff --check` passed.
+
+Latest provider, Reader-source, and wake-word debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,095,938` bytes
+
+SHA-256:
+`EC927587B497CD6E638F368CF4C857A7A5F1D37DDB8C5DFA0FE751C662D91B2E`
+
+Physical acceptance should enable Listen for “Hey Hermes” on one connected
+host, say the phrase while Chat is idle, and confirm Mobile enters ordinary
+microphone recording once. Confirm listening pauses during reply audio,
+recording, app backgrounding, and disconnection, then resumes when the same
+connection returns to a foreground idle state. Also verify one Reader script
+with a source appendix and one API-key or OAuth provider flow supported by the
+active host.
+
+The Mobile interactive-speech follow-up is implemented, validated, and
+installed. Android playback now reasserts the selected 0.70x through 1.50x
+rate across the complete media lifecycle and every 250 ms while audio remains
+active, covering WebView resets that previously made 1.50x sound like 1.00x.
+
+Ordinary Listen, auto-speak, and pet speech now synthesize one short startup
+segment first, begin playback as soon as it is ready, and launch later chunks
+behind it. The startup size and lookahead learn from rolling synthesis and raw
+audio-duration averages for the actual provider, scoped to the saved
+connection. The local history contains only provider names, numeric samples,
+and timestamps. Reader continues to obey its explicit 0 through 6 buffer
+selection.
+
+The complete Mobile suite passed 46 files and 203 tests. TypeScript typecheck,
+Vite production build, Capacitor sync, and forced Android debug assembly with
+Android Studio JDK 21 passed. The replacement APK was installed in place on the
+authorized Samsung SM-S918U through `100.112.167.36:45149`; Android reports
+`lastUpdateTime=2026-07-30 21:17:07`. `adb install -r` preserved app data,
+saved connections, and Android Keystore state. No phone screen or application
+content was opened or inspected.
+
+Latest adaptive-TTS replacement debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `6,087,042` bytes
+
+SHA-256:
+`F0920B089B50A206081A18CA147B5701DD3054C58A4EBB4893B3968F116D13F5`
+
+Physical acceptance is to compare 0.70x, 1.00x, and 1.50x on an ordinary
+assistant Listen action, auto-speak, and pet speech, then play a long response
+twice. The first run should begin from the short startup segment; later runs
+should use the learned provider timing without interrupting current audio or
+overriding Reader's selected buffer depth.
 
 The 2026-07-30 Nous-main reconciliation is complete. The Windows/AppData
 Hermes checkout is pinned to upstream Nous `main` at

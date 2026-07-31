@@ -36,6 +36,9 @@ export interface SessionSummary {
   cwd?: string | null
   git_branch?: string | null
   git_repo_root?: string | null
+  parent_session_id?: string | null
+  end_reason?: string | null
+  compacted?: boolean
 }
 
 export interface SessionListResult {

@@ -2,11 +2,160 @@
 
 Last updated: 2026-07-30
 
-Current milestone: Milestone 5L Mobile Companion device foundation implemented,
-built, installed, and physically accepted
+Current milestone: Mobile state continuity, Reader/STT controls, and vertical
+session browsing implemented and packaged; physical Android acceptance pending
 
 Current state:
 
+- Reader playback now has an independent paused state. Starting ordinary Chat
+  or pet-sidechat STT while Reader is speaking pauses the current audio without
+  incrementing the speech generation or clearing buffered Reader chunks.
+  Transcription leaves that queue paused and explicitly resumable.
+- Reader has a sticky, always-visible playback dock with Play/Resume, Pause,
+  Stop, and a concise ready/preparing/playing/paused state. Reader activity is
+  keyed to the `reader` speech identity, so assistant or pet audio no longer
+  makes Reader look active.
+- Chat now exposes New directly in its heading. It uses the existing draft
+  reset and session-selection epoch, and stays disabled while a turn is
+  actively running so a live request is not silently orphaned.
+- Sessions now presents Recent and project roots as a vertical expandable
+  browser. Recent sessions are grouped by cwd or source, project detail stays
+  lazy, cwd folders expand independently, and session rows are not mounted
+  until their folder opens. The compacted-session reveal remains intact.
+- Transcript follow no longer treats a large streaming layout change as an
+  upward user scroll. Content growth, tool and Markdown resizing, attachment
+  sizing, composer changes, and keyboard viewport changes retain follow mode.
+- A real upward finger, pointer, or wheel gesture releases follow. Automatic
+  corrections pause while the gesture owns the viewport, coalesce to one
+  animation frame, and resume only after the user returns near the bottom or a
+  new-send path explicitly restores follow.
+- Resize and mutation observation covers delayed nested row changes that are
+  not accompanied by a transcript-array update, eliminating the later
+  partial rollback after Markdown, media, or expanded tools finish sizing.
+- A real 360 by 800 Chrome probe appended twelve differently sized streaming
+  rows and kept every scroll sample monotonic and exactly pinned. A synthetic
+  touch-owned upward scroll then stayed at the same offset through a delayed
+  520-pixel row resize, and returning near the bottom restored follow with zero
+  residual distance.
+- Focused voice, Reader, session-browser, pet-sidechat, and session-projection
+  tests pass 5 files and 27 tests.
+- Focused transcript-follow and transcript rendering tests pass 4 files and 45
+  tests.
+- The full Mobile suite passes 51 files and 227 tests. TypeScript typecheck,
+  Vite production build, Capacitor Android sync, Android Java compilation,
+  forced debug assembly with Android Studio JDK 21, and `git diff --check`
+  pass. The built bundle contains the vertical session browser and no old
+  horizontal `project-tabs` selector.
+- Latest transcript-follow replacement APK size: 6,099,230 bytes. SHA-256:
+  `AB9AF893E2E7352F1CD04881EE4ECAEB01600D396B835CE666030EA5B15FD9DC`.
+- The replacement APK installed successfully in place on the explicitly
+  selected Samsung SM-S918U through `100.112.167.36:37751`. Android reports
+  package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 23:33:59`. The installation used
+  `adb install -r`, so saved connections, app data, and Android Keystore state
+  were preserved. No phone screen or application content was opened or
+  inspected.
+- Reader now persists the enabled provider set by saved connection in addition
+  to its existing script, speaker assignments, and buffer depth. Catalog
+  reconciliation waits until the active host has returned a confirmed catalog,
+  so disconnects and core-only Cloud hosts cannot erase a workstation's
+  multivoice choices.
+- Reader and Files remount at the saved-connection boundary. Their local
+  persistence cannot briefly write the previous host's state under a newly
+  selected host while React connection effects settle.
+- Files no longer clears an open document, rendered preview, or unsaved editor
+  buffer merely because the transport disconnects. Reconnect refreshes the
+  directory while preserving the current document; deliberate directory
+  navigation still closes the old preview.
+- Chat now keeps a bounded in-memory rich transcript cache keyed by connection
+  and durable session. Returning to a session merges live tool arguments,
+  output, progress, diffs, and findings over summary-only durable history
+  instead of replacing inspectable cards with thin rows.
+- Durable history hydration deduplicates pet commentary by stable event ID,
+  retaining the latest compacted projection without replaying the same Alien
+  Child line multiple times.
+- Session selection has an explicit supersession epoch. A late resume/history
+  request can no longer restore the old session after New conversation, a
+  different session choice, or a saved-connection switch.
+- Recent sessions now render before the heavier default-profile project tree.
+  Project details remain lazy, project results are connection/request guarded,
+  and explicitly host-labelled compacted segments are hidden by default with a
+  reveal control when present.
+- The later-work plan now includes an opt-in Android keyboard/IME companion for
+  local STT dictation, selected-text handoff, and explicit prompt-plus-screen
+  capture routing. It remains behind the current Mobile queue and cannot become
+  an ambient accessibility or capture surface.
+- Focused Reader, transcript, Files, and session tests pass 6 files and 49
+  tests. The complete Mobile suite passes 49 files and 217 tests. TypeScript
+  typecheck, Vite production build, Capacitor Android sync, Android Java
+  compilation, forced debug assembly with Android Studio JDK 21, and
+  `git diff --check` pass.
+- State-continuity APK size: 6,096,726 bytes. SHA-256:
+  `1C9842BC611F23C2938CD5A466801DA02CB28B81284F8ECFBB9BE61DBB878D9B`.
+- The replacement APK installed successfully in place on the explicitly
+  selected Samsung SM-S918U through `100.112.167.36:37751`. Android reports
+  package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 22:40:56`. `adb install -r` preserved saved
+  connections, app data, and Android Keystore state. No phone screen or
+  application content was opened or inspected.
+- Mobile Reader now stops parsing at Primary sources, Sources, References, or
+  Show Notes headings, matching Desktop. Those appendices are omitted from
+  normal multivoice playback and full Render & save output.
+- Control now has a collapsed Providers section backed by Hermes's
+  authenticated, profile-scoped `/api/env`, provider-validation, and OAuth
+  routes. It supports API credential save, replacement, removal, PKCE,
+  device-code polling, external CLI guidance, session cancellation, and
+  disconnect.
+- Provider credentials and returned OAuth codes remain only in ephemeral React
+  state. Mobile persists no API key, OAuth token, authorization code, or
+  provider account secret.
+- Voice now has an explicit Listen for “Hey Hermes” toggle. It is off by
+  default and saved separately for every connection.
+- Android wake-word listening uses `createOnDeviceSpeechRecognizer` and is
+  active only while Mobile is foregrounded, connected, enabled, and otherwise
+  voice-idle. Speaking, recording, transcribing, backgrounding, or
+  disconnecting pauses it. Normal microphone capture releases the wake
+  recognizer first.
+- Wake sessions carry unique identities through native events, ignore stale
+  callbacks after lifecycle changes, restart bounded recognizer failures, and
+  expose listening, paused, unavailable, and error states without sending
+  ambient audio to Hermes.
+- Focused Reader, provider, Control, and wake-word Vitest passed 4 files and 17
+  tests. The complete Mobile suite passed 48 files and 212 tests. TypeScript
+  typecheck, Vite production build, Capacitor sync, Android Java compilation,
+  and forced Android `assembleDebug --rerun-tasks` with Android Studio JDK 21
+  passed.
+- Provider, Reader-source, and wake-word APK size: 6,095,938 bytes. SHA-256:
+  `EC927587B497CD6E638F368CF4C857A7A5F1D37DDB8C5DFA0FE751C662D91B2E`.
+- The APK has not been installed in this pass. Physical acceptance remains
+  pending and no phone state was changed or inspected.
+- Mobile interactive playback now guards the selected 0.70x through 1.50x rate
+  across metadata, loaded-data, duration, readiness, playback, rate-change, and
+  time-update events. A 250 ms watchdog repairs Android WebView resets that can
+  occur between media events, and cleanup removes every listener and timer when
+  playback ends or is stopped.
+- Ordinary Listen, auto-speak, and pet speech now synthesize one short startup
+  segment before launching provider-specific lookahead behind its playback.
+  Reader's explicit connection-scoped 0 through 6 buffer choice retains its
+  existing eager behavior.
+- Startup size and lookahead use rolling per-provider synthesis and raw
+  audio-duration averages. The timing store is scoped by saved connection ID
+  and persists only provider names, numeric aggregates, sample counts, and
+  timestamps. It never stores spoken text, audio, paths, credentials, or host
+  configuration.
+- Focused speech-rate, startup-split, adaptive-queue, and timing-history
+  Vitest passed 2 files and 18 tests. The complete Mobile suite passed 46 files
+  and 203 tests. TypeScript typecheck, Vite production build, Capacitor sync,
+  and forced Android `assembleDebug --rerun-tasks` with Android Studio JDK 21
+  passed.
+- Adaptive-TTS APK size: 6,087,042 bytes. SHA-256:
+  `F0920B089B50A206081A18CA147B5701DD3054C58A4EBB4893B3968F116D13F5`.
+- The replacement APK installed successfully with `adb install -r` on the
+  explicitly authorized Samsung SM-S918U at `100.112.167.36:45149`. Android
+  reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 21:17:07`. Existing app data and Android Keystore
+  state were preserved; no phone screen or application content was opened or
+  inspected.
 - The 2026-07-30 reconciliation is pinned to Nous `main` at
   `cc4cab2f592e60a197e796506de9168f74baf3ea` (Hermes 0.19.1, release
   2026.7.30). The complete private-experiments and local layer is restored as
@@ -928,6 +1077,20 @@ Current state:
   passes on Windows with only the expected platform-specific skips.
 
 Next action:
+
+Install the provider, Reader-source, and wake-word APK when explicitly
+requested. On one connected Android host, enable Listen for “Hey Hermes”, say
+the phrase while voice is idle, and confirm ordinary recording begins exactly
+once. Verify it pauses during playback, recording, backgrounding, and
+disconnection, then resumes on the same foreground idle connection. Exercise
+one supported API-key or OAuth setup and one Reader script whose source
+appendix must remain unspoken and absent from the saved podcast.
+
+On the installed adaptive-TTS build, compare 0.70x, 1.00x, and 1.50x through
+an ordinary assistant Listen action, auto-speak, and pet speech. Then play the
+same long response twice and confirm the short first segment starts promptly,
+later chunks remain seamless, queued speech does not interrupt current audio,
+and Reader continues to honor its own selected buffer depth.
 
 Reopen the chat attachment from the reported session. Scroll inside the
 bounded Markdown/plain text preview, then keep swiping at its top and bottom.

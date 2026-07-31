@@ -61,6 +61,40 @@ describe('transcript projection', () => {
     })
   })
 
+  it('deduplicates replayed durable pet commentary after compaction', () => {
+    const result = historyToTranscript([
+      {
+        role: 'system',
+        content: 'Older projected copy.',
+        display_kind: 'pet_commentary',
+        display_metadata: {
+          event_id: 'alien-compacted-1',
+          personality_name: 'Alien Child',
+        },
+      },
+      {
+        role: 'system',
+        content: 'Latest projected copy.',
+        display_kind: 'pet_commentary',
+        display_metadata: {
+          event_id: 'alien-compacted-1',
+          personality_name: 'Alien Child',
+          source: 'generated',
+        },
+      },
+    ])
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      id: 'pet-commentary:alien-compacted-1',
+      text: 'Latest projected copy.',
+      pet: {
+        personalityName: 'Alien Child',
+        source: 'generated',
+      },
+    })
+  })
+
   it('hydrates reasoning, messages, and stored tool rows', () => {
     const result = historyToTranscript([
       { role: 'user', text: 'hello' },

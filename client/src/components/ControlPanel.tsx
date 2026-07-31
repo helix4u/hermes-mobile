@@ -15,10 +15,12 @@ import { MOBILE_THEME_OPTIONS, type MobileThemeSelection } from '../state/theme'
 import { formatDisplayValue, redactDisplayValue } from '../state/transcript'
 import type { HermesTransport } from '../transport/hermes-transport'
 import type { VoicePhase } from '../voice'
+import type { WakeWordStatus } from '../wake-word'
 import { configPatch, HostSettings } from './HostSettings'
 import { MobileCompanionSettings } from './MobileCompanionSettings'
 import { MobilePluginInstaller } from './MobilePluginInstaller'
 import { PetSettings } from './PetSettings'
+import { ProviderSetup } from './ProviderSetup'
 import { VoiceSettings } from './VoiceSettings'
 
 interface ModelProvider {
@@ -64,6 +66,9 @@ interface ControlPanelProps {
   activeSkinName: string
   themeSelection: MobileThemeSelection
   autoSpeak: boolean
+  wakeWordAvailable: boolean
+  wakeWordEnabled: boolean
+  wakeWordStatus: WakeWordStatus
   transport: HermesTransport | null
   voiceSelection: VoiceSelection
   voicePhase: VoicePhase
@@ -83,6 +88,7 @@ interface ControlPanelProps {
     onTest: () => void | Promise<void>
   }
   onAutoSpeakChange: (enabled: boolean) => void
+  onWakeWordChange: (enabled: boolean) => void
   onThemeSelectionChange: (selection: MobileThemeSelection) => void
   onNotice: (message: string) => void
   onOpenWorkspace: () => void
@@ -199,6 +205,7 @@ export function ControlPanel({
   connected,
   gateway,
   onAutoSpeakChange,
+  onWakeWordChange,
   onNotice,
   onOpenWorkspace,
   onStopSpeech,
@@ -214,6 +221,9 @@ export function ControlPanel({
   transport,
   voiceSelection,
   voicePhase,
+  wakeWordAvailable,
+  wakeWordEnabled,
+  wakeWordStatus,
 }: ControlPanelProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -612,6 +622,28 @@ export function ControlPanel({
       <details className="control-section">
         <summary>
           <span>
+            <strong>Providers</strong>
+            <small>API credentials and account sign-in</small>
+          </span>
+          <span className="disclosure-glyph">+</span>
+        </summary>
+        <div className="control-body">
+          <p className="advanced-copy">
+            Configure the selected Hermes profile. Secret values are sent
+            directly to the host and are never saved in Mobile storage.
+          </p>
+          <ProviderSetup
+            connected={connected}
+            profile={profile}
+            transport={transport}
+            onNotice={onNotice}
+          />
+        </div>
+      </details>
+
+      <details className="control-section">
+        <summary>
+          <span>
             <strong>Model</strong>
             <small>{models.model || 'Choose a model'}</small>
           </span>
@@ -803,6 +835,30 @@ export function ControlPanel({
             />
             <span>Automatically read completed replies aloud</span>
           </label>
+          <label className="toggle-row">
+            <input
+              checked={wakeWordEnabled}
+              disabled={!wakeWordAvailable}
+              type="checkbox"
+              onChange={event => onWakeWordChange(event.target.checked)}
+            />
+            <span>Listen for “Hey Hermes”</span>
+          </label>
+          <p className="advanced-copy">
+            {wakeWordStatus === 'listening'
+              ? 'Listening on-device. Ambient audio is not sent to Hermes.'
+              : wakeWordStatus === 'starting'
+                ? 'Starting Android on-device recognition…'
+                : wakeWordStatus === 'paused'
+                  ? 'Paused until the app is foregrounded, connected, and other voice activity is idle.'
+                  : wakeWordStatus === 'unsupported'
+                    ? 'On-device wake-word recognition is unavailable on this device.'
+                    : wakeWordStatus === 'error'
+                      ? 'Wake-word listening stopped. Toggle it off and on to retry.'
+                      : wakeWordAvailable
+                        ? 'Off. Recognition runs only on this Android device when enabled.'
+                        : 'Wake word is available in the Android app.'}
+          </p>
           <VoiceSettings
             connected={connected}
             selection={voiceSelection}

@@ -66,6 +66,7 @@ interface PetSidechatSheetProps {
   onTranscriptTarget: (target: ((text: string) => void) | null) => void
   onToggleRecording: () => void
   voicePhase: string
+  voiceRecordingAvailable: boolean
 }
 
 export function PetSidechatSheet({
@@ -82,6 +83,7 @@ export function PetSidechatSheet({
   onTranscriptTarget,
   open,
   voicePhase,
+  voiceRecordingAvailable,
 }: PetSidechatSheetProps) {
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -230,7 +232,7 @@ export function PetSidechatSheet({
             className={`pet-sidechat-icon-button pet-sidechat-mic ${
               recording ? 'recording' : ''
             }`}
-            disabled={busy || !['idle', 'recording'].includes(voicePhase)}
+            disabled={busy || !voiceRecordingAvailable}
             onClick={onToggleRecording}
             title={microphoneLabel}
             type="button"
