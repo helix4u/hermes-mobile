@@ -1790,6 +1790,22 @@ export function App() {
                 toolDetailMode={toolDetailMode}
                 transport={transportRef.current}
                 voicePhase={voicePhase}
+                onOpenDocumentPreviewer={document => {
+                  setReaderImport({
+                    document,
+                    id: Date.now(),
+                    mode: 'preview',
+                  })
+                  setActiveTab('reader')
+                }}
+                onOpenDocumentReader={document => {
+                  setReaderImport({
+                    document,
+                    id: Date.now(),
+                    mode: 'reader',
+                  })
+                  setActiveTab('reader')
+                }}
                 onRespond={respondToRequest}
                 onSpeak={(text, itemId) =>
                   toggleSpeech(markdownToSpeechText(text), itemId)

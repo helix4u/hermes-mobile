@@ -8,7 +8,7 @@ import {
   mediaPathFromHref,
   renderMediaMarkers,
 } from '../media-markers'
-import { previewMediaInfo } from '../preview'
+import { previewMediaInfo, type PreviewDocument } from '../preview'
 import type { HermesTransport } from '../transport/hermes-transport'
 import { ImagePreview } from './ImageViewer'
 import { RemoteMediaAttachment } from './RemoteMediaAttachment'
@@ -16,6 +16,8 @@ import { RemoteMediaAttachment } from './RemoteMediaAttachment'
 interface MarkdownContentProps {
   children: string
   className?: string
+  onOpenDocumentPreviewer?: (document: PreviewDocument) => void
+  onOpenDocumentReader?: (document: PreviewDocument) => void
   resolveMediaMarkers?: boolean
   transport?: HermesTransport | null
 }
@@ -89,6 +91,8 @@ function MediaPlayer({
 export function MarkdownContent({
   children,
   className = '',
+  onOpenDocumentPreviewer,
+  onOpenDocumentReader,
   resolveMediaMarkers = false,
   transport = null,
 }: MarkdownContentProps) {
@@ -109,6 +113,8 @@ export function MarkdownContent({
             if (remoteMediaPath) {
               return (
                 <RemoteMediaAttachment
+                  onOpenPreviewer={onOpenDocumentPreviewer}
+                  onOpenReader={onOpenDocumentReader}
                   path={remoteMediaPath}
                   transport={transport}
                 />
