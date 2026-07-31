@@ -147,6 +147,7 @@ function reasoningText(message: Record<string, unknown>): string {
 
 export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
   const transcript: TranscriptItem[] = []
+  const petIndexes = new Map<string, number>()
 
   for (const raw of messages) {
     const message = asRecord(raw)
@@ -157,10 +158,11 @@ export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
       const rawId = String(
         metadata.event_id ?? message.id ?? makeId('history-pet'),
       )
-      transcript.push({
-        id: rawId.startsWith('pet-commentary:')
-          ? rawId
-          : `pet-commentary:${rawId}`,
+      const id = rawId.startsWith('pet-commentary:')
+        ? rawId
+        : `pet-commentary:${rawId}`
+      const item: TranscriptItem = {
+        id,
         kind: 'pet',
         text,
         pet: {
@@ -169,7 +171,14 @@ export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
           lens: asText(metadata.lens) || undefined,
           source: asText(metadata.source) || undefined,
         },
-      })
+      }
+      const existingIndex = petIndexes.get(id)
+      if (existingIndex === undefined) {
+        petIndexes.set(id, transcript.length)
+        transcript.push(item)
+      } else {
+        transcript[existingIndex] = item
+      }
       continue
     }
 

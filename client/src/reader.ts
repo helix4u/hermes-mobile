@@ -164,6 +164,9 @@ export const STATIC_VOICES: Record<string, string[]> = {
   ],
 }
 
+const APPENDIX_HEADING_RE =
+  /^#{1,6}\s+(?:primary\s+sources|sources|references|show\s+notes)\s*$/i
+
 export function parseReaderScript(text: string): ReaderScriptBlock[] {
   const lines = text.replace(/\r\n?/g, '\n').split('\n')
   const blocks: ReaderScriptBlock[] = []
@@ -182,6 +185,7 @@ export function parseReaderScript(text: string): ReaderScriptBlock[] {
   }
 
   for (const line of lines) {
+    if (APPENDIX_HEADING_RE.test(line.trim())) break
     let marker = ''
     for (const pattern of MARKERS) {
       const match = pattern.exec(line.trim())
@@ -316,6 +320,43 @@ export function normalizeReaderBufferAhead(value: unknown): number {
 
 export function readerBufferKey(connectionId: string): string {
   return `hermes-mobile.reader.${connectionId}.buffer-ahead`
+}
+
+export function readerProvidersKey(connectionId: string): string {
+  return `hermes-mobile.reader.${connectionId}.providers`
+}
+
+export function normalizeReaderProviders(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return Array.from(
+    new Set(
+      value
+        .filter((provider): provider is string => typeof provider === 'string')
+        .map(provider => provider.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 64)
+}
+
+export function loadReaderProviders(connectionId: string): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(readerProvidersKey(connectionId))
+    return raw ? normalizeReaderProviders(JSON.parse(raw)) : []
+  } catch {
+    return []
+  }
+}
+
+export function persistReaderProviders(
+  connectionId: string,
+  providers: string[],
+): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(
+    readerProvidersKey(connectionId),
+    JSON.stringify(normalizeReaderProviders(providers)),
+  )
 }
 
 export function loadReaderBufferAhead(connectionId: string): number {

@@ -10,6 +10,9 @@ describe('mobile Control settings disclosures', () => {
         <ControlPanel
           activeSkinName="default"
           autoSpeak={false}
+          wakeWordAvailable
+          wakeWordEnabled={false}
+          wakeWordStatus="off"
           connected
           gateway={null}
           preferredWorkspace=""
@@ -59,6 +62,7 @@ describe('mobile Control settings disclosures', () => {
             onTest: () => {},
           }}
           onAutoSpeakChange={() => {}}
+          onWakeWordChange={() => {}}
           onNotice={() => {}}
           onOpenWorkspace={() => {}}
           onStopSpeech={() => {}}
@@ -72,6 +76,8 @@ describe('mobile Control settings disclosures', () => {
     expect(html).toContain('Session workspace')
     expect(html).toContain('Mobile companion')
     expect(html).toContain('Rich link embeds')
+    expect(html).toContain('API credentials and account sign-in')
+    expect(html).toContain('Listen for “Hey Hermes”')
     expect(html).not.toMatch(/<details[^>]*\sopen(?:=|>)/)
   })
 })

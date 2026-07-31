@@ -1,10 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GatewayEvent } from './protocol/types'
+import {
+  adaptiveSpeechBufferAhead,
+  adaptiveStartupSpeechChars,
+  configuredSpeechTimingProvider,
+  loadSpeechTimingStore,
+  normalizeSpeechTimingProvider,
+  recordSpeechAudioTiming,
+  recordSpeechSynthesisTiming,
+} from './speech-timing'
 import type { HermesTransport } from './transport/hermes-transport'
 import { HermesNative } from './transport/native-bridge'
 
 export type VoicePhase =
   'idle' | 'recording' | 'transcribing' | 'synthesizing' | 'speaking'
+
+export function canToggleVoiceRecording(
+  phase: VoicePhase,
+  activeSpeechId: string,
+  playbackPaused = false,
+): boolean {
+  if (phase === 'idle' || phase === 'recording') return true
+  if (phase === 'transcribing') return false
+  return (
+    activeSpeechId === 'reader' &&
+    (playbackPaused || phase === 'speaking' || phase === 'synthesizing')
+  )
+}
 
 export interface SpeechSequenceItem {
   id: string
@@ -26,6 +48,12 @@ export interface SpeechRenderOptions {
 
 export interface BufferedSpeechQueueOptions<T> {
   bufferAhead?: number
+  initialBufferAhead?: number
+  bufferAheadFor?: (
+    item: SpeechSequenceItem,
+    value: T,
+    index: number,
+  ) => number
   synthesize: (item: SpeechSequenceItem, index: number) => Promise<T>
   play: (item: SpeechSequenceItem, value: T, index: number) => Promise<void>
   isCurrent?: () => boolean
@@ -70,6 +98,7 @@ interface AudioBufferShape {
 }
 
 interface UseVoiceOptions {
+  connectionId: string
   nativeClient: boolean
   getTransport: () => HermesTransport | null
   getDefaultTtsConfig?: () => Record<string, unknown> | undefined
@@ -82,6 +111,13 @@ export const MAX_SPEECH_CHUNK_CHARS = 1_800
 export const DEFAULT_SPEECH_SEQUENCE_BUFFER_AHEAD = 3
 export const MAX_SPEECH_SEQUENCE_BUFFER_AHEAD = 6
 export const SPEECH_REQUEST_TIMEOUT_MS = 8 * 60 * 1_000
+
+export interface SynthesizedSpeech {
+  dataUrl: string
+  provider: string
+  requestedProvider: string
+  elapsedMs: number
+}
 
 export function createSerialSpeechTaskQueue(): SerialSpeechTaskQueue {
   let epoch = 0
@@ -197,15 +233,39 @@ export function maintainSpeechPlaybackRate(
   audio: PlaybackRateAudio,
   rate: number,
 ): () => void {
-  const apply = () => applySpeechPlaybackRate(audio, rate)
+  const normalized = Math.max(0.7, Math.min(1.5, rate))
+  let applying = false
+  const apply = () => {
+    if (applying) return
+    applying = true
+    try {
+      if (Math.abs(audio.defaultPlaybackRate - normalized) > 0.001) {
+        audio.defaultPlaybackRate = normalized
+      }
+      if (Math.abs(audio.playbackRate - normalized) > 0.001) {
+        audio.playbackRate = normalized
+      }
+      if (!audio.preservesPitch) audio.preservesPitch = true
+    } finally {
+      applying = false
+    }
+  }
+  const events = [
+    'loadedmetadata',
+    'loadeddata',
+    'durationchange',
+    'canplay',
+    'canplaythrough',
+    'playing',
+    'ratechange',
+    'timeupdate',
+  ]
   apply()
-  audio.addEventListener('loadedmetadata', apply)
-  audio.addEventListener('canplay', apply)
-  audio.addEventListener('playing', apply)
+  for (const event of events) audio.addEventListener(event, apply)
+  const watchdog = globalThis.setInterval(apply, 250)
   return () => {
-    audio.removeEventListener('loadedmetadata', apply)
-    audio.removeEventListener('canplay', apply)
-    audio.removeEventListener('playing', apply)
+    globalThis.clearInterval(watchdog)
+    for (const event of events) audio.removeEventListener(event, apply)
   }
 }
 
@@ -222,6 +282,9 @@ export async function runBufferedSpeechQueue<T>(
   const bufferAhead = normalizeSpeechSequenceBufferAhead(
     options.bufferAhead ?? 0,
   )
+  const initialBufferAhead = normalizeSpeechSequenceBufferAhead(
+    options.initialBufferAhead ?? bufferAhead,
+  )
   const prepared = new Map<number, Promise<PreparedSpeech<T>>>()
   const isCurrent = options.isCurrent ?? (() => true)
 
@@ -236,17 +299,22 @@ export async function runBufferedSpeechQueue<T>(
     )
   }
 
-  const fillBuffer = (activeIndex: number) => {
-    for (let offset = 0; offset <= bufferAhead; offset += 1) {
+  const fillBuffer = (activeIndex: number, ahead: number) => {
+    for (let offset = 0; offset <= ahead; offset += 1) {
+      prepare(activeIndex + offset)
+    }
+  }
+  const fillFuture = (activeIndex: number, ahead: number) => {
+    for (let offset = 1; offset <= ahead; offset += 1) {
       prepare(activeIndex + offset)
     }
   }
 
-  fillBuffer(0)
+  fillBuffer(0, initialBufferAhead)
   try {
     for (let index = 0; index < items.length; index += 1) {
       if (!isCurrent()) return false
-      fillBuffer(index)
+      fillBuffer(index, options.bufferAheadFor ? 0 : bufferAhead)
       options.onActive?.(items[index].id)
       let result = await prepared.get(index)!
       prepared.delete(index)
@@ -259,6 +327,18 @@ export async function runBufferedSpeechQueue<T>(
         }
       }
       if (result.error !== undefined) throw result.error
+      fillFuture(
+        index,
+        options.bufferAheadFor
+          ? normalizeSpeechSequenceBufferAhead(
+              options.bufferAheadFor(
+                items[index],
+                result.value as T,
+                index,
+              ),
+            )
+          : bufferAhead,
+      )
       await options.play(items[index], result.value as T, index)
     }
     return isCurrent()
@@ -269,9 +349,14 @@ export async function runBufferedSpeechQueue<T>(
 
 export function expandSpeechSequence(
   items: SpeechSequenceItem[],
+  firstChunkChars?: number,
 ): SpeechSequenceItem[] {
-  return items.flatMap(item =>
-    splitSpeechText(item.text).map((text, chunkIndex) => ({
+  return items.flatMap((item, itemIndex) =>
+    (
+      itemIndex === 0 && firstChunkChars !== undefined
+        ? splitSpeechTextForStartup(item.text, firstChunkChars)
+        : splitSpeechText(item.text)
+    ).map((text, chunkIndex) => ({
       ...item,
       id: item.id || `speech-${chunkIndex}`,
       text,
@@ -346,12 +431,13 @@ export function encodePcm16Wav(
   return buffer
 }
 
-export async function synthesizeSpeechItem(
+export async function synthesizeSpeechItemWithTiming(
   transport: HermesTransport,
   item: SpeechSequenceItem,
-): Promise<string> {
+): Promise<SynthesizedSpeech> {
   let lastError: unknown
   for (const config of speechConfigAttempts(item)) {
+    const startedAt = Date.now()
     try {
       const result = await transport.requestJson<SpeechResponse>(
         '/api/audio/speak',
@@ -362,12 +448,27 @@ export async function synthesizeSpeechItem(
         { timeoutMs: SPEECH_REQUEST_TIMEOUT_MS },
       )
       if (!result.data_url) throw new Error('Hermes returned no speech audio')
-      return result.data_url
+      const requestedProvider = configuredSpeechTimingProvider(config)
+      return {
+        dataUrl: result.data_url,
+        provider: normalizeSpeechTimingProvider(
+          result.provider || requestedProvider,
+        ),
+        requestedProvider,
+        elapsedMs: Math.max(1, Date.now() - startedAt),
+      }
     } catch (error) {
       lastError = error
     }
   }
   throw lastError ?? new Error('Every configured Hermes speech voice failed')
+}
+
+export async function synthesizeSpeechItem(
+  transport: HermesTransport,
+  item: SpeechSequenceItem,
+): Promise<string> {
+  return (await synthesizeSpeechItemWithTiming(transport, item)).dataUrl
 }
 
 export async function renderSpeechSequenceToWav(
@@ -461,6 +562,40 @@ export function splitSpeechText(
   return chunks
 }
 
+export function splitSpeechTextForStartup(
+  text: string,
+  firstMaxChars: number,
+  laterMaxChars = MAX_SPEECH_CHUNK_CHARS,
+): string[] {
+  const cleanText = text.trim()
+  if (!cleanText) return []
+  const safeFirstCap = Math.max(160, Math.floor(firstMaxChars))
+  if (cleanText.length <= safeFirstCap) return [cleanText]
+
+  const minimumBoundary = Math.floor(safeFirstCap * 0.5)
+  let splitAt = -1
+  for (let index = safeFirstCap; index >= minimumBoundary; index -= 1) {
+    const character = cleanText[index - 1]
+    if (
+      '.!?…'.includes(character) &&
+      (index >= cleanText.length || /\s/.test(cleanText[index]))
+    ) {
+      splitAt = index
+      break
+    }
+  }
+  if (splitAt < 0) {
+    splitAt = cleanText.lastIndexOf(' ', safeFirstCap)
+  }
+  if (splitAt < minimumBoundary) splitAt = safeFirstCap
+
+  const first = cleanText.slice(0, splitAt).trim()
+  const remaining = cleanText.slice(splitAt).trim()
+  return remaining
+    ? [first, ...splitSpeechText(remaining, laterMaxChars)]
+    : [first]
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -529,6 +664,7 @@ function stopBrowserTracks(recording: BrowserRecording | null): void {
 }
 
 export function useVoice({
+  connectionId,
   getDefaultTtsConfig,
   getTransport,
   nativeClient,
@@ -537,10 +673,14 @@ export function useVoice({
 }: UseVoiceOptions) {
   const [phase, setPhase] = useState<VoicePhase>('idle')
   const [activeSpeechId, setActiveSpeechId] = useState('')
+  const [playbackPaused, setPlaybackPaused] = useState(false)
+  const activeSpeechIdRef = useRef('')
+  const playbackPausedRef = useRef(false)
   const browserRecordingRef = useRef<BrowserRecording | null>(null)
   const recordingTimerRef = useRef<number | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const finishAudioRef = useRef<(() => void) | null>(null)
+  const beginAudioPlaybackRef = useRef<(() => void) | null>(null)
   const speechGenerationRef = useRef(0)
   const speechTaskQueueRef = useRef<SerialSpeechTaskQueue | null>(null)
   const mountedRef = useRef(true)
@@ -556,9 +696,20 @@ export function useVoice({
     }
   }, [])
 
+  const updateActiveSpeechId = useCallback((value: string) => {
+    activeSpeechIdRef.current = value
+    setActiveSpeechId(value)
+  }, [])
+
+  const updatePlaybackPaused = useCallback((value: boolean) => {
+    playbackPausedRef.current = value
+    setPlaybackPaused(value)
+  }, [])
+
   const stopPlayback = useCallback(() => {
     speechGenerationRef.current += 1
     speechTaskQueueRef.current?.clear()
+    beginAudioPlaybackRef.current = null
     const finishAudio = finishAudioRef.current
     finishAudioRef.current = null
     const audio = audioRef.current
@@ -569,14 +720,28 @@ export function useVoice({
       audio.load()
     }
     finishAudio?.()
-    setActiveSpeechId('')
+    updatePlaybackPaused(false)
+    updateActiveSpeechId('')
     setPhase(current =>
       current === 'speaking' || current === 'synthesizing' ? 'idle' : current,
     )
-  }, [])
+  }, [updateActiveSpeechId, updatePlaybackPaused])
+
+  const pausePlayback = useCallback(() => {
+    if (!activeSpeechIdRef.current) return
+    updatePlaybackPaused(true)
+    audioRef.current?.pause()
+  }, [updatePlaybackPaused])
+
+  const resumePlayback = useCallback(() => {
+    if (!activeSpeechIdRef.current) return
+    updatePlaybackPaused(false)
+    beginAudioPlaybackRef.current?.()
+  }, [updatePlaybackPaused])
 
   const startRecording = useCallback(async () => {
-    stopPlayback()
+    if (activeSpeechIdRef.current === 'reader') pausePlayback()
+    else stopPlayback()
     onError('')
     try {
       if (nativeClient) {
@@ -620,10 +785,20 @@ export function useVoice({
     } catch (error) {
       stopBrowserTracks(browserRecordingRef.current)
       browserRecordingRef.current = null
-      setPhase('idle')
+      setPhase(
+        activeSpeechIdRef.current === 'reader' && playbackPausedRef.current
+          ? 'speaking'
+          : 'idle',
+      )
       onError(error instanceof Error ? error.message : String(error))
     }
-  }, [clearRecordingTimer, nativeClient, onError, stopPlayback])
+  }, [
+    clearRecordingTimer,
+    nativeClient,
+    onError,
+    pausePlayback,
+    stopPlayback,
+  ])
 
   const captureBrowserRecording =
     useCallback(async (): Promise<CapturedAudio> => {
@@ -680,7 +855,13 @@ export function useVoice({
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error))
     } finally {
-      if (mountedRef.current) setPhase('idle')
+      if (mountedRef.current) {
+        setPhase(
+          activeSpeechIdRef.current === 'reader' && playbackPausedRef.current
+            ? 'speaking'
+            : 'idle',
+        )
+      }
     }
   }, [
     captureBrowserRecording,
@@ -698,6 +879,7 @@ export function useVoice({
       dataUrl: string,
       generation: number,
       playbackRate = 1,
+      onDuration?: (durationMs: number) => void,
     ): Promise<void> => {
       if (generation !== speechGenerationRef.current) return
       const audio = new Audio(dataUrl)
@@ -705,14 +887,32 @@ export function useVoice({
       audioRef.current = audio
       await new Promise<void>((resolve, reject) => {
         let settled = false
+        let durationRecorded = false
+        const recordDuration = () => {
+          if (
+            durationRecorded ||
+            !Number.isFinite(audio.duration) ||
+            audio.duration <= 0
+          ) {
+            return
+          }
+          durationRecorded = true
+          onDuration?.(audio.duration * 1_000)
+        }
         const finish = (error?: Error) => {
           if (settled) return
           settled = true
           if (finishAudioRef.current === finish) {
             finishAudioRef.current = null
           }
+          if (beginAudioPlaybackRef.current === beginPlayback) {
+            beginAudioPlaybackRef.current = null
+          }
           audio.removeEventListener('ended', onEnded)
           audio.removeEventListener('error', onAudioError)
+          audio.removeEventListener('loadedmetadata', recordDuration)
+          audio.removeEventListener('durationchange', recordDuration)
+          audio.removeEventListener('canplay', recordDuration)
           releasePlaybackRate()
           if (audioRef.current === audio) audioRef.current = null
           if (error) reject(error)
@@ -721,20 +921,35 @@ export function useVoice({
         const onEnded = () => finish()
         const onAudioError = () =>
           finish(new Error('The device could not play Hermes speech audio'))
+        const beginPlayback = () => {
+          if (
+            settled ||
+            playbackPausedRef.current ||
+            generation !== speechGenerationRef.current
+          ) {
+            return
+          }
+          void audio
+            .play()
+            .then(() => {
+              applySpeechPlaybackRate(audio, playbackRate)
+              if (generation === speechGenerationRef.current) {
+                setPhase('speaking')
+              }
+            })
+            .catch(() =>
+              finish(new Error('The device could not play Hermes speech audio')),
+            )
+        }
         finishAudioRef.current = finish
+        beginAudioPlaybackRef.current = beginPlayback
         audio.addEventListener('ended', onEnded, { once: true })
         audio.addEventListener('error', onAudioError, { once: true })
-        void audio
-          .play()
-          .then(() => {
-            applySpeechPlaybackRate(audio, playbackRate)
-            if (generation === speechGenerationRef.current) {
-              setPhase('speaking')
-            }
-          })
-          .catch(() =>
-            finish(new Error('The device could not play Hermes speech audio')),
-          )
+        audio.addEventListener('loadedmetadata', recordDuration)
+        audio.addEventListener('durationchange', recordDuration)
+        audio.addEventListener('canplay', recordDuration)
+        recordDuration()
+        beginPlayback()
       })
     },
     [],
@@ -745,52 +960,117 @@ export function useVoice({
       items: SpeechSequenceItem[],
       options: SpeechSequenceOptions = {},
     ) => {
-      const queue = expandSpeechSequence(items)
+      const adaptiveBuffering = options.bufferAhead === undefined
+      const requestedFirstProvider = configuredSpeechTimingProvider(
+        items[0]?.ttsConfig,
+      )
+      const queue = expandSpeechSequence(
+        items,
+        adaptiveBuffering
+          ? adaptiveStartupSpeechChars(
+              loadSpeechTimingStore(connectionId),
+              requestedFirstProvider,
+            )
+          : undefined,
+      )
       if (!queue.length) return
       await speechTaskQueueRef.current!.enqueue(async () => {
         onError('')
         const generation = speechGenerationRef.current
-        setActiveSpeechId(options.speechId || queue[0].id)
+        updatePlaybackPaused(false)
+        updateActiveSpeechId(options.speechId || queue[0].id)
         setPhase('synthesizing')
         try {
           const transport = getTransport()
           if (!transport)
             throw new Error('Connect to Hermes before using speech')
-          const completed = await runBufferedSpeechQueue(queue, {
-            bufferAhead: normalizeSpeechSequenceBufferAhead(options.bufferAhead),
-            isCurrent: () => generation === speechGenerationRef.current,
-            onActive: itemId => {
-              options.onActive?.(itemId)
-              if (itemId) setPhase('synthesizing')
+          const completed = await runBufferedSpeechQueue<SynthesizedSpeech>(
+            queue,
+            {
+              bufferAhead: adaptiveBuffering
+                ? 0
+                : normalizeSpeechSequenceBufferAhead(options.bufferAhead),
+              initialBufferAhead: adaptiveBuffering ? 0 : undefined,
+              bufferAheadFor: adaptiveBuffering
+                ? (item, speech) =>
+                    adaptiveSpeechBufferAhead(
+                      loadSpeechTimingStore(connectionId),
+                      speech.provider,
+                      speechPlaybackRate(item),
+                    )
+                : undefined,
+              isCurrent: () => generation === speechGenerationRef.current,
+              onActive: itemId => {
+                options.onActive?.(itemId)
+                if (itemId) setPhase('synthesizing')
+              },
+              synthesize: async item => {
+                if (generation !== speechGenerationRef.current) {
+                  throw new Error('Speech playback stopped')
+                }
+                const speech = await synthesizeSpeechItemWithTiming(
+                  transport,
+                  speechItemForInteractivePlayback(item),
+                )
+                for (const provider of new Set([
+                  speech.provider,
+                  speech.requestedProvider,
+                ])) {
+                  recordSpeechSynthesisTiming(
+                    connectionId,
+                    provider,
+                    speech.elapsedMs,
+                    item.text.length,
+                  )
+                }
+                return speech
+              },
+              play: async (item, speech) => {
+                await playAudio(
+                  speech.dataUrl,
+                  generation,
+                  speechPlaybackRate(item),
+                  durationMs => {
+                    for (const provider of new Set([
+                      speech.provider,
+                      speech.requestedProvider,
+                    ])) {
+                      recordSpeechAudioTiming(
+                        connectionId,
+                        provider,
+                        durationMs,
+                        item.text.length,
+                      )
+                    }
+                  },
+                )
+              },
             },
-            synthesize: async item => {
-              if (generation !== speechGenerationRef.current) {
-                throw new Error('Speech playback stopped')
-              }
-              return synthesizeSpeechItem(
-                transport,
-                speechItemForInteractivePlayback(item),
-              )
-            },
-            play: async (item, dataUrl) => {
-              await playAudio(dataUrl, generation, speechPlaybackRate(item))
-            },
-          })
+          )
           if (!completed || generation !== speechGenerationRef.current) return
-          setActiveSpeechId('')
+          updateActiveSpeechId('')
           setPhase('idle')
         } catch (error) {
           if (generation !== speechGenerationRef.current) return
           options.onActive?.(null)
           finishAudioRef.current = null
+          beginAudioPlaybackRef.current = null
           audioRef.current = null
-          setActiveSpeechId('')
+          updatePlaybackPaused(false)
+          updateActiveSpeechId('')
           setPhase('idle')
           onError(error instanceof Error ? error.message : String(error))
         }
       })
     },
-    [getTransport, onError, playAudio],
+    [
+      connectionId,
+      getTransport,
+      onError,
+      playAudio,
+      updateActiveSpeechId,
+      updatePlaybackPaused,
+    ],
   )
 
   const speak = useCallback(
@@ -844,15 +1124,22 @@ export function useVoice({
       void stopAndTranscribe()
       return
     }
-    if (phase !== 'idle') return
+    if (!canToggleVoiceRecording(phase, activeSpeechId, playbackPaused)) return
     void startRecording()
-  }, [phase, startRecording, stopAndTranscribe])
+  }, [
+    activeSpeechId,
+    phase,
+    playbackPaused,
+    startRecording,
+    stopAndTranscribe,
+  ])
 
   useEffect(
     () => () => {
       mountedRef.current = false
       speechGenerationRef.current += 1
       speechTaskQueueRef.current?.clear()
+      beginAudioPlaybackRef.current = null
       clearRecordingTimer()
       stopBrowserTracks(browserRecordingRef.current)
       browserRecordingRef.current = null
@@ -870,8 +1157,11 @@ export function useVoice({
 
   return {
     activeSpeechId,
+    pausePlayback,
     phase,
+    playbackPaused,
     renderSequence,
+    resumePlayback,
     speak,
     speakSequence,
     stopPlayback,

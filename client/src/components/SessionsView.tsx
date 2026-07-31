@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type {
   ProjectTree,
   SessionSummary,
 } from '../protocol/types'
 import {
   groupProjectRowsByFolder,
+  groupSessionsByFolder,
+  isCompactedSession,
   projectSessionRows,
   sessionMatches,
 } from '../state/sessions'
@@ -85,7 +87,21 @@ export function SessionsView({
   sessions,
 }: SessionsViewProps) {
   const [query, setQuery] = useState('')
-  const rows = useMemo(() => projectSessionRows(projectDetail), [projectDetail])
+  const [showCompacted, setShowCompacted] = useState(false)
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    () => new Set(),
+  )
+  const allRows = useMemo(
+    () => projectSessionRows(projectDetail),
+    [projectDetail],
+  )
+  const rows = useMemo(
+    () =>
+      showCompacted
+        ? allRows
+        : allRows.filter(row => !isCompactedSession(row.session)),
+    [allRows, showCompacted],
+  )
   const folderGroups = useMemo(
     () =>
       groupProjectRowsByFolder(
@@ -94,9 +110,67 @@ export function SessionsView({
     [query, rows],
   )
   const recentSessions = useMemo(
-    () => sessions.filter(session => sessionMatches(session, query)),
-    [query, sessions],
+    () =>
+      sessions.filter(
+        session =>
+          (showCompacted || !isCompactedSession(session)) &&
+          sessionMatches(session, query),
+      ),
+    [query, sessions, showCompacted],
   )
+  const recentFolderGroups = useMemo(
+    () => groupSessionsByFolder(recentSessions),
+    [recentSessions],
+  )
+  const compactedCount =
+    sessions.filter(isCompactedSession).length +
+    allRows.filter(row => isCompactedSession(row.session)).length
+
+  useEffect(() => {
+    const selectedGroup = folderGroups.find(group =>
+      group.rows.some(row => row.session.id === selectedSessionId),
+    )
+    if (!selectedGroup && !query) return
+    setExpandedFolders(current => {
+      const next = new Set(current)
+      if (selectedGroup) {
+        next.add(`${activeProjectId}:${selectedGroup.key}`)
+      }
+      if (query) {
+        for (const group of folderGroups) {
+          next.add(`${activeProjectId}:${group.key}`)
+        }
+      }
+      return next
+    })
+  }, [activeProjectId, folderGroups, query, selectedSessionId])
+
+  useEffect(() => {
+    if (activeProjectId) return
+    const selectedGroup = recentFolderGroups.find(group =>
+      group.sessions.some(session => session.id === selectedSessionId),
+    )
+    if (!selectedGroup && !query) return
+    setExpandedFolders(current => {
+      const next = new Set(current)
+      if (selectedGroup) next.add(`recent:${selectedGroup.key}`)
+      if (query) {
+        for (const group of recentFolderGroups) {
+          next.add(`recent:${group.key}`)
+        }
+      }
+      return next
+    })
+  }, [activeProjectId, query, recentFolderGroups, selectedSessionId])
+
+  function toggleFolder(key: string) {
+    setExpandedFolders(current => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   return (
     <>
@@ -133,71 +207,170 @@ export function SessionsView({
         </label>
       </div>
 
-      {projects.length > 0 && (
-        <nav className="project-tabs" aria-label="Session projects">
-          <button
-            className={!activeProjectId ? 'active' : ''}
-            onClick={() => void onProject('')}
-          >
-            Recent
-            <small>{sessions.length}</small>
-          </button>
-          {projects.map(project => (
-            <button
-              className={activeProjectId === project.id ? 'active' : ''}
-              key={project.id}
-              onClick={() => void onProject(project.id)}
-            >
-              {project.icon || '◇'} {project.label}
-              <small>{project.sessionCount}</small>
-            </button>
-          ))}
-        </nav>
+      {compactedCount > 0 && (
+        <label className="session-compacted-toggle">
+          <input
+            checked={showCompacted}
+            type="checkbox"
+            onChange={event => setShowCompacted(event.target.checked)}
+          />
+          Show {compactedCount} compacted segment
+          {compactedCount === 1 ? '' : 's'}
+        </label>
       )}
 
-      <div className="session-list">
-        {!connected ? (
-          <p className="empty-copy">Connect to load sessions.</p>
-        ) : activeProjectId ? (
-          projectLoading ? (
-            <p className="empty-copy">Loading project sessions…</p>
-          ) : folderGroups.length === 0 ? (
-            <p className="empty-copy">
-              {query ? 'No project sessions match that search.' : 'No sessions in this project.'}
-            </p>
-          ) : (
-            folderGroups.map(group => (
-              <section className="cwd-session-group" key={group.key}>
-                <div className="cwd-session-heading">
-                  <strong>{group.label}</strong>
-                  {group.path && <small>{group.path}</small>}
+      <nav className="session-project-browser" aria-label="Session projects">
+        <section className="session-project-branch">
+          <button
+            aria-expanded={!activeProjectId}
+            className={`session-project-row ${!activeProjectId ? 'active' : ''}`}
+            onClick={() => void onProject('')}
+            type="button"
+          >
+            <span className="session-tree-chevron">›</span>
+            <span className="session-project-icon">◷</span>
+            <span className="session-project-copy">
+              <strong>Recent</strong>
+              <small>Latest sessions from this profile</small>
+            </span>
+            <span className="session-project-count">{sessions.length}</span>
+          </button>
+          {!activeProjectId && (
+            <div className="session-branch-content">
+              {!connected ? (
+                <p className="empty-copy">Connect to load sessions.</p>
+              ) : recentFolderGroups.length === 0 ? (
+                <p className="empty-copy">
+                  {query
+                    ? 'No sessions match that search.'
+                    : 'No sessions in this profile yet.'}
+                </p>
+              ) : (
+                recentFolderGroups.map(group => {
+                  const folderKey = `recent:${group.key}`
+                  const folderOpen = expandedFolders.has(folderKey)
+                  return (
+                    <section className="cwd-session-group" key={group.key}>
+                      <button
+                        aria-expanded={folderOpen}
+                        className="cwd-session-heading"
+                        onClick={() => toggleFolder(folderKey)}
+                        type="button"
+                      >
+                        <span className="session-tree-chevron">›</span>
+                        <span className="session-folder-icon">⌑</span>
+                        <span className="session-folder-copy">
+                          <strong>{group.label}</strong>
+                          {group.path && <small>{group.path}</small>}
+                        </span>
+                        <span className="session-project-count">
+                          {group.sessions.length}
+                        </span>
+                      </button>
+                      {folderOpen && (
+                        <div className="session-list session-folder-sessions">
+                          {group.sessions.map(session => (
+                            <SessionRow
+                              key={session.id}
+                              selected={selectedSessionId === session.id}
+                              session={session}
+                              onSession={onSession}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  )
+                })
+              )}
+            </div>
+          )}
+        </section>
+
+        {projects.map(project => {
+          const projectOpen = activeProjectId === project.id
+          return (
+            <section className="session-project-branch" key={project.id}>
+              <button
+                aria-expanded={projectOpen}
+                className={`session-project-row ${projectOpen ? 'active' : ''}`}
+                onClick={() =>
+                  void onProject(projectOpen ? '' : project.id)
+                }
+                type="button"
+              >
+                <span className="session-tree-chevron">›</span>
+                <span className="session-project-icon">
+                  {project.icon || '◇'}
+                </span>
+                <span className="session-project-copy">
+                  <strong>{project.label}</strong>
+                  <small>{project.path || 'Project sessions'}</small>
+                </span>
+                <span className="session-project-count">
+                  {project.sessionCount}
+                </span>
+              </button>
+
+              {projectOpen && (
+                <div className="session-branch-content">
+                  {projectLoading ? (
+                    <p className="empty-copy">Loading project sessions…</p>
+                  ) : folderGroups.length === 0 ? (
+                    <p className="empty-copy">
+                      {query
+                        ? 'No project sessions match that search.'
+                        : 'No sessions in this project.'}
+                    </p>
+                  ) : (
+                    folderGroups.map(group => {
+                      const folderKey = `${project.id}:${group.key}`
+                      const folderOpen = expandedFolders.has(folderKey)
+                      return (
+                        <section
+                          className="cwd-session-group"
+                          key={group.key}
+                        >
+                          <button
+                            aria-expanded={folderOpen}
+                            className="cwd-session-heading"
+                            onClick={() => toggleFolder(folderKey)}
+                            type="button"
+                          >
+                            <span className="session-tree-chevron">›</span>
+                            <span className="session-folder-icon">⌑</span>
+                            <span className="session-folder-copy">
+                              <strong>{group.label}</strong>
+                              {group.path && <small>{group.path}</small>}
+                            </span>
+                            <span className="session-project-count">
+                              {group.rows.length}
+                            </span>
+                          </button>
+                          {folderOpen && (
+                            <div className="session-list session-folder-sessions">
+                              {group.rows.map(row => (
+                                <SessionRow
+                                  key={row.session.id}
+                                  selected={
+                                    selectedSessionId === row.session.id
+                                  }
+                                  session={row.session}
+                                  onSession={onSession}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </section>
+                      )
+                    })
+                  )}
                 </div>
-                {group.rows.map(row => (
-                  <SessionRow
-                    key={row.session.id}
-                    selected={selectedSessionId === row.session.id}
-                    session={row.session}
-                    onSession={onSession}
-                  />
-                ))}
-              </section>
-            ))
+              )}
+            </section>
           )
-        ) : recentSessions.length === 0 ? (
-          <p className="empty-copy">
-            {query ? 'No sessions match that search.' : 'No sessions in this profile yet.'}
-          </p>
-        ) : (
-          recentSessions.map(session => (
-            <SessionRow
-              key={session.id}
-              selected={selectedSessionId === session.id}
-              session={session}
-              onSession={onSession}
-            />
-          ))
-        )}
-      </div>
+        })}
+      </nav>
     </>
   )
 }

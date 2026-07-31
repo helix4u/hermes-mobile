@@ -1,11 +1,15 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   DEFAULT_READER_BUFFER_AHEAD,
   MAX_READER_BUFFER_AHEAD,
+  loadReaderProviders,
   normalizeReaderBufferAhead,
+  normalizeReaderProviders,
   parseReaderScript,
+  persistReaderProviders,
   readerBufferKey,
   readerFallbackSelections,
+  readerProvidersKey,
   readerSpeakers,
   reconcileReaderProviders,
   ttsOverride,
@@ -14,6 +18,10 @@ import {
 } from './reader'
 
 describe('reader helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   test('parses speaker markers into ordered blocks', () => {
     const blocks = parseReaderScript(
       '(Narrator)\nThe door opened.\n\n[Ada]\nHello.\n\n**Lin:**\nWelcome.',
@@ -27,6 +35,25 @@ describe('reader helpers', () => {
       'Narrator',
       'Ada',
       'Lin',
+    ])
+  })
+
+  test.each([
+    '## Primary sources',
+    '## Sources',
+    '### References',
+    '# Show Notes',
+  ])('omits source appendices from Reader scripts at %s', heading => {
+    const blocks = parseReaderScript(
+      `(Narrator)\nKeep this spoken.\n\n${heading}\n- https://example.com/source\nDo not speak this.`,
+    )
+
+    expect(blocks).toEqual([
+      {
+        id: 'reader-0-narrator',
+        speaker: 'Narrator',
+        text: 'Keep this spoken.',
+      },
     ])
   })
 
@@ -100,6 +127,28 @@ describe('reader helpers', () => {
     expect(reconcileReaderProviders([], ['edge', 'openai'], 'qwen')).toEqual([
       'edge',
     ])
+  })
+
+  test('persists enabled Reader providers independently for each connection', () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    })
+
+    persistReaderProviders('workstation', ['openai', 'qwen', 'openai'])
+    persistReaderProviders('cloud-agent', ['edge'])
+
+    expect(loadReaderProviders('workstation')).toEqual(['openai', 'qwen'])
+    expect(loadReaderProviders('cloud-agent')).toEqual(['edge'])
+    expect(readerProvidersKey('workstation')).not.toBe(
+      readerProvidersKey('cloud-agent'),
+    )
+    expect(
+      normalizeReaderProviders([' qwen ', '', null, 'openai', 'qwen']),
+    ).toEqual(['qwen', 'openai'])
   })
 
   test('normalizes and scopes reader buffer-ahead preferences', () => {

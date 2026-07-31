@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   groupProjectRowsByFolder,
+  groupSessionsByFolder,
+  isCompactedSession,
   projectSessionRows,
   sessionMatches,
 } from './sessions'
@@ -59,5 +61,51 @@ describe('project session projection', () => {
     expect(sessionMatches(row.session, 'feature/mobile', row)).toBe(true)
     expect(sessionMatches(row.session, 'desktop', row)).toBe(true)
     expect(sessionMatches(row.session, 'unrelated', row)).toBe(false)
+  })
+
+  it('groups recent sessions by cwd before rendering their rows', () => {
+    const sessions = [
+      project.repos[0].groups[0].sessions[0],
+      {
+        ...project.repos[0].groups[0].sessions[0],
+        id: 'session-2',
+        title: 'Another mobile turn',
+      },
+      {
+        ...project.repos[0].groups[0].sessions[0],
+        id: 'session-3',
+        cwd: '',
+        source: 'cloud',
+      },
+    ]
+
+    const groups = groupSessionsByFolder(sessions)
+
+    expect(groups).toHaveLength(2)
+    expect(groups[0]).toMatchObject({
+      label: 'mobile',
+      path: 'F:\\work\\hermes-mobile\\.worktrees\\mobile',
+    })
+    expect(groups[0].sessions).toHaveLength(2)
+    expect(groups[1]).toMatchObject({
+      key: 'source:cloud',
+      label: 'cloud',
+    })
+  })
+
+  it('only classifies sessions as compacted from explicit host metadata', () => {
+    const session = project.repos[0].groups[0].sessions[0]
+    expect(isCompactedSession(session)).toBe(false)
+    expect(
+      isCompactedSession({ ...session, end_reason: 'compressed' }),
+    ).toBe(true)
+    expect(isCompactedSession({ ...session, compacted: true })).toBe(true)
+    expect(
+      isCompactedSession({
+        ...session,
+        parent_session_id: 'parent',
+        end_reason: 'branched',
+      }),
+    ).toBe(false)
   })
 })

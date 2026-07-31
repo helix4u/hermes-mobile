@@ -21,6 +21,7 @@ function renderSidechat(
       onToggleRecording: vi.fn(),
       onTranscriptTarget: vi.fn(),
       voicePhase: 'idle',
+      voiceRecordingAvailable: true,
       ...overrides,
     }),
   )

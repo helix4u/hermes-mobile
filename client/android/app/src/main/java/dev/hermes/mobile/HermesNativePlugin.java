@@ -19,12 +19,16 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.util.Base64;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
@@ -62,6 +66,8 @@ import java.security.Key;
 import java.security.KeyStore;
 import java.lang.ref.WeakReference;
 import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -181,11 +187,20 @@ public class HermesNativePlugin extends Plugin {
         ConcurrentHashMap.newKeySet();
     private final Set<String> retainedSocketIds =
         ConcurrentHashMap.newKeySet();
+    private final Set<String> cancelledWakeWordSessionIds =
+        ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingWakeWordSessionIds =
+        ConcurrentHashMap.newKeySet();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object recorderLock = new Object();
+    private final Object wakeWordLock = new Object();
     private MediaRecorder recorder;
     private File recordingFile;
     private long recordingStartedAt;
+    private SpeechRecognizer wakeWordRecognizer;
+    private String wakeWordSessionId = "";
+    private Runnable wakeWordRestart;
+    private int wakeWordRetryCount;
 
     @Override
     public void load() {
@@ -473,6 +488,7 @@ public class HermesNativePlugin extends Plugin {
     }
 
     private void startRecordingAfterPermission(PluginCall call) {
+        stopWakeWordInternal("", true);
         synchronized (recorderLock) {
             if (recorder != null) {
                 call.reject("A voice recording is already active");
@@ -1544,6 +1560,360 @@ public class HermesNativePlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void startWakeWord(PluginCall call) {
+        String sessionId = call.getString("sessionId", "").trim();
+        if (!sessionId.matches("[A-Za-z0-9._:-]{1,192}")) {
+            call.reject("A valid wake word session is required");
+            return;
+        }
+        cancelledWakeWordSessionIds.remove(sessionId);
+        pendingWakeWordSessionIds.add(sessionId);
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            requestPermissionForAlias(
+                "microphone",
+                call,
+                "wakeWordPermissionCallback"
+            );
+            return;
+        }
+        startWakeWordAfterPermission(call);
+    }
+
+    @PermissionCallback
+    private void wakeWordPermissionCallback(PluginCall call) {
+        String sessionId = call.getString("sessionId", "").trim();
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            pendingWakeWordSessionIds.remove(sessionId);
+            cancelledWakeWordSessionIds.remove(sessionId);
+            call.reject("Microphone permission is required for wake word");
+            return;
+        }
+        startWakeWordAfterPermission(call);
+    }
+
+    private void startWakeWordAfterPermission(PluginCall call) {
+        String sessionId = call.getString("sessionId", "").trim();
+        String phrase = normalizeWakeWords(
+            call.getString("phrase", "hey hermes")
+        );
+        if (!sessionId.matches("[A-Za-z0-9._:-]{1,192}")) {
+            pendingWakeWordSessionIds.remove(sessionId);
+            call.reject("A valid wake word session is required");
+            return;
+        }
+        if (phrase.isEmpty() || phrase.length() > 64) {
+            pendingWakeWordSessionIds.remove(sessionId);
+            call.reject("A valid wake word phrase is required");
+            return;
+        }
+        if (cancelledWakeWordSessionIds.remove(sessionId)) {
+            pendingWakeWordSessionIds.remove(sessionId);
+            call.reject("Wake word start was cancelled");
+            return;
+        }
+
+        mainHandler.post(() -> {
+            if (cancelledWakeWordSessionIds.remove(sessionId)) {
+                pendingWakeWordSessionIds.remove(sessionId);
+                call.reject("Wake word start was cancelled");
+                return;
+            }
+            if (
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                !SpeechRecognizer.isOnDeviceRecognitionAvailable(getContext())
+            ) {
+                pendingWakeWordSessionIds.remove(sessionId);
+                JSObject result = new JSObject();
+                result.put("supported", false);
+                result.put("state", "unsupported");
+                call.resolve(result);
+                publishWakeWordState(
+                    sessionId,
+                    "unsupported",
+                    "On-device speech recognition is unavailable"
+                );
+                return;
+            }
+
+            try {
+                stopWakeWordInternal("", false);
+                SpeechRecognizer recognizer =
+                    SpeechRecognizer.createOnDeviceSpeechRecognizer(
+                        getContext()
+                    );
+                synchronized (wakeWordLock) {
+                    wakeWordRecognizer = recognizer;
+                    wakeWordSessionId = sessionId;
+                    wakeWordRetryCount = 0;
+                }
+                pendingWakeWordSessionIds.remove(sessionId);
+                recognizer.setRecognitionListener(
+                    wakeWordListener(sessionId, phrase)
+                );
+                startWakeWordListening(sessionId);
+                JSObject result = new JSObject();
+                result.put("supported", true);
+                result.put("state", "listening");
+                call.resolve(result);
+            } catch (RuntimeException error) {
+                pendingWakeWordSessionIds.remove(sessionId);
+                stopWakeWordInternal(sessionId, false);
+                call.reject(
+                    "Could not start on-device wake word (" +
+                    error.getClass().getSimpleName() +
+                    ")"
+                );
+            }
+        });
+    }
+
+    @PluginMethod
+    public void stopWakeWord(PluginCall call) {
+        String sessionId = call.getString("sessionId", "").trim();
+        if (!sessionId.matches("[A-Za-z0-9._:-]{1,192}")) {
+            call.reject("A valid wake word session is required");
+            return;
+        }
+        if (pendingWakeWordSessionIds.contains(sessionId)) {
+            cancelledWakeWordSessionIds.add(sessionId);
+        }
+        mainHandler.post(() -> {
+            stopWakeWordInternal(sessionId, true);
+            call.resolve();
+        });
+    }
+
+    private RecognitionListener wakeWordListener(
+        final String sessionId,
+        final String phrase
+    ) {
+        return new RecognitionListener() {
+            @Override
+            public void onReadyForSpeech(Bundle params) {
+                synchronized (wakeWordLock) {
+                    if (!sessionId.equals(wakeWordSessionId)) return;
+                    wakeWordRetryCount = 0;
+                }
+                publishWakeWordState(sessionId, "listening", null);
+            }
+
+            @Override
+            public void onBeginningOfSpeech() {}
+
+            @Override
+            public void onRmsChanged(float rmsdB) {}
+
+            @Override
+            public void onBufferReceived(byte[] buffer) {}
+
+            @Override
+            public void onEndOfSpeech() {}
+
+            @Override
+            public void onError(int error) {
+                if (!isActiveWakeWordSession(sessionId)) return;
+                if (
+                    error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+                ) {
+                    publishWakeWordState(
+                        sessionId,
+                        "error",
+                        "Microphone permission was removed"
+                    );
+                    stopWakeWordInternal(sessionId, false);
+                    return;
+                }
+                scheduleWakeWordRestart(sessionId, error);
+            }
+
+            @Override
+            public void onResults(Bundle results) {
+                if (
+                    detectWakeWord(sessionId, phrase, recognitionRows(results))
+                ) {
+                    return;
+                }
+                synchronized (wakeWordLock) {
+                    if (!sessionId.equals(wakeWordSessionId)) return;
+                    wakeWordRetryCount = 0;
+                }
+                scheduleWakeWordRestart(sessionId, 0);
+            }
+
+            @Override
+            public void onPartialResults(Bundle partialResults) {
+                detectWakeWord(
+                    sessionId,
+                    phrase,
+                    recognitionRows(partialResults)
+                );
+            }
+
+            @Override
+            public void onEvent(int eventType, Bundle params) {}
+        };
+    }
+
+    private ArrayList<String> recognitionRows(Bundle bundle) {
+        if (bundle == null) return new ArrayList<>();
+        ArrayList<String> rows = bundle.getStringArrayList(
+            SpeechRecognizer.RESULTS_RECOGNITION
+        );
+        return rows == null ? new ArrayList<>() : rows;
+    }
+
+    private boolean detectWakeWord(
+        String sessionId,
+        String phrase,
+        ArrayList<String> rows
+    ) {
+        if (!isActiveWakeWordSession(sessionId)) return false;
+        for (String row : rows) {
+            String normalized = normalizeWakeWords(row);
+            if (
+                normalized.equals(phrase) ||
+                normalized.startsWith(phrase + " ") ||
+                normalized.endsWith(" " + phrase) ||
+                normalized.contains(" " + phrase + " ")
+            ) {
+                stopWakeWordInternal(sessionId, true);
+                JSObject event = new JSObject();
+                event.put("sessionId", sessionId);
+                event.put("phrase", phrase);
+                event.put("transcript", row == null ? "" : row);
+                notifyListeners("wakeWordDetected", event);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void scheduleWakeWordRestart(String sessionId, int errorCode) {
+        final int retry;
+        synchronized (wakeWordLock) {
+            if (!sessionId.equals(wakeWordSessionId)) return;
+            retry = ++wakeWordRetryCount;
+            if (wakeWordRestart != null) {
+                mainHandler.removeCallbacks(wakeWordRestart);
+            }
+            if (retry > 5) {
+                wakeWordRestart = null;
+            } else {
+                wakeWordRestart = () -> startWakeWordListening(sessionId);
+                mainHandler.postDelayed(
+                    wakeWordRestart,
+                    errorCode == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                        ? 900
+                        : 350
+                );
+                return;
+            }
+        }
+        publishWakeWordState(
+            sessionId,
+            "error",
+            "On-device wake word recognition stopped"
+        );
+        stopWakeWordInternal(sessionId, false);
+    }
+
+    private void startWakeWordListening(String sessionId) {
+        final SpeechRecognizer recognizer;
+        synchronized (wakeWordLock) {
+            if (!sessionId.equals(wakeWordSessionId)) return;
+            recognizer = wakeWordRecognizer;
+            wakeWordRestart = null;
+        }
+        if (recognizer == null) return;
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
+            .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+        try {
+            recognizer.startListening(intent);
+        } catch (RuntimeException error) {
+            scheduleWakeWordRestart(
+                sessionId,
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+            );
+        }
+    }
+
+    private boolean isActiveWakeWordSession(String sessionId) {
+        synchronized (wakeWordLock) {
+            return (
+                wakeWordRecognizer != null &&
+                sessionId.equals(wakeWordSessionId)
+            );
+        }
+    }
+
+    private void stopWakeWordInternal(
+        String expectedSessionId,
+        boolean publish
+    ) {
+        final SpeechRecognizer recognizer;
+        final String stoppedSessionId;
+        synchronized (wakeWordLock) {
+            if (
+                !expectedSessionId.isEmpty() &&
+                !expectedSessionId.equals(wakeWordSessionId)
+            ) {
+                return;
+            }
+            recognizer = wakeWordRecognizer;
+            stoppedSessionId = wakeWordSessionId;
+            if (wakeWordRestart != null) {
+                mainHandler.removeCallbacks(wakeWordRestart);
+            }
+            wakeWordRestart = null;
+            wakeWordRecognizer = null;
+            wakeWordSessionId = "";
+            wakeWordRetryCount = 0;
+        }
+        if (recognizer != null) {
+            try {
+                recognizer.cancel();
+            } catch (RuntimeException ignored) {
+            }
+            try {
+                recognizer.destroy();
+            } catch (RuntimeException ignored) {
+            }
+        }
+        if (publish && !stoppedSessionId.isEmpty()) {
+            publishWakeWordState(stoppedSessionId, "stopped", null);
+        }
+    }
+
+    private void publishWakeWordState(
+        String sessionId,
+        String state,
+        String error
+    ) {
+        JSObject event = new JSObject();
+        event.put("sessionId", sessionId);
+        event.put("state", state);
+        if (error != null && !error.isEmpty()) {
+            event.put("error", error);
+        }
+        notifyListeners("wakeWordState", event);
+    }
+
+    private static String normalizeWakeWords(String value) {
+        if (value == null) return "";
+        return value
+            .toLowerCase(Locale.US)
+            .replaceAll("[^\\p{L}\\p{N}]+", " ")
+            .trim()
+            .replaceAll("\\s+", " ");
+    }
+
     private Intent resolveSettingsIntent() {
         String[] actions = new String[] {
             "android.settings.WIRELESS_DEBUGGING_SETTINGS",
@@ -1573,8 +1943,42 @@ public class HermesNativePlugin extends Plugin {
         return "settings";
     }
 
+    @PluginMethod
+    public void openExternalUrl(PluginCall call) {
+        String url = call.getString("url", "").trim();
+        if (!requireSecureUrl(call, url, false)) {
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            if (
+                intent.resolveActivity(getContext().getPackageManager()) ==
+                null
+            ) {
+                call.reject("No browser is available for this sign-in");
+                return;
+            }
+            Activity activity = getActivity();
+            if (activity == null) {
+                call.reject("Hermes Mobile is not in the foreground");
+                return;
+            }
+            activity.startActivity(intent);
+            JSObject result = new JSObject();
+            result.put("opened", true);
+            call.resolve(result);
+        } catch (RuntimeException error) {
+            call.reject(
+                "Could not open the sign-in page (" +
+                error.getClass().getSimpleName() +
+                ")"
+            );
+        }
+    }
+
     @Override
     protected void handleOnDestroy() {
+        stopWakeWordInternal("", false);
         synchronized (recorderLock) {
             releaseRecorderLocked();
             deleteRecordingFileLocked();
@@ -1587,6 +1991,8 @@ public class HermesNativePlugin extends Plugin {
         sockets.clear();
         retainedSocketIds.clear();
         cancelledSocketIds.clear();
+        cancelledWakeWordSessionIds.clear();
+        pendingWakeWordSessionIds.clear();
         ioExecutor.shutdownNow();
         super.handleOnDestroy();
     }

@@ -75,11 +75,14 @@ export function FilesView({
   const previewRef = useRef<HTMLDivElement | null>(null)
 
   const loadDirectory = useCallback(
-    async (targetPath: string) => {
+    async (
+      targetPath: string,
+      options: { preservePreview?: boolean } = {},
+    ) => {
       if (!transport || !connected) return
       setLoading(true)
       setError('')
-      setSelected(null)
+      if (!options.preservePreview) setSelected(null)
       try {
         let resolved = targetPath.trim()
         if (!resolved) {
@@ -115,8 +118,17 @@ export function FilesView({
     setPathInput(stored)
     setEntries([])
     setSelected(null)
-    if (connected) void loadDirectory(stored)
-  }, [connected, connectionId, initialPath, loadDirectory])
+    setContent('')
+    setSavedContent('')
+    setError('')
+  }, [connectionId, initialPath])
+
+  useEffect(() => {
+    if (connected) void loadDirectory(path, { preservePreview: true })
+    // Reconnecting refreshes the directory without clearing an already-open
+    // preview. Directory navigation still closes the old document explicitly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, connectionId, transport])
 
   useEffect(() => {
     if (!selected) return
