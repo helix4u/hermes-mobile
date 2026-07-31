@@ -3,6 +3,7 @@ import {
   BUILTIN_ALIEN_CHILD_INFO,
   BUILTIN_ALIEN_CHILD_PERSONALITY,
   compactPetBubbleText,
+  createPetCommentaryRequestGate,
   deriveMobilePetState,
   effectivePetSpeech,
   normalizePetPreferences,
@@ -108,6 +109,35 @@ describe('mobile pet companion state', () => {
     expect(petTurnActiveAfterEvent(true, 'tool.complete')).toBe(true)
     expect(petTurnActiveAfterEvent(true, 'reasoning.delta')).toBe(true)
     expect(petTurnActiveAfterEvent(true, 'message.complete')).toBe(false)
+  })
+
+  it('invalidates late automatic commentary and never queues overlapping requests', () => {
+    const gate = createPetCommentaryRequestGate()
+    const first = gate.begin(true, true)
+
+    expect(first).not.toBeNull()
+    expect(gate.begin(true, true)).toBeNull()
+    expect(gate.canPublish(first!, true, true)).toBe(true)
+
+    gate.cancel()
+    expect(gate.canPublish(first!, true, false)).toBe(false)
+
+    const nextTurn = gate.begin(true, true)
+    expect(nextTurn).not.toBeNull()
+    expect(nextTurn).not.toBe(first)
+    gate.finish(first!)
+    expect(gate.begin(true, true)).toBeNull()
+    gate.finish(nextTurn!)
+    expect(gate.begin(true, true)).not.toBeNull()
+  })
+
+  it('allows manual pet tests while idle but rejects automatic idle requests', () => {
+    const gate = createPetCommentaryRequestGate()
+
+    expect(gate.begin(true, false)).toBeNull()
+    const manual = gate.begin(false, false)
+    expect(manual).not.toBeNull()
+    expect(gate.canPublish(manual!, false, false)).toBe(true)
   })
 
   it('reattaches pet sidechat when the runtime session was cleared', async () => {

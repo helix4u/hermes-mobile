@@ -776,9 +776,9 @@ Acceptance:
 
 ### Milestone 5I: Pet sidechat and reliable companion motion
 
-Current milestone: implementation, Windows host refresh, Mobile send/observer
-repair, and rest-window drag repair complete; replacement APK physical
-acceptance pending
+Current milestone: implementation, Windows host refresh, Mobile send/observer,
+rest-window drag, border-aware roaming, and post-turn commentary cancellation
+complete; replacement APK installed and physical acceptance pending
 
 Acceptance:
 
@@ -881,6 +881,20 @@ Acceptance:
       from snapping the sprite to a stale frame during a turn.
 - [x] Raise the roaming movement floor from seven to twelve pixels per second
       while retaining short walks, long walks, and varied rest windows.
+- [x] Keep automatic roaming inside a twelve-pixel border inset, force the next
+      leg inward before the pet reaches an edge, reject near-zero edge legs,
+      and steer vertical drift away from the top and bottom. Direct dragging
+      remains free to place the pet at the screen edge.
+- [x] Scope every automatic commentary request to the active turn, discard a
+      late result after the terminal response or explicit Stop, and refuse
+      overlapping automatic requests so observer speech cannot become a
+      post-turn backlog.
+- [x] Make the main turn Stop action immediately clear current and waiting
+      speech, invalidate pet commentary, clear its pending timers and bubble,
+      and mark the local turn inactive before waiting for the server interrupt.
+- [x] Skip automatic pet speech while another speech request is already active
+      instead of adding ambient commentary behind assistant, Reader, sidechat,
+      or earlier pet audio.
 - [x] Reject late pet commentary, sidechat, and Desktop speech-profile results
       from a previously selected server. Read the current pet speech profile
       when a response actually arrives and reapply the selected client playback
@@ -1100,7 +1114,8 @@ Acceptance:
 ### Milestone 5N: Mobile provider onboarding and wake word
 
 Current milestone: hands-free wake capture, cue-enabled Android build, and
-installation complete; physical conversational acceptance pending
+installation complete; border-aware pet replacement built and physical
+conversational acceptance pending
 
 Acceptance:
 
@@ -1354,6 +1369,42 @@ explicitly selected Android device. Android reports package
 `lastUpdateTime=2026-07-31 02:41:36`. Saved connections, application data, and
 Android Keystore state were preserved. No phone screen or application content
 was opened or inspected.
+
+Automatic Mobile pet roaming now reserves a twelve-pixel lane inside every
+stage border. A pet placed near the left or right edge is forced to turn inward,
+vertical drift reverses near the top and bottom, and a clamped destination
+cannot become a tiny run-in-place leg. Direct dragging can still place Alien
+Child at an edge; the next automatic leg moves him away from it.
+
+The focused Mobile pet suite passed 11 tests. TypeScript typecheck, Vite
+production build, Capacitor Android sync, forced Android debug assembly with
+Android Studio JDK 21, and focused `git diff --check` passed.
+
+Latest border-aware pet and post-turn commentary-cancellation debug APK:
+
+`client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Size: `126,879,719` bytes
+
+SHA-256:
+`50EC6A2E1A67EBF4CD4DF2FAFDF730A96C8B066FE91734C8BD49C834623C5090`
+
+The replacement installed successfully with `adb install -r` on the explicitly
+authorized Android test device. Android reports
+package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+`lastUpdateTime=2026-07-31 03:20:24`. Saved connections, application data, and
+Android Keystore state were preserved. No phone screen or application content
+was opened or inspected.
+
+Physically confirm both behaviors: leave or drag Alien Child near each stage
+edge and verify the next automatic leg turns inward; then run a tool-heavy turn,
+stop it while commentary or speech is pending, and confirm current audio ends,
+waiting audio is discarded, no late pet remark appears, and the next turn can
+comment normally.
+
+The complete Mobile suite passes 51 files and 236 tests. TypeScript typecheck,
+Vite production build, Capacitor Android sync, forced Android debug assembly
+with Android Studio JDK 21, and focused `git diff --check` pass.
 
 Then continue validating and packaging the latest Milestone 5O speech and
 navigation slice. The Reader queue now has a true pause/resume state, microphone

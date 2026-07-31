@@ -2,11 +2,55 @@
 
 Last updated: 2026-07-31
 
-Current milestone: cue-enabled hands-free openWakeWord capture built and
-installed; physical conversational acceptance pending
+Current milestone: cue-enabled hands-free openWakeWord capture and border-aware
+Mobile pet post-turn cancellation replacement installed; physical acceptance
+pending
 
 Current state:
 
+- Automatic pet commentary now has a turn-scoped request gate. Only one
+  automatic request may be active, and a terminal `message.complete`, explicit
+  Stop, connection change, or turn transition invalidates its result before it
+  can publish, persist, show a bubble, or enqueue speech.
+- The main red Stop action now immediately calls the voice cancellation
+  authority before the gateway interrupt. It increments the playback
+  generation, clears the serial speech queue, stops current audio, clears
+  commentary timers and the temporary bubble, and marks the turn inactive even
+  when the remote interrupt is slow or unavailable.
+- Ambient generated commentary does not enter the speech queue while another
+  assistant, Reader, sidechat, or pet request is already speaking or
+  synthesizing. Manual tap interactions and explicit sidechat requests retain
+  their existing serialized behavior.
+- The complete Mobile suite passes 51 files and 236 tests. The focused pet,
+  voice-queue, and border-aware motion slice passes 3 files and 45 tests.
+  TypeScript typecheck, Vite production build, Capacitor Android sync, forced
+  Android debug assembly with Android Studio JDK 21, and focused
+  `git diff --check` pass.
+- Combined border-aware and commentary-cancellation APK size: 126,879,719
+  bytes. SHA-256:
+  `50EC6A2E1A67EBF4CD4DF2FAFDF730A96C8B066FE91734C8BD49C834623C5090`.
+- The combined replacement installed successfully with `adb install -r` on the
+  explicitly authorized Android test device. Android
+  reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-31 03:20:24`. Saved connections, application data,
+  and Android Keystore state were preserved. No phone screen or application
+  content was opened or inspected.
+- Automatic pet roaming now treats the stage border as a turn boundary instead
+  of choosing an outward direction and clamping the destination onto the edge.
+- Automatic destinations retain a twelve-pixel inset on every side. The
+  horizontal planner forces an inward leg inside the edge turn zone, rejects
+  tiny run-in-place legs, and steers vertical drift away from the nearest top
+  or bottom border.
+- Direct manipulation is unchanged. The user can drag Alien Child to any stage
+  edge, and the next automatic leg deliberately walks back into the usable
+  area.
+- Focused Mobile pet tests pass 11 cases. TypeScript typecheck, Vite production
+  build, Capacitor Android sync, forced Android debug assembly with Android
+  Studio JDK 21, and focused `git diff --check` pass.
+- Border-aware pet APK size: 126,879,403 bytes. SHA-256:
+  `84BD97B8BF0394223C410DE44FE6106C4D97590241E05F464C133E8A32E23F35`.
+- The border-aware replacement APK is built but not installed. The currently
+  installed phone build remains the earlier cue-enabled wake capture package.
 - Mobile wake-word detection now runs the same openWakeWord `hey_hermes` model
   and shared ONNX feature stack as Hermes Desktop on this Windows workstation.
   The three packaged assets are byte-identical to Desktop's active model files.
@@ -1164,6 +1208,11 @@ active turn, and disconnection, then resumes on the same foreground idle
 connection without a recognizer restart loop. Exercise one supported API-key
 or OAuth setup and one Reader script whose source appendix must remain unspoken
 and absent from the saved podcast.
+
+After installing the border-aware replacement, leave or drag Alien Child near
+the left, right, top, and bottom stage borders. Wait for automatic roaming and
+confirm the next leg turns into the usable area without running in place
+against the edge. Direct dragging must remain available at every border.
 
 On the installed adaptive-TTS build, compare 0.70x, 1.00x, and 1.50x through
 an ordinary assistant Listen action, auto-speak, and pet speech. Then play the

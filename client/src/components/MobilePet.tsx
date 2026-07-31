@@ -36,6 +36,9 @@ type PetGestureInput = 'pointer' | 'touch'
 const PET_SIZE = 72
 const DRAG_SLOP = 4
 export const MIN_PET_ROAM_SPEED = 12
+export const PET_ROAM_BORDER_INSET = 12
+const PET_ROAM_EDGE_TURN_ZONE = 42
+const MIN_PET_ROAM_LEG = 36
 const BUBBLE_GAP = 8
 const BUBBLE_MARGIN = 12
 const BUBBLE_MAX_WIDTH = 224
@@ -103,13 +106,42 @@ export function nextPetRoamStep(
   bounds: { width: number; height: number },
   random = Math.random,
 ) {
-  const maxX = Math.max(0, bounds.width - PET_SIZE)
-  const maxY = Math.max(0, bounds.height - PET_SIZE)
+  const rawMaxX = Math.max(0, bounds.width - PET_SIZE)
+  const rawMaxY = Math.max(0, bounds.height - PET_SIZE)
+  const horizontalInset = Math.min(PET_ROAM_BORDER_INSET, rawMaxX / 2)
+  const verticalInset = Math.min(PET_ROAM_BORDER_INSET, rawMaxY / 2)
+  const minX = horizontalInset
+  const maxX = Math.max(minX, rawMaxX - horizontalInset)
+  const minY = verticalInset
+  const maxY = Math.max(minY, rawMaxY - verticalInset)
   const longWalk = random() > 0.68
   const span = longWalk ? Math.max(90, maxX * 0.7) : 45 + random() * 95
-  const sign = random() > 0.5 ? 1 : -1
-  const x = Math.max(0, Math.min(maxX, current.x + span * sign))
-  const y = Math.max(0, Math.min(maxY, current.y + (random() - 0.5) * 42))
+  const preferredSign = random() > 0.5 ? 1 : -1
+  const turnZone = Math.min(
+    PET_ROAM_EDGE_TURN_ZONE,
+    Math.max(0, (maxX - minX) / 3),
+  )
+  let sign = preferredSign
+  if (current.x <= minX + turnZone) sign = 1
+  else if (current.x >= maxX - turnZone) sign = -1
+
+  const clampX = (value: number) => Math.max(minX, Math.min(maxX, value))
+  let x = clampX(current.x + span * sign)
+  if (
+    maxX - minX >= MIN_PET_ROAM_LEG &&
+    Math.abs(x - current.x) < MIN_PET_ROAM_LEG
+  ) {
+    sign = current.x >= (minX + maxX) / 2 ? -1 : 1
+    x = clampX(current.x + Math.max(MIN_PET_ROAM_LEG, span) * sign)
+  }
+
+  let verticalDelta = (random() - 0.5) * 42
+  if (current.y <= minY + PET_ROAM_BORDER_INSET) {
+    verticalDelta = Math.abs(verticalDelta)
+  } else if (current.y >= maxY - PET_ROAM_BORDER_INSET) {
+    verticalDelta = -Math.abs(verticalDelta)
+  }
+  const y = Math.max(minY, Math.min(maxY, current.y + verticalDelta))
   const distance = Math.hypot(x - current.x, y - current.y)
   const plannedDuration =
     (longWalk ? 10_000 : 7_000) + random() * 6_000
