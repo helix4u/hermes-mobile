@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GatewayEvent } from './protocol/types'
 import {
   adaptiveSpeechBufferAhead,
+  adaptiveSpeechChunkChars,
   adaptiveStartupSpeechChars,
   configuredSpeechTimingProvider,
   loadSpeechTimingStore,
@@ -350,11 +351,16 @@ export async function runBufferedSpeechQueue<T>(
 export function expandSpeechSequence(
   items: SpeechSequenceItem[],
   firstChunkChars?: number,
+  laterChunkChars?: number,
 ): SpeechSequenceItem[] {
   return items.flatMap((item, itemIndex) =>
     (
       itemIndex === 0 && firstChunkChars !== undefined
-        ? splitSpeechTextForStartup(item.text, firstChunkChars)
+        ? splitSpeechTextForStartup(
+            item.text,
+            firstChunkChars,
+            laterChunkChars,
+          )
         : splitSpeechText(item.text)
     ).map((text, chunkIndex) => ({
       ...item,
@@ -572,7 +578,7 @@ export function splitSpeechTextForStartup(
   const safeFirstCap = Math.max(160, Math.floor(firstMaxChars))
   if (cleanText.length <= safeFirstCap) return [cleanText]
 
-  const minimumBoundary = Math.floor(safeFirstCap * 0.5)
+  const minimumBoundary = Math.floor(safeFirstCap * 0.72)
   let splitAt = -1
   for (let index = safeFirstCap; index >= minimumBoundary; index -= 1) {
     const character = cleanText[index - 1]
@@ -964,12 +970,24 @@ export function useVoice({
       const requestedFirstProvider = configuredSpeechTimingProvider(
         items[0]?.ttsConfig,
       )
+      const requestedPlaybackRate = speechPlaybackRate(items[0])
+      const timingStore = loadSpeechTimingStore(connectionId)
+      const startupChars = adaptiveBuffering
+        ? adaptiveStartupSpeechChars(
+            timingStore,
+            requestedFirstProvider,
+            requestedPlaybackRate,
+          )
+        : undefined
       const queue = expandSpeechSequence(
         items,
-        adaptiveBuffering
-          ? adaptiveStartupSpeechChars(
-              loadSpeechTimingStore(connectionId),
+        startupChars,
+        adaptiveBuffering && startupChars !== undefined
+          ? adaptiveSpeechChunkChars(
+              timingStore,
               requestedFirstProvider,
+              requestedPlaybackRate,
+              startupChars,
             )
           : undefined,
       )
@@ -990,7 +1008,7 @@ export function useVoice({
               bufferAhead: adaptiveBuffering
                 ? 0
                 : normalizeSpeechSequenceBufferAhead(options.bufferAhead),
-              initialBufferAhead: adaptiveBuffering ? 0 : undefined,
+              initialBufferAhead: adaptiveBuffering ? 1 : undefined,
               bufferAheadFor: adaptiveBuffering
                 ? (item, speech) =>
                     adaptiveSpeechBufferAhead(

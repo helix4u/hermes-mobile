@@ -510,6 +510,12 @@ Acceptance:
       synthesis and audio-duration averages. Persist only numeric timing
       aggregates, never speech text, and leave Reader's explicit buffer setting
       authoritative.
+- [x] Keep adaptive startup playback ahead of slow providers at faster client
+      playback rates: never shrink a slow provider to a tiny opener, begin the
+      second synthesis alongside the first, preserve most of the requested
+      opening runway at sentence boundaries, and use learned synthesis/audio
+      throughput to grow the opener, reduce later chunk size, and increase
+      lookahead.
 - [x] Reconcile `message.interim` with `message.complete` by sealing streamed
       interim rows and settling matching, prefix-continuing, or explicitly
       previewed finals in place, while retaining genuinely distinct pre-tool
@@ -1313,19 +1319,37 @@ render steps with monotonic bottom pinning, held the exact manual scroll
 position through a later 520-pixel row resize, and returned to zero bottom
 distance after the user resumed follow.
 
-Latest state-continuity debug APK:
+The adaptive interactive-speech runway repair is also complete. The prior
+estimator made slower providers synthesize a smaller first segment, allowed the
+next segment to jump to 1,800 characters, and did not submit it until the
+opener had finished synthesizing. At 1.50x playback that repeatedly exhausted
+the opening audio before xAI could return the next chunk.
+
+The replacement uses a 700-character 1.00x opening floor and a
+rate-adjusted 1,050-character 1.50x floor. Learned provider timing may grow the
+opener to 1,400 characters, reduce later chunks between 480 and 1,200
+characters, and raise lookahead between 2 and 6. Segment two is submitted
+alongside segment one, before playback begins. The first sentence boundary
+cannot consume more than 28 percent of the planned runway.
+
+Focused speech timing and queue tests passed 2 files and 21 tests. The full
+Mobile suite passed 51 files and 229 tests. TypeScript typecheck, Vite
+production build, Capacitor Android sync, forced debug assembly with Android
+Studio JDK 21, and focused `git diff --check` passed.
+
+Latest adaptive-TTS-runway debug APK:
 
 `client\android\app\build\outputs\apk\debug\app-debug.apk`
 
-Size: `6,099,230` bytes
+Size: `6,099,446` bytes
 
 SHA-256:
-`AB9AF893E2E7352F1CD04881EE4ECAEB01600D396B835CE666030EA5B15FD9DC`
+`73B82D162F00F419FF1362CBFE59652C36222280A4F5EB86B0C1ECC941C7C066`
 
-This transcript-follow replacement APK is installed in place on the explicitly
+This adaptive-TTS-runway replacement APK is installed in place on the explicitly
 selected Samsung SM-S918U through `100.112.167.36:37751`. Android reports
 package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
-`lastUpdateTime=2026-07-30 23:33:59`. The installation used `adb install -r`,
+`lastUpdateTime=2026-07-30 23:51:47`. The installation used `adb install -r`,
 so saved connections, app data, and Android Keystore state were preserved. No
 phone screen or application content was opened or inspected.
 

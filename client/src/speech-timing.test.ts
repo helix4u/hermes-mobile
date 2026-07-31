@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
   adaptiveSpeechBufferAhead,
+  adaptiveSpeechChunkChars,
   adaptiveStartupSpeechChars,
   configuredSpeechTimingProvider,
   DEFAULT_ADAPTIVE_BUFFER_AHEAD,
@@ -57,14 +58,18 @@ describe('connection-scoped speech timing', () => {
     recordSpeechSynthesisTiming('fast', 'openai', 200, 100, storage)
     recordSpeechAudioTiming('fast', 'openai', 5_000, 100, storage)
     const fast = loadSpeechTimingStore('fast', storage)
-    expect(adaptiveStartupSpeechChars(fast, 'openai')).toBe(700)
-    expect(adaptiveSpeechBufferAhead(fast, 'openai', 1.5)).toBe(1)
+    expect(adaptiveStartupSpeechChars(fast, 'openai', 1.5)).toBe(1_050)
+    expect(adaptiveSpeechChunkChars(fast, 'openai', 1.5, 1_050)).toBe(
+      1_200,
+    )
+    expect(adaptiveSpeechBufferAhead(fast, 'openai', 1.5)).toBe(2)
 
     recordSpeechSynthesisTiming('slow', 'qwen', 2_000, 100, storage)
     recordSpeechAudioTiming('slow', 'qwen', 1_000, 100, storage)
     const slow = loadSpeechTimingStore('slow', storage)
-    expect(adaptiveStartupSpeechChars(slow, 'qwen')).toBe(180)
-    expect(adaptiveSpeechBufferAhead(slow, 'qwen', 1.5)).toBe(3)
+    expect(adaptiveStartupSpeechChars(slow, 'qwen', 1.5)).toBe(1_400)
+    expect(adaptiveSpeechChunkChars(slow, 'qwen', 1.5, 1_400)).toBe(480)
+    expect(adaptiveSpeechBufferAhead(slow, 'qwen', 1.5)).toBe(4)
   })
 
   test('keeps safe defaults until the selected provider has enough history', () => {
@@ -72,6 +77,8 @@ describe('connection-scoped speech timing', () => {
     expect(adaptiveStartupSpeechChars(empty, 'edge')).toBe(
       DEFAULT_STARTUP_SPEECH_CHARS,
     )
+    expect(adaptiveStartupSpeechChars(empty, 'edge', 1.5)).toBe(1_050)
+    expect(adaptiveSpeechChunkChars(empty, 'edge', 1.5, 1_050)).toBe(900)
     expect(adaptiveSpeechBufferAhead(empty, 'edge', 1.5)).toBe(
       DEFAULT_ADAPTIVE_BUFFER_AHEAD,
     )

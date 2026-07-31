@@ -7,6 +7,30 @@ session browsing implemented and packaged; physical Android acceptance pending
 
 Current state:
 
+- Adaptive interactive speech no longer rewards a slow provider with a tiny
+  first segment. The default opener is 700 characters at 1.00x and scales to
+  1,050 characters at 1.50x before provider history is available.
+- Learned synthesis and raw audio-duration timing may grow the opener to 1,400
+  characters. It independently reduces later chunks into the sustainable 480
+  through 1,200 range and raises adaptive lookahead between 2 and 6 when the
+  provider is losing ground to the selected playback rate.
+- The second synthesis request now starts alongside the first instead of
+  waiting for the opener to return. Startup sentence-boundary selection retains
+  at least 72 percent of the planned runway, preventing an early short sentence
+  from recreating the gap.
+- Focused speech timing and queue tests pass 2 files and 21 tests. The full
+  Mobile suite passes 51 files and 229 tests. TypeScript typecheck, Vite
+  production build, Capacitor Android sync, forced debug assembly with Android
+  Studio JDK 21, and focused `git diff --check` pass.
+- Latest adaptive-TTS-runway APK size: 6,099,446 bytes. SHA-256:
+  `73B82D162F00F419FF1362CBFE59652C36222280A4F5EB86B0C1ECC941C7C066`.
+- The replacement APK installed successfully in place on the explicitly
+  selected Samsung SM-S918U through `100.112.167.36:37751`. Android reports
+  package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
+  `lastUpdateTime=2026-07-30 23:51:47`. The installation used
+  `adb install -r`, so saved connections, app data, and Android Keystore state
+  were preserved. No phone screen or application content was opened or
+  inspected.
 - Reader playback now has an independent paused state. Starting ordinary Chat
   or pet-sidechat STT while Reader is speaking pauses the current audio without
   incrementing the speech generation or clearing buffered Reader chunks.
