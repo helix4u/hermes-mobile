@@ -1,5 +1,12 @@
-import { Children, isValidElement, type ReactNode, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import {
+  Children,
+  isValidElement,
+  type ReactNode,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { writeClipboardText } from '../clipboard'
 import { detectEmbed, RichEmbed } from '../embeds'
@@ -16,6 +23,7 @@ import { RemoteMediaAttachment } from './RemoteMediaAttachment'
 interface MarkdownContentProps {
   children: string
   className?: string
+  connectionId?: string
   onOpenDocumentPreviewer?: (document: PreviewDocument) => void
   onOpenDocumentReader?: (document: PreviewDocument) => void
   resolveMediaMarkers?: boolean
@@ -91,6 +99,7 @@ function MediaPlayer({
 export function MarkdownContent({
   children,
   className = '',
+  connectionId = '',
   onOpenDocumentPreviewer,
   onOpenDocumentReader,
   resolveMediaMarkers = false,
@@ -99,82 +108,99 @@ export function MarkdownContent({
   const renderedChildren = resolveMediaMarkers
     ? renderMediaMarkers(children)
     : children
+  const renderContext = useRef({
+    connectionId,
+    onOpenDocumentPreviewer,
+    onOpenDocumentReader,
+    transport,
+  })
+  renderContext.current = {
+    connectionId,
+    onOpenDocumentPreviewer,
+    onOpenDocumentReader,
+    transport,
+  }
+  const components = useMemo<Components>(
+    () => ({
+      a({ href, children: linkChildren, ...props }) {
+        const safeHref = safeMarkdownUrl(href)
+        if (!safeHref) return <span>{linkChildren}</span>
+        const remoteMediaPath = mediaPathFromHref(safeHref)
+        if (remoteMediaPath) {
+          const context = renderContext.current
+          return (
+            <RemoteMediaAttachment
+              connectionId={context.connectionId}
+              key={`${context.connectionId}:${remoteMediaPath}`}
+              onOpenPreviewer={context.onOpenDocumentPreviewer}
+              onOpenReader={context.onOpenDocumentReader}
+              path={remoteMediaPath}
+              transport={context.transport}
+            />
+          )
+        }
+        const label = nodeText(linkChildren).trim()
+        const isBareLink = label === safeHref
+        const media = previewMediaInfo(safeHref)
+        if (
+          isBareLink &&
+          media &&
+          (media.kind === 'audio' || media.kind === 'video')
+        ) {
+          return (
+            <MediaPlayer
+              kind={media.kind}
+              name={safeHref.split('/').pop() || media.kind}
+              src={safeHref}
+            />
+          )
+        }
+        const embed = isBareLink ? detectEmbed(safeHref) : null
+        if (embed) return <RichEmbed descriptor={embed} />
+        return (
+          <a
+            {...props}
+            href={safeHref}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            {linkChildren}
+          </a>
+        )
+      },
+      img({ src, alt }) {
+        const safeSrc = safeMarkdownUrl(src, true)
+        if (!safeSrc) return alt ? <span>[{alt}]</span> : null
+        const media = previewMediaInfo(safeSrc)
+        if (media && (media.kind === 'audio' || media.kind === 'video')) {
+          return (
+            <MediaPlayer
+              kind={media.kind}
+              name={alt || safeSrc.split('/').pop() || media.kind}
+              src={safeSrc}
+            />
+          )
+        }
+        return <ImagePreview alt={alt || ''} showHint={false} src={safeSrc} />
+      },
+      pre({ children: codeChildren }) {
+        return <CodeBlock>{codeChildren}</CodeBlock>
+      },
+      hr() {
+        // CLI presentation separators are not transcript content. Rendering
+        // them as rules made live activity look like empty placeholder rows.
+        return null
+      },
+    }),
+    [],
+  )
 
   return (
     <div className={`markdown-body ${className}`.trim()}>
       <ReactMarkdown
         skipHtml
         remarkPlugins={[remarkGfm]}
-        components={{
-          a({ href, children: linkChildren, ...props }) {
-            const safeHref = safeMarkdownUrl(href)
-            if (!safeHref) return <span>{linkChildren}</span>
-            const remoteMediaPath = mediaPathFromHref(safeHref)
-            if (remoteMediaPath) {
-              return (
-                <RemoteMediaAttachment
-                  onOpenPreviewer={onOpenDocumentPreviewer}
-                  onOpenReader={onOpenDocumentReader}
-                  path={remoteMediaPath}
-                  transport={transport}
-                />
-              )
-            }
-            const label = nodeText(linkChildren).trim()
-            const isBareLink = label === safeHref
-            const media = previewMediaInfo(safeHref)
-            if (
-              isBareLink &&
-              media &&
-              (media.kind === 'audio' || media.kind === 'video')
-            ) {
-              return (
-                <MediaPlayer
-                  kind={media.kind}
-                  name={safeHref.split('/').pop() || media.kind}
-                  src={safeHref}
-                />
-              )
-            }
-            const embed = isBareLink ? detectEmbed(safeHref) : null
-            if (embed) return <RichEmbed descriptor={embed} />
-            return (
-              <a
-                {...props}
-                href={safeHref}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                {linkChildren}
-              </a>
-            )
-          },
-          img({ src, alt, ...props }) {
-            const safeSrc = safeMarkdownUrl(src, true)
-            if (!safeSrc) return alt ? <span>[{alt}]</span> : null
-            const media = previewMediaInfo(safeSrc)
-            if (media && (media.kind === 'audio' || media.kind === 'video')) {
-              return (
-                <MediaPlayer
-                  kind={media.kind}
-                  name={alt || safeSrc.split('/').pop() || media.kind}
-                  src={safeSrc}
-                />
-              )
-            }
-            return (
-              <ImagePreview alt={alt || ''} showHint={false} src={safeSrc} />
-            )
-          },
-          pre({ children: codeChildren }) {
-            return <CodeBlock>{codeChildren}</CodeBlock>
-          },
-          hr() {
-            // CLI presentation separators are not transcript content. Rendering
-            // them as rules made live activity look like empty placeholder rows.
-            return null
-          },
-        }}
+        components={components}
       >
         {renderedChildren}
       </ReactMarkdown>

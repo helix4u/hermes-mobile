@@ -70,7 +70,7 @@ describe('MarkdownContent', () => {
     )
 
     expect(html).toContain('Here it is.')
-    expect(html).toContain('Loading generated.png')
+    expect(html).toContain('Reconnect to load this generated file')
     expect(html).toContain('remote-media-status')
     expect(html).not.toContain('C:\\Users')
     expect(html).not.toContain('MEDIA:')

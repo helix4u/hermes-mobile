@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  loadPreviewDocument,
   previewMediaInfo,
   previewName,
   type PreviewDocument,
 } from '../preview'
+import {
+  loadRemotePreview,
+  peekRemotePreview,
+  remotePreviewCacheKey,
+} from '../remote-preview-cache'
 import type { HermesTransport } from '../transport/hermes-transport'
 import { ImagePreview } from './ImageViewer'
 
 interface RemoteMediaAttachmentProps {
+  connectionId?: string
   onOpenPreviewer?: (document: PreviewDocument) => void
   onOpenReader?: (document: PreviewDocument) => void
   path: string
@@ -117,44 +122,87 @@ export function RemoteTextAttachment({
 }
 
 export function RemoteMediaAttachment({
+  connectionId = '',
   onOpenPreviewer,
   onOpenReader,
   path,
   transport,
 }: RemoteMediaAttachmentProps) {
-  const [document, setDocument] = useState<PreviewDocument | null>(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
+  const scopeId = connectionId || transport?.connection.id || ''
+  const cacheKey = remotePreviewCacheKey(scopeId, path)
+  const direct = directRemoteDocument(path)
+  const cached = direct || peekRemotePreview(scopeId, path)
+  const effectiveTransport =
+    transport && (!scopeId || transport.connection.id === scopeId)
+      ? transport
+      : null
+  const [preview, setPreview] = useState<{
+    document: PreviewDocument | null
+    key: string
+  }>(() => ({ document: cached, key: cacheKey }))
+  const document = preview.key === cacheKey ? preview.document : cached
+  const [error, setError] = useState(() =>
+    direct || cached || effectiveTransport
+      ? ''
+      : 'Reconnect to load this generated file.',
+  )
+  const [loading, setLoading] = useState(
+    () => !direct && !cached && Boolean(effectiveTransport),
+  )
   const [downloading, setDownloading] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const name = previewName(path)
 
   useEffect(() => {
     let cancelled = false
-    const direct = directRemoteDocument(path)
-    if (direct) {
-      setDocument(direct)
+    const directDocument = directRemoteDocument(path)
+    if (directDocument) {
+      setPreview({ document: directDocument, key: cacheKey })
       setError('')
       setLoading(false)
       return () => {
         cancelled = true
       }
     }
-    if (!transport) {
-      setDocument(null)
-      setError('Reconnect to load this generated file.')
+    const cachedDocument = peekRemotePreview(scopeId, path)
+    if (cachedDocument && attempt === 0) {
+      setPreview({ document: cachedDocument, key: cacheKey })
+      setError('')
+      setLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+    if (!effectiveTransport) {
+      setPreview(current =>
+        current.key === cacheKey && current.document
+          ? current
+          : { document: cachedDocument, key: cacheKey },
+      )
+      setError(
+        cachedDocument ? '' : 'Reconnect to load this generated file.',
+      )
       setLoading(false)
       return () => {
         cancelled = true
       }
     }
 
-    setDocument(null)
+    setPreview(current =>
+      current.key === cacheKey && current.document
+        ? current
+        : { document: cachedDocument, key: cacheKey },
+    )
     setError('')
-    setLoading(true)
-    void loadPreviewDocument(transport, path)
+    setLoading(!cachedDocument)
+    void loadRemotePreview(
+      effectiveTransport,
+      scopeId,
+      path,
+      attempt > 0,
+    )
       .then(result => {
-        if (!cancelled) setDocument(result)
+        if (!cancelled) setPreview({ document: result, key: cacheKey })
       })
       .catch(loadError => {
         if (!cancelled) setError(safeLoadError(loadError))
@@ -166,14 +214,14 @@ export function RemoteMediaAttachment({
     return () => {
       cancelled = true
     }
-  }, [attempt, path, transport])
+  }, [attempt, cacheKey, effectiveTransport, path, scopeId])
 
   const download = useCallback(async () => {
-    if (!transport) return
+    if (!effectiveTransport) return
     setDownloading(true)
     setError('')
     try {
-      await transport.downloadFile(
+      await effectiveTransport.downloadFile(
         path,
         name,
         document?.mimeType || previewMediaInfo(path)?.mimeType,
@@ -183,7 +231,7 @@ export function RemoteMediaAttachment({
     } finally {
       setDownloading(false)
     }
-  }, [document?.mimeType, name, path, transport])
+  }, [document?.mimeType, effectiveTransport, name, path])
 
   if (loading) {
     return (
@@ -201,7 +249,7 @@ export function RemoteMediaAttachment({
           <small>{name}</small>
           <button
             className="quiet-button"
-            disabled={downloading || !transport}
+            disabled={downloading || !effectiveTransport}
             type="button"
             onClick={() => void download()}
           >
@@ -221,7 +269,7 @@ export function RemoteMediaAttachment({
           <small>{name}</small>
           <button
             className="quiet-button"
-            disabled={downloading || !transport}
+            disabled={downloading || !effectiveTransport}
             type="button"
             onClick={() => void download()}
           >
@@ -242,7 +290,7 @@ export function RemoteMediaAttachment({
           <small>{name}</small>
           <button
             className="quiet-button"
-            disabled={downloading || !transport}
+            disabled={downloading || !effectiveTransport}
             type="button"
             onClick={() => void download()}
           >
@@ -265,7 +313,7 @@ export function RemoteMediaAttachment({
         onDownload={() => void download()}
         onOpenPreviewer={onOpenPreviewer}
         onOpenReader={onOpenReader}
-        transportAvailable={Boolean(transport)}
+        transportAvailable={Boolean(effectiveTransport)}
       />
     )
   }
@@ -284,7 +332,7 @@ export function RemoteMediaAttachment({
         </button>
         <button
           className="quiet-button"
-          disabled={downloading || !transport}
+          disabled={downloading || !effectiveTransport}
           type="button"
           onClick={() => void download()}
         >

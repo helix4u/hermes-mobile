@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
+import { hostConnectionPresentation } from './connection-presentation'
 import { EmbedPreferencesProvider } from './embeds'
 import { ConnectionSheet } from './components/ConnectionSheet'
 import { ControlPanel } from './components/ControlPanel'
@@ -2042,6 +2043,12 @@ export function App() {
 
   const wakeCaptureActive = wakeWordStatus === 'capturing'
   const wakeTranscribing = wakeWordStatus === 'transcribing'
+  const hostConnection = hostConnectionPresentation(
+    connectionState,
+    capabilities?.status,
+    connection.name,
+    desiredConnectedRef.current,
+  )
 
   return (
     <EmbedPreferencesProvider connectionId={connection.id}>
@@ -2060,12 +2067,13 @@ export function App() {
             </span>
           </button>
           <button
-            className={`host-pill state-${connectionState}`}
+            aria-label={`Connection: ${hostConnection.label}`}
+            className={`host-pill state-${hostConnection.tone}`}
             onClick={() => setConnectionOpen(true)}
           >
             <span className="host-dot" />
             <span>
-              {connected ? connection.name || 'Connected' : 'Connect'}
+              {hostConnection.label}
             </span>
             <span className="host-chevron">⌄</span>
           </button>

@@ -2,6 +2,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test } from 'vitest'
 import type { PreviewDocument } from '../preview'
 import {
+  clearRemotePreviewCacheForTests,
+  loadRemotePreview,
+  peekRemotePreview,
+} from '../remote-preview-cache'
+import type { HermesTransport } from '../transport/hermes-transport'
+import {
   RemoteMediaAttachment,
   RemoteTextAttachment,
 } from './RemoteMediaAttachment'
@@ -15,9 +21,41 @@ describe('RemoteMediaAttachment', () => {
       />,
     )
 
-    expect(html).toContain('Generated file')
-    expect(html).toContain('Loading notes.md')
+    expect(html).toContain('notes.md')
+    expect(html).toContain('Reconnect to load this generated file')
     expect(html).not.toContain('C:\\Users')
+  })
+
+  test('renders a cached attachment immediately after disconnect or remount', async () => {
+    clearRemotePreviewCacheForTests()
+    const transport = {
+      connection: { id: 'workstation' },
+      requestJson: async () => ({
+        mimeType: 'text/markdown',
+        text: '# Still here',
+      }),
+    } as unknown as HermesTransport
+    await loadRemotePreview(
+      transport,
+      'workstation',
+      'C:\\work\\notes.md',
+    )
+    expect(peekRemotePreview('workstation', 'C:\\work\\notes.md')?.text).toBe(
+      '# Still here',
+    )
+
+    const html = renderToStaticMarkup(
+      <RemoteMediaAttachment
+        connectionId="workstation"
+        path={'C:\\work\\notes.md'}
+        transport={null}
+      />,
+    )
+
+    expect(html).toContain('# Still here')
+    expect(html).not.toContain('Loading')
+    expect(html).not.toContain('Reconnect to load')
+    clearRemotePreviewCacheForTests()
   })
 
   test('text preview actions accept the same document used by Reader', () => {
