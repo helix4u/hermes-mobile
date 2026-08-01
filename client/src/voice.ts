@@ -40,6 +40,8 @@ export interface SpeechSequenceOptions {
   speechId?: string
   onActive?: (itemId: string | null) => void
   bufferAhead?: number
+  queueKey?: string
+  replaceQueued?: boolean
 }
 
 export interface SpeechRenderOptions {
@@ -63,7 +65,9 @@ export interface BufferedSpeechQueueOptions<T> {
 
 export interface SerialSpeechTaskQueue {
   clear: () => void
-  enqueue: (task: () => Promise<void>) => Promise<void>
+  enqueue: (task: () => Promise<void>, key?: string) => Promise<void>
+  enqueueLatest: (key: string, task: () => Promise<void>) => Promise<void>
+  releaseActive: (key: string) => boolean
 }
 
 interface CapturedAudio {
@@ -122,21 +126,63 @@ export interface SynthesizedSpeech {
 
 export function createSerialSpeechTaskQueue(): SerialSpeechTaskQueue {
   let epoch = 0
-  let tail = Promise.resolve()
+  interface QueueEntry {
+    epoch: number
+    key: string
+    reject: (reason?: unknown) => void
+    resolve: () => void
+    task: () => Promise<void>
+  }
+  let active: QueueEntry | null = null
+  let pending: QueueEntry[] = []
+
+  const drain = () => {
+    if (active) return
+    const next = pending.shift()
+    if (!next) return
+    if (next.epoch !== epoch) {
+      next.resolve()
+      drain()
+      return
+    }
+    active = next
+    void Promise.resolve()
+      .then(next.task)
+      .then(next.resolve, next.reject)
+      .finally(() => {
+        if (active !== next) return
+        active = null
+        drain()
+      })
+  }
+
+  const enqueue = (task: () => Promise<void>, key = '') =>
+    new Promise<void>((resolve, reject) => {
+      pending.push({ epoch, key, reject, resolve, task })
+      drain()
+    })
 
   return {
     clear() {
       epoch += 1
-      tail = Promise.resolve()
+      for (const entry of pending) entry.resolve()
+      pending = []
+      active = null
     },
-    enqueue(task) {
-      const queuedEpoch = epoch
-      const result = tail.then(async () => {
-        if (queuedEpoch !== epoch) return
-        await task()
-      })
-      tail = result.catch(() => {})
-      return result
+    enqueue,
+    enqueueLatest(key, task) {
+      const retained: QueueEntry[] = []
+      for (const entry of pending) {
+        if (entry.key === key) entry.resolve()
+        else retained.push(entry)
+      }
+      pending = retained
+      return enqueue(task, key)
+    },
+    releaseActive(key) {
+      if (!active || active.key !== key) return false
+      active = null
+      return true
     },
   }
 }
@@ -712,9 +758,8 @@ export function useVoice({
     setPlaybackPaused(value)
   }, [])
 
-  const stopPlayback = useCallback(() => {
+  const interruptCurrentSpeech = useCallback(() => {
     speechGenerationRef.current += 1
-    speechTaskQueueRef.current?.clear()
     beginAudioPlaybackRef.current = null
     const finishAudio = finishAudioRef.current
     finishAudioRef.current = null
@@ -732,6 +777,11 @@ export function useVoice({
       current === 'speaking' || current === 'synthesizing' ? 'idle' : current,
     )
   }, [updateActiveSpeechId, updatePlaybackPaused])
+
+  const stopPlayback = useCallback(() => {
+    speechTaskQueueRef.current?.clear()
+    interruptCurrentSpeech()
+  }, [interruptCurrentSpeech])
 
   const pausePlayback = useCallback(() => {
     if (!activeSpeechIdRef.current) return
@@ -992,7 +1042,7 @@ export function useVoice({
           : undefined,
       )
       if (!queue.length) return
-      await speechTaskQueueRef.current!.enqueue(async () => {
+      const task = async () => {
         onError('')
         const generation = speechGenerationRef.current
         updatePlaybackPaused(false)
@@ -1079,7 +1129,11 @@ export function useVoice({
           setPhase('idle')
           onError(error instanceof Error ? error.message : String(error))
         }
-      })
+      }
+      const queueKey = options.queueKey?.trim() || ''
+      await (options.replaceQueued && queueKey
+        ? speechTaskQueueRef.current!.enqueueLatest(queueKey, task)
+        : speechTaskQueueRef.current!.enqueue(task, queueKey))
     },
     [
       connectionId,
@@ -1111,6 +1165,36 @@ export function useVoice({
       )
     },
     [getDefaultTtsConfig, speakSequence],
+  )
+
+  const speakLatest = useCallback(
+    async (
+      text: string,
+      speechId: string,
+      ttsConfig?: Record<string, unknown>,
+    ) => {
+      const queueKey = speechId.trim() || 'speech-latest'
+      if (speechTaskQueueRef.current!.releaseActive(queueKey)) {
+        interruptCurrentSpeech()
+      }
+      const primaryConfig = ttsConfig ?? getDefaultTtsConfig?.()
+      await speakSequence(
+        [
+          {
+            id: queueKey,
+            text,
+            ttsConfig: primaryConfig,
+            fallbackTtsConfigs: primaryConfig ? [undefined] : [],
+          },
+        ],
+        {
+          queueKey,
+          replaceQueued: true,
+          speechId: queueKey,
+        },
+      )
+    },
+    [getDefaultTtsConfig, interruptCurrentSpeech, speakSequence],
   )
 
   const renderSequence = useCallback(
@@ -1181,6 +1265,7 @@ export function useVoice({
     renderSequence,
     resumePlayback,
     speak,
+    speakLatest,
     speakSequence,
     stopPlayback,
     toggleRecording,

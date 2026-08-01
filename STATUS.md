@@ -18,6 +18,15 @@ Current milestone: Mobile pet personality catalog and Desktop-bound host lifecyc
   open.
 - Focused and full client tests, typecheck, production build, Capacitor sync,
   and Android debug assembly pass.
+- The current verified debug APK was replacement-installed on the intended
+  Samsung SM-S918U over the explicitly supplied ADB endpoint. The `-r` install
+  retained saved application data and Android Keystore credentials. Android
+  reports package update time `2026-07-31 19:39:13`.
+- Pet poke TTS now uses keyed replacement. Rapid taps retain only the newest
+  pending poke, may supersede an active poke, and never displace ordinary
+  reply, Reader, generated-commentary, or sidechat speech. All thirteen
+  adapted Hermes personalities now have two reactions per visual state and
+  four distinct poke lines.
 
 ## Recent changes retained here
 
@@ -55,7 +64,9 @@ ordinary use.
 
 Pet movement is border-aware, direct drag remains user-owned, and automatic
 commentary has turn-scoped cancellation so Stop and terminal turn events clear
-pending generation and queued speech.
+pending generation and queued speech. Poke speech has its own replaceable queue
+key so slow TTS cannot accumulate stale taps, while other speech keeps its
+existing serial ordering.
 
 ## Known constraints
 
@@ -73,8 +84,8 @@ pending generation and queued speech.
 
 - Desktop Reader UI: 1 focused file, 9 tests passed; Desktop TypeScript
   typecheck and production build passed.
-- Mobile personality/pet/settings slice: 6 focused files and 38 tests passed;
-  the full Mobile client suite passed 51 files and 241 tests. Mobile TypeScript
+- Mobile personality/pet/settings slice: focused voice and pet tests passed 38
+  tests; the full Mobile client suite passed 51 files and 243 tests. Mobile TypeScript
   typecheck, Vite production
   build, Capacitor sync, and Android debug assembly with JDK 21 passed.
 - Python prompt guidance compiled and an import smoke check confirmed both the
@@ -86,13 +97,16 @@ pending generation and queued speech.
   `8200B0205D3B4866A085551D59D29751F0AB491A930128E0ACF398F5BB46488C`).
 - Current Mobile debug APK:
   `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,118,953 bytes, SHA-256
-  `B6E8D7CAC47AF819FCBFD9B166C9E6EA6334EE323E1D30AB85FB8F760CE4D346`).
-- No phone installation or device inspection is authorized in the current turn.
+  (127,121,736 bytes, SHA-256
+  `743A04763EFFA97B43ACE854B59F6B9525A2B85D2FDE6ABD6F8EF59954763E4E`).
+- Android package `dev.hermes.mobile` was replacement-installed successfully on the
+  intended Samsung SM-S918U at version name 1.0/version code 1, with package
+  update time `2026-07-31 19:39:13`. No app screen or user content was opened
+  or inspected.
 
 ## Next action
 
-Install the APK in a later explicitly authorized device turn or download it
-manually. Confirm the seven local presets and adapted defaults appear, edit and
-reset one preset, switch hosts to prove isolation, and confirm Workstation
-reconnects automatically after Desktop closes and reopens.
+Verify rapid pokes collapse to the latest reaction without interrupting
+ordinary speech. Confirm the expanded adapted presets, edit and reset one
+preset, switch hosts to prove isolation, and confirm Workstation reconnects
+automatically after Desktop closes and reopens.

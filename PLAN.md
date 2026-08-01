@@ -95,6 +95,12 @@ Acceptance contract:
   reopens without leaving an orphan supervisor.
 - Existing pet movement, speech, sidechat, capability degradation, Reader,
   provider, session, and file behavior must not regress.
+- Rapid pet pokes use a replaceable speech lane: stale pending pokes collapse,
+  a newer poke may supersede active poke speech, and ordinary reply, Reader,
+  commentary, and sidechat speech remains serial and cannot be interrupted by
+  a poke.
+- Every adapted Hermes personality has multiple state reactions and at least
+  four distinct poke lines instead of a single canned response.
 
 ## Near-term backlog
 
@@ -139,8 +145,9 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-Install the completed Mobile debug APK in a later explicitly authorized ADB
-turn or download it manually. Verify the grouped personality picker, a custom
-edit and reset on Workstation, isolation from a Cloud connection, and automatic
-Workstation recovery after Desktop closes and reopens. Device installation
-remains a separate explicitly authorized action.
+Verify the newly replacement-installed Mobile debug APK on the physical
+Samsung: rapid pokes should speak only the newest relevant reaction without
+interrupting ordinary speech. Spot-check the expanded adapted presets, the
+grouped personality picker, a custom edit and reset on Workstation, isolation
+from a Cloud connection, and automatic Workstation recovery after Desktop
+closes and reopens.
