@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  createAsyncTaskLimiter,
+  createPreparedSpeechInput,
+  createPreparedSpeechStream,
+  normalizeSpeechSynthesisConcurrency,
+  streamedCompletionSuffix,
+  type PreparedSpeechStream,
+} from './incremental-speech'
+import { markdownToSpeechText } from './markdown'
 import type { GatewayEvent } from './protocol/types'
 import {
   adaptiveSpeechBufferAhead,
@@ -39,13 +48,30 @@ export interface SpeechSequenceItem {
 export interface SpeechSequenceOptions {
   speechId?: string
   onActive?: (itemId: string | null) => void
+  onPlaybackEnd?: (itemId: string) => void
+  onPlaybackStart?: (itemId: string) => void
   bufferAhead?: number
+  maxConcurrentSynthesis?: number
+  priority?: number
   queueKey?: string
   replaceQueued?: boolean
 }
 
+export interface SpeechPreparationOptions extends SpeechSequenceOptions {
+  beforePlayback?: Promise<void>
+  maxSegmentChars?: number
+  startPlayback?: boolean
+}
+
+export interface PreparedSpeechSequence {
+  append(delta: string): void
+  cancel(): void
+  finish(completedText?: string): Promise<void>
+}
+
 export interface SpeechRenderOptions {
   bufferAhead?: number
+  maxConcurrentSynthesis?: number
   onProgress?: (completed: number, total: number) => void
 }
 
@@ -57,6 +83,7 @@ export interface BufferedSpeechQueueOptions<T> {
     value: T,
     index: number,
   ) => number
+  maxConcurrentSynthesis?: number
   synthesize: (item: SpeechSequenceItem, index: number) => Promise<T>
   play: (item: SpeechSequenceItem, value: T, index: number) => Promise<void>
   isCurrent?: () => boolean
@@ -65,8 +92,16 @@ export interface BufferedSpeechQueueOptions<T> {
 
 export interface SerialSpeechTaskQueue {
   clear: () => void
-  enqueue: (task: () => Promise<void>, key?: string) => Promise<void>
-  enqueueLatest: (key: string, task: () => Promise<void>) => Promise<void>
+  enqueue: (
+    task: () => Promise<void>,
+    key?: string,
+    priority?: number,
+  ) => Promise<void>
+  enqueueLatest: (
+    key: string,
+    task: () => Promise<void>,
+    priority?: number,
+  ) => Promise<void>
   releaseActive: (key: string) => boolean
 }
 
@@ -129,12 +164,15 @@ export function createSerialSpeechTaskQueue(): SerialSpeechTaskQueue {
   interface QueueEntry {
     epoch: number
     key: string
+    priority: number
     reject: (reason?: unknown) => void
     resolve: () => void
+    sequence: number
     task: () => Promise<void>
   }
   let active: QueueEntry | null = null
   let pending: QueueEntry[] = []
+  let sequence = 0
 
   const drain = () => {
     if (active) return
@@ -156,9 +194,21 @@ export function createSerialSpeechTaskQueue(): SerialSpeechTaskQueue {
       })
   }
 
-  const enqueue = (task: () => Promise<void>, key = '') =>
+  const enqueue = (task: () => Promise<void>, key = '', priority = 0) =>
     new Promise<void>((resolve, reject) => {
-      pending.push({ epoch, key, reject, resolve, task })
+      pending.push({
+        epoch,
+        key,
+        priority: Number.isFinite(priority) ? priority : 0,
+        reject,
+        resolve,
+        sequence: ++sequence,
+        task,
+      })
+      pending.sort(
+        (left, right) =>
+          right.priority - left.priority || left.sequence - right.sequence,
+      )
       drain()
     })
 
@@ -170,14 +220,14 @@ export function createSerialSpeechTaskQueue(): SerialSpeechTaskQueue {
       active = null
     },
     enqueue,
-    enqueueLatest(key, task) {
+    enqueueLatest(key, task, priority = 0) {
       const retained: QueueEntry[] = []
       for (const entry of pending) {
         if (entry.key === key) entry.resolve()
         else retained.push(entry)
       }
       pending = retained
-      return enqueue(task, key)
+      return enqueue(task, key, priority)
     },
     releaseActive(key) {
       if (!active || active.key !== key) return false
@@ -185,6 +235,15 @@ export function createSerialSpeechTaskQueue(): SerialSpeechTaskQueue {
       return true
     },
   }
+}
+
+interface IncrementalSpeechSession {
+  buffer: PreparedSpeechStream<SynthesizedSpeech>
+  generation: number
+  id: string
+  playbackRate: number
+  queued: boolean
+  streamedText: string
 }
 
 export function normalizeSpeechSequenceBufferAhead(value: unknown): number {
@@ -231,13 +290,15 @@ export function speechPlaybackRate(item: SpeechSequenceItem): number {
   return Math.max(0.7, Math.min(1.5, configured))
 }
 
-function withoutSpeechPlaybackRate(
+function withoutClientSpeechControls(
   config: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
-  if (!config || !Object.prototype.hasOwnProperty.call(config, 'speed')) {
-    return config
-  }
-  const { speed: _speed, ...synthesisConfig } = config
+  if (!config) return config
+  const {
+    speed: _speed,
+    synthesis_concurrency: _synthesisConcurrency,
+    ...synthesisConfig
+  } = config
   return Object.keys(synthesisConfig).length ? synthesisConfig : undefined
 }
 
@@ -246,9 +307,9 @@ export function speechItemForInteractivePlayback(
 ): SpeechSequenceItem {
   return {
     ...item,
-    ttsConfig: withoutSpeechPlaybackRate(item.ttsConfig),
+    ttsConfig: withoutClientSpeechControls(item.ttsConfig),
     fallbackTtsConfigs: item.fallbackTtsConfigs?.map(
-      withoutSpeechPlaybackRate,
+      withoutClientSpeechControls,
     ),
   }
 }
@@ -334,13 +395,19 @@ export async function runBufferedSpeechQueue<T>(
   )
   const prepared = new Map<number, Promise<PreparedSpeech<T>>>()
   const isCurrent = options.isCurrent ?? (() => true)
+  const limiter = createAsyncTaskLimiter(
+    normalizeSpeechSynthesisConcurrency(options.maxConcurrentSynthesis),
+  )
 
   const prepare = (index: number) => {
     if (index >= items.length || prepared.has(index)) return
     prepared.set(
       index,
-      Promise.resolve()
-        .then(() => options.synthesize(items[index], index))
+      limiter
+        .run(() => {
+          if (!isCurrent()) throw new Error('Speech playback stopped')
+          return options.synthesize(items[index], index)
+        })
         .then(value => ({ value }))
         .catch(error => ({ error })),
     )
@@ -546,6 +613,7 @@ export async function renderSpeechSequenceToWav(
   try {
     await runBufferedSpeechQueue(queue, {
       bufferAhead: options.bufferAhead,
+      maxConcurrentSynthesis: options.maxConcurrentSynthesis,
       synthesize: item => synthesizeSpeechItem(transport, item),
       play: async (_item, dataUrl) => {
         const response = await fetch(dataUrl)
@@ -673,6 +741,12 @@ export function completedAssistantText(event: GatewayEvent): string {
   return contentText(payload.text ?? payload.content).trim()
 }
 
+export function assistantDeltaText(event: GatewayEvent): string {
+  if (event.type !== 'message.delta') return ''
+  const payload = asRecord(event.payload)
+  return contentText(payload.text ?? payload.content)
+}
+
 export function voicePreferenceKey(connectionId: string): string {
   return `hermes-mobile.voice.${connectionId}.auto-speak`
 }
@@ -734,7 +808,12 @@ export function useVoice({
   const finishAudioRef = useRef<(() => void) | null>(null)
   const beginAudioPlaybackRef = useRef<(() => void) | null>(null)
   const speechGenerationRef = useRef(0)
+  const latestSpeechPreparationRef = useRef(0)
   const speechTaskQueueRef = useRef<SerialSpeechTaskQueue | null>(null)
+  const incrementalSpeechRef = useRef<IncrementalSpeechSession | null>(null)
+  const incrementalSpeechBuffersRef = useRef(
+    new Set<PreparedSpeechStream<SynthesizedSpeech>>(),
+  )
   const mountedRef = useRef(true)
   const stopAndTranscribeRef = useRef<() => Promise<void>>(async () => {})
   if (!speechTaskQueueRef.current) {
@@ -779,6 +858,10 @@ export function useVoice({
   }, [updateActiveSpeechId, updatePlaybackPaused])
 
   const stopPlayback = useCallback(() => {
+    latestSpeechPreparationRef.current += 1
+    for (const buffer of incrementalSpeechBuffersRef.current) buffer.cancel()
+    incrementalSpeechBuffersRef.current.clear()
+    incrementalSpeechRef.current = null
     speechTaskQueueRef.current?.clear()
     interruptCurrentSpeech()
   }, [interruptCurrentSpeech])
@@ -936,6 +1019,8 @@ export function useVoice({
       generation: number,
       playbackRate = 1,
       onDuration?: (durationMs: number) => void,
+      onPlaybackStart?: () => void,
+      onPlaybackEnd?: () => void,
     ): Promise<void> => {
       if (generation !== speechGenerationRef.current) return
       const audio = new Audio(dataUrl)
@@ -943,6 +1028,7 @@ export function useVoice({
       audioRef.current = audio
       await new Promise<void>((resolve, reject) => {
         let settled = false
+        let started = false
         let durationRecorded = false
         const recordDuration = () => {
           if (
@@ -971,6 +1057,7 @@ export function useVoice({
           audio.removeEventListener('canplay', recordDuration)
           releasePlaybackRate()
           if (audioRef.current === audio) audioRef.current = null
+          if (started) onPlaybackEnd?.()
           if (error) reject(error)
           else resolve()
         }
@@ -990,7 +1077,9 @@ export function useVoice({
             .then(() => {
               applySpeechPlaybackRate(audio, playbackRate)
               if (generation === speechGenerationRef.current) {
+                started = true
                 setPhase('speaking')
+                onPlaybackStart?.()
               }
             })
             .catch(() =>
@@ -1009,6 +1098,217 @@ export function useVoice({
       })
     },
     [],
+  )
+
+  const queueIncrementalSpeechPlayback = useCallback(
+    (
+      session: IncrementalSpeechSession,
+      beforePlayback?: Promise<void>,
+    ) => {
+      if (session.queued) return
+      session.queued = true
+      void Promise.resolve(beforePlayback)
+        .catch(() => undefined)
+        .then(async () => {
+          if (session.generation !== speechGenerationRef.current) {
+            session.buffer.cancel()
+            incrementalSpeechBuffersRef.current.delete(session.buffer)
+            return
+          }
+          await speechTaskQueueRef.current!.enqueue(
+            async () => {
+              const { buffer, generation, id, playbackRate } = session
+              if (generation !== speechGenerationRef.current) return
+              updatePlaybackPaused(false)
+              updateActiveSpeechId(id)
+              setPhase('synthesizing')
+              try {
+                for (;;) {
+                  const prepared = await buffer.next()
+                  if (!prepared || generation !== speechGenerationRef.current) {
+                    break
+                  }
+                  await playAudio(
+                    prepared.value.dataUrl,
+                    generation,
+                    playbackRate,
+                    durationMs => {
+                      for (const provider of new Set([
+                        prepared.value.provider,
+                        prepared.value.requestedProvider,
+                      ])) {
+                        recordSpeechAudioTiming(
+                          connectionId,
+                          provider,
+                          durationMs,
+                          prepared.text.length,
+                        )
+                      }
+                    },
+                  )
+                  if (generation === speechGenerationRef.current) {
+                    setPhase('synthesizing')
+                  }
+                }
+                if (generation === speechGenerationRef.current) {
+                  updateActiveSpeechId('')
+                  setPhase('idle')
+                }
+              } catch (error) {
+                if (generation === speechGenerationRef.current) {
+                  updateActiveSpeechId('')
+                  setPhase('idle')
+                  onError(error instanceof Error ? error.message : String(error))
+                }
+              } finally {
+                incrementalSpeechBuffersRef.current.delete(buffer)
+              }
+            },
+            session.id,
+            -10,
+          )
+        })
+        .catch(error =>
+          onError(error instanceof Error ? error.message : String(error)),
+        )
+    },
+    [
+      connectionId,
+      onError,
+      playAudio,
+      updateActiveSpeechId,
+      updatePlaybackPaused,
+    ],
+  )
+
+  const appendIncrementalSpeech = useCallback(
+    (
+      delta: string,
+      speechId = 'auto-response',
+      ttsConfig?: Record<string, unknown>,
+    ) => {
+      if (!delta) return
+      let session = incrementalSpeechRef.current
+      if (session && session.id !== speechId) {
+        session.buffer.finish()
+        queueIncrementalSpeechPlayback(session)
+        incrementalSpeechRef.current = null
+        session = null
+      }
+      if (!session) {
+        const transport = getTransport()
+        if (!transport) return
+        const primaryConfig = ttsConfig ?? getDefaultTtsConfig?.()
+        const playbackRate = speechPlaybackRate({
+          id: speechId,
+          text: '',
+          ttsConfig: primaryConfig,
+        })
+        const requestedProvider = configuredSpeechTimingProvider(primaryConfig)
+        const timingStore = loadSpeechTimingStore(connectionId)
+        const startupChars = adaptiveStartupSpeechChars(
+          timingStore,
+          requestedProvider,
+          playbackRate,
+        )
+        const segmentChars = adaptiveSpeechChunkChars(
+          timingStore,
+          requestedProvider,
+          playbackRate,
+          startupChars,
+        )
+        const requestedConcurrency = primaryConfig?.synthesis_concurrency
+        const concurrency =
+          requestedConcurrency === undefined
+            ? Math.min(
+                2,
+                adaptiveSpeechBufferAhead(
+                  timingStore,
+                  requestedProvider,
+                  playbackRate,
+                ),
+              )
+            : normalizeSpeechSynthesisConcurrency(requestedConcurrency)
+        const buffer = createPreparedSpeechStream<SynthesizedSpeech>({
+          concurrency,
+          maxSegmentChars: segmentChars,
+          synthesize: async text => {
+            const item: SpeechSequenceItem = {
+              id: speechId,
+              text,
+              ttsConfig: primaryConfig,
+              fallbackTtsConfigs: primaryConfig ? [undefined] : [],
+            }
+            const speech = await synthesizeSpeechItemWithTiming(
+              transport,
+              speechItemForInteractivePlayback(item),
+            )
+            for (const provider of new Set([
+              speech.provider,
+              speech.requestedProvider,
+            ])) {
+              recordSpeechSynthesisTiming(
+                connectionId,
+                provider,
+                speech.elapsedMs,
+                text.length,
+              )
+            }
+            return speech
+          },
+          transform: markdownToSpeechText,
+        })
+        incrementalSpeechBuffersRef.current.add(buffer)
+        session = {
+          buffer,
+          generation: speechGenerationRef.current,
+          id: speechId,
+          playbackRate,
+          queued: false,
+          streamedText: '',
+        }
+        incrementalSpeechRef.current = session
+      }
+      session.streamedText += delta
+      session.buffer.append(delta)
+    },
+    [
+      connectionId,
+      getDefaultTtsConfig,
+      getTransport,
+      queueIncrementalSpeechPlayback,
+    ],
+  )
+
+  const finishIncrementalSpeech = useCallback(
+    (
+      completedText = '',
+      speechId = 'auto-response',
+      ttsConfig?: Record<string, unknown>,
+      beforePlayback?: Promise<void>,
+    ) => {
+      let session = incrementalSpeechRef.current
+      if (!session || session.id !== speechId) {
+        if (!completedText) return
+        appendIncrementalSpeech(completedText, speechId, ttsConfig)
+        session = incrementalSpeechRef.current
+      } else {
+        const suffix = streamedCompletionSuffix(
+          session.streamedText,
+          completedText,
+        )
+        if (suffix) {
+          session.streamedText += suffix
+          session.buffer.append(suffix)
+        }
+      }
+      session?.buffer.finish()
+      if (session) queueIncrementalSpeechPlayback(session, beforePlayback)
+      if (incrementalSpeechRef.current === session) {
+        incrementalSpeechRef.current = null
+      }
+    },
+    [appendIncrementalSpeech, queueIncrementalSpeechPlayback],
   )
 
   const speakSequence = useCallback(
@@ -1059,6 +1359,7 @@ export function useVoice({
                 ? 0
                 : normalizeSpeechSequenceBufferAhead(options.bufferAhead),
               initialBufferAhead: adaptiveBuffering ? 1 : undefined,
+              maxConcurrentSynthesis: options.maxConcurrentSynthesis,
               bufferAheadFor: adaptiveBuffering
                 ? (item, speech) =>
                     adaptiveSpeechBufferAhead(
@@ -1111,6 +1412,8 @@ export function useVoice({
                       )
                     }
                   },
+                  () => options.onPlaybackStart?.(item.id),
+                  () => options.onPlaybackEnd?.(item.id),
                 )
               },
             },
@@ -1132,8 +1435,16 @@ export function useVoice({
       }
       const queueKey = options.queueKey?.trim() || ''
       await (options.replaceQueued && queueKey
-        ? speechTaskQueueRef.current!.enqueueLatest(queueKey, task)
-        : speechTaskQueueRef.current!.enqueue(task, queueKey))
+        ? speechTaskQueueRef.current!.enqueueLatest(
+            queueKey,
+            task,
+            options.priority,
+          )
+        : speechTaskQueueRef.current!.enqueue(
+            task,
+            queueKey,
+            options.priority,
+          ))
     },
     [
       connectionId,
@@ -1167,6 +1478,199 @@ export function useVoice({
     [getDefaultTtsConfig, speakSequence],
   )
 
+  const prepareSpeechSequence = useCallback(
+    (
+      speechId: string,
+      ttsConfig?: Record<string, unknown>,
+      options: SpeechPreparationOptions = {},
+    ): PreparedSpeechSequence | null => {
+      const transport = getTransport()
+      if (!transport) return null
+      const generation = speechGenerationRef.current
+      const playbackRate = speechPlaybackRate({
+        id: speechId,
+        text: '',
+        ttsConfig,
+      })
+      const requestedProvider = configuredSpeechTimingProvider(ttsConfig)
+      const timingStore = loadSpeechTimingStore(connectionId)
+      const startupChars = adaptiveStartupSpeechChars(
+        timingStore,
+        requestedProvider,
+        playbackRate,
+      )
+      const adaptiveChars = adaptiveSpeechChunkChars(
+        timingStore,
+        requestedProvider,
+        playbackRate,
+        startupChars,
+      )
+      const maxSegmentChars = Math.max(
+        240,
+        Math.min(
+          adaptiveChars,
+          Number.isFinite(options.maxSegmentChars)
+            ? Number(options.maxSegmentChars)
+            : adaptiveChars,
+        ),
+      )
+      const concurrency = normalizeSpeechSynthesisConcurrency(
+        options.maxConcurrentSynthesis ??
+          Math.min(
+            2,
+            adaptiveSpeechBufferAhead(
+              timingStore,
+              requestedProvider,
+              playbackRate,
+            ),
+          ),
+      )
+      const buffer = createPreparedSpeechStream<SynthesizedSpeech>({
+        concurrency,
+        maxSegmentChars,
+        synthesize: async text => {
+          const item: SpeechSequenceItem = {
+            id: speechId,
+            text,
+            ttsConfig,
+            fallbackTtsConfigs: ttsConfig ? [undefined] : [],
+          }
+          const speech = await synthesizeSpeechItemWithTiming(
+            transport,
+            speechItemForInteractivePlayback(item),
+          )
+          for (const provider of new Set([
+            speech.provider,
+            speech.requestedProvider,
+          ])) {
+            recordSpeechSynthesisTiming(
+              connectionId,
+              provider,
+              speech.elapsedMs,
+              text.length,
+            )
+          }
+          return speech
+        },
+        transform: markdownToSpeechText,
+      })
+      incrementalSpeechBuffersRef.current.add(buffer)
+      const input = createPreparedSpeechInput(buffer)
+      let cancelled = false
+      let completion: Promise<void> | null = null
+
+      const cleanup = () => {
+        incrementalSpeechBuffersRef.current.delete(buffer)
+        options.onActive?.(null)
+      }
+
+      const ensurePlayback = (): Promise<void> => {
+        if (completion) return completion
+        completion = Promise.resolve(options.beforePlayback)
+          .catch(() => undefined)
+          .then(async () => {
+            if (generation !== speechGenerationRef.current || cancelled) {
+              buffer.cancel()
+              return
+            }
+            await speechTaskQueueRef.current!.enqueue(
+              async () => {
+                if (generation !== speechGenerationRef.current || cancelled) {
+                  return
+                }
+                updatePlaybackPaused(false)
+                updateActiveSpeechId(options.speechId || speechId)
+                setPhase('synthesizing')
+                try {
+                  for (;;) {
+                    const prepared = await buffer.next()
+                    if (
+                      !prepared ||
+                      cancelled ||
+                      generation !== speechGenerationRef.current
+                    ) {
+                      break
+                    }
+                    options.onActive?.(speechId)
+                    await playAudio(
+                      prepared.value.dataUrl,
+                      generation,
+                      playbackRate,
+                      durationMs => {
+                        for (const provider of new Set([
+                          prepared.value.provider,
+                          prepared.value.requestedProvider,
+                        ])) {
+                          recordSpeechAudioTiming(
+                            connectionId,
+                            provider,
+                            durationMs,
+                            prepared.text.length,
+                          )
+                        }
+                      },
+                      () => options.onPlaybackStart?.(speechId),
+                      () => options.onPlaybackEnd?.(speechId),
+                    )
+                    if (generation === speechGenerationRef.current) {
+                      setPhase('synthesizing')
+                    }
+                  }
+                  if (generation === speechGenerationRef.current) {
+                    updateActiveSpeechId('')
+                    setPhase('idle')
+                  }
+                } catch (error) {
+                  if (generation === speechGenerationRef.current) {
+                    updateActiveSpeechId('')
+                    setPhase('idle')
+                    onError(
+                      error instanceof Error ? error.message : String(error),
+                    )
+                  }
+                }
+              },
+              options.queueKey || speechId,
+              options.priority ?? 0,
+            )
+          })
+          .finally(cleanup)
+        return completion
+      }
+
+      if (options.startPlayback) void ensurePlayback()
+
+      return {
+        append(delta: string) {
+          if (cancelled) return
+          input.append(delta)
+        },
+        cancel() {
+          if (cancelled) return
+          cancelled = true
+          input.cancel()
+          cleanup()
+        },
+        finish(completedText = '') {
+          if (cancelled) return completion ?? Promise.resolve()
+          // Playback may already be consuming the stream. Finalization must
+          // still close its input so buffer.next() can settle after the last
+          // prepared segment instead of waiting forever.
+          input.finish(completedText)
+          return ensurePlayback()
+        },
+      }
+    },
+    [
+      connectionId,
+      getTransport,
+      onError,
+      playAudio,
+      updateActiveSpeechId,
+      updatePlaybackPaused,
+    ],
+  )
+
   const speakLatest = useCallback(
     async (
       text: string,
@@ -1174,27 +1678,106 @@ export function useVoice({
       ttsConfig?: Record<string, unknown>,
     ) => {
       const queueKey = speechId.trim() || 'speech-latest'
+      const preparation = ++latestSpeechPreparationRef.current
+      const primaryConfig = ttsConfig ?? getDefaultTtsConfig?.()
+      const item: SpeechSequenceItem = {
+        id: queueKey,
+        text,
+        ttsConfig: primaryConfig,
+        fallbackTtsConfigs: primaryConfig ? [undefined] : [],
+      }
+      onError('')
+      const transport = getTransport()
+      if (!transport) {
+        if (preparation === latestSpeechPreparationRef.current) {
+          onError('Connect to Hermes before using speech')
+        }
+        return
+      }
+      let speech: SynthesizedSpeech
+      try {
+        speech = await synthesizeSpeechItemWithTiming(
+          transport,
+          speechItemForInteractivePlayback(item),
+        )
+      } catch (error) {
+        if (preparation === latestSpeechPreparationRef.current) {
+          onError(error instanceof Error ? error.message : String(error))
+        }
+        return
+      }
+      for (const provider of new Set([
+        speech.provider,
+        speech.requestedProvider,
+      ])) {
+        recordSpeechSynthesisTiming(
+          connectionId,
+          provider,
+          speech.elapsedMs,
+          item.text.length,
+        )
+      }
+      if (preparation !== latestSpeechPreparationRef.current) return
+
+      const task = async () => {
+        const generation = speechGenerationRef.current
+        updatePlaybackPaused(false)
+        updateActiveSpeechId(queueKey)
+        setPhase('synthesizing')
+        try {
+          await playAudio(
+            speech.dataUrl,
+            generation,
+            speechPlaybackRate(item),
+            durationMs => {
+              for (const provider of new Set([
+                speech.provider,
+                speech.requestedProvider,
+              ])) {
+                recordSpeechAudioTiming(
+                  connectionId,
+                  provider,
+                  durationMs,
+                  item.text.length,
+                )
+              }
+            },
+          )
+          if (generation !== speechGenerationRef.current) return
+          updateActiveSpeechId('')
+          setPhase('idle')
+        } catch (error) {
+          if (generation !== speechGenerationRef.current) return
+          finishAudioRef.current = null
+          beginAudioPlaybackRef.current = null
+          audioRef.current = null
+          updatePlaybackPaused(false)
+          updateActiveSpeechId('')
+          setPhase('idle')
+          onError(error instanceof Error ? error.message : String(error))
+        }
+      }
+
+      /*
+       * Keep the previous poke audible while its replacement renders. Only
+       * hand off the lane after the new audio payload exists, eliminating the
+       * provider-latency gap without allowing a poke to displace other speech.
+       */
       if (speechTaskQueueRef.current!.releaseActive(queueKey)) {
         interruptCurrentSpeech()
       }
-      const primaryConfig = ttsConfig ?? getDefaultTtsConfig?.()
-      await speakSequence(
-        [
-          {
-            id: queueKey,
-            text,
-            ttsConfig: primaryConfig,
-            fallbackTtsConfigs: primaryConfig ? [undefined] : [],
-          },
-        ],
-        {
-          queueKey,
-          replaceQueued: true,
-          speechId: queueKey,
-        },
-      )
+      await speechTaskQueueRef.current!.enqueueLatest(queueKey, task)
     },
-    [getDefaultTtsConfig, interruptCurrentSpeech, speakSequence],
+    [
+      connectionId,
+      getDefaultTtsConfig,
+      getTransport,
+      interruptCurrentSpeech,
+      onError,
+      playAudio,
+      updateActiveSpeechId,
+      updatePlaybackPaused,
+    ],
   )
 
   const renderSequence = useCallback(
@@ -1240,6 +1823,10 @@ export function useVoice({
     () => () => {
       mountedRef.current = false
       speechGenerationRef.current += 1
+      latestSpeechPreparationRef.current += 1
+      for (const buffer of incrementalSpeechBuffersRef.current) buffer.cancel()
+      incrementalSpeechBuffersRef.current.clear()
+      incrementalSpeechRef.current = null
       speechTaskQueueRef.current?.clear()
       beginAudioPlaybackRef.current = null
       clearRecordingTimer()
@@ -1259,9 +1846,12 @@ export function useVoice({
 
   return {
     activeSpeechId,
+    appendIncrementalSpeech,
+    finishIncrementalSpeech,
     pausePlayback,
     phase,
     playbackPaused,
+    prepareSpeechSequence,
     renderSequence,
     resumePlayback,
     speak,

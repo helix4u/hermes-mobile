@@ -1,15 +1,22 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   DEFAULT_READER_BUFFER_AHEAD,
+  DEFAULT_READER_SYNTHESIS_CONCURRENCY,
   MAX_READER_BUFFER_AHEAD,
+  MAX_READER_SYNTHESIS_CONCURRENCY,
   loadReaderProviders,
+  loadReaderSynthesisConcurrency,
   normalizeReaderBufferAhead,
   normalizeReaderProviders,
+  normalizeReaderSynthesisConcurrency,
+  normalizeXaiTtsSelection,
   parseReaderScript,
   persistReaderProviders,
+  persistReaderSynthesisConcurrency,
   readerBufferKey,
   readerFallbackSelections,
   readerProvidersKey,
+  readerSynthesisConcurrencyKey,
   readerSpeakers,
   reconcileReaderProviders,
   ttsOverride,
@@ -184,6 +191,78 @@ describe('reader helpers', () => {
     )
     expect(readerBufferKey('tailnet')).not.toBe(
       readerBufferKey('cloud-agent'),
+    )
+  })
+
+  test('keeps xAI synthesis controls distinct from client playback speed', () => {
+    expect(
+      ttsOverride({
+        language: 'auto',
+        provider: 'xai',
+        speed: 1.4,
+        voice: 'orion',
+        xai: {
+          autoSpeechTags: false,
+          bitRate: 192_000,
+          optimizeStreamingLatency: 2,
+          sampleRate: 44_100,
+          synthesisSpeed: 1.25,
+          textNormalization: true,
+        },
+      }),
+    ).toEqual({
+      provider: 'xai',
+      speed: 1.4,
+      xai: {
+        auto_speech_tags: false,
+        bit_rate: 192_000,
+        language: 'auto',
+        optimize_streaming_latency: 2,
+        sample_rate: 44_100,
+        speed: 1.25,
+        text_normalization: true,
+        voice_id: 'orion',
+      },
+    })
+    expect(
+      normalizeXaiTtsSelection({
+        bitRate: 12,
+        optimizeStreamingLatency: 99 as 2,
+        sampleRate: 12,
+        synthesisSpeed: 99,
+      }),
+    ).toMatchObject({
+      bitRate: 128_000,
+      optimizeStreamingLatency: 0,
+      sampleRate: 24_000,
+      synthesisSpeed: 1.5,
+    })
+  })
+
+  test('normalizes and persists bounded synthesis concurrency per connection', () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    })
+
+    expect(normalizeReaderSynthesisConcurrency('invalid')).toBe(
+      DEFAULT_READER_SYNTHESIS_CONCURRENCY,
+    )
+    expect(normalizeReaderSynthesisConcurrency(0)).toBe(1)
+    expect(normalizeReaderSynthesisConcurrency(99)).toBe(
+      MAX_READER_SYNTHESIS_CONCURRENCY,
+    )
+
+    persistReaderSynthesisConcurrency('workstation', 3)
+    persistReaderSynthesisConcurrency('cloud-agent', 1)
+
+    expect(loadReaderSynthesisConcurrency('workstation')).toBe(3)
+    expect(loadReaderSynthesisConcurrency('cloud-agent')).toBe(1)
+    expect(readerSynthesisConcurrencyKey('workstation')).not.toBe(
+      readerSynthesisConcurrencyKey('cloud-agent'),
     )
   })
 

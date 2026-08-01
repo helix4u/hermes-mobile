@@ -861,9 +861,9 @@ export function ControlPanel({
           </label>
           <p className="advanced-copy">
             {wakeWordStatus === 'listening'
-              ? 'Listening locally with the same openWakeWord model as Desktop. Ambient audio is not sent to Hermes.'
+              ? `Listening locally for “Hey Hermes” with the same openWakeWord model as Desktop. Begin the captured request with “${pet.preferences.sidechatCommands[0] || 'Pet'} …” or another configured alias to route it to private pet sidechat. Ambient audio is not sent to Hermes.`
               : wakeWordStatus === 'capturing'
-                ? 'Wake phrase heard. Listening locally until you pause.'
+                ? `Wake phrase heard. Listening locally until you pause; begin with “${pet.preferences.sidechatCommands[0] || 'Pet'}” or another configured alias for private pet sidechat.`
                 : wakeWordStatus === 'transcribing'
                   ? 'Request ended. Transcribing it with the connected Hermes host…'
               : wakeWordStatus === 'starting'

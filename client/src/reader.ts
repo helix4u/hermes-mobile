@@ -16,6 +16,52 @@ export interface VoiceSelection {
   speed: number
   instruct?: string
   language?: string
+  xai?: XaiTtsSelection
+}
+
+export interface XaiTtsSelection {
+  autoSpeechTags: boolean
+  bitRate: number
+  optimizeStreamingLatency: 0 | 1 | 2
+  sampleRate: number
+  synthesisSpeed: number
+  textNormalization: boolean
+}
+
+export const DEFAULT_XAI_TTS_SELECTION: XaiTtsSelection = {
+  autoSpeechTags: false,
+  bitRate: 128_000,
+  optimizeStreamingLatency: 0,
+  sampleRate: 24_000,
+  synthesisSpeed: 1,
+  textNormalization: false,
+}
+
+export function normalizeXaiTtsSelection(
+  value: Partial<XaiTtsSelection> | null | undefined,
+): XaiTtsSelection {
+  const speed = Number(value?.synthesisSpeed)
+  const latency = Math.round(Number(value?.optimizeStreamingLatency))
+  const sampleRate = Number(value?.sampleRate)
+  const bitRate = Number(value?.bitRate)
+  return {
+    autoSpeechTags: value?.autoSpeechTags === true,
+    bitRate: [32_000, 64_000, 96_000, 128_000, 192_000].includes(bitRate)
+      ? bitRate
+      : DEFAULT_XAI_TTS_SELECTION.bitRate,
+    optimizeStreamingLatency: (
+      [0, 1, 2].includes(latency) ? latency : 0
+    ) as 0 | 1 | 2,
+    sampleRate: [8_000, 16_000, 22_050, 24_000, 44_100, 48_000].includes(
+      sampleRate,
+    )
+      ? sampleRate
+      : DEFAULT_XAI_TTS_SELECTION.sampleRate,
+    synthesisSpeed: Number.isFinite(speed)
+      ? Math.max(0.7, Math.min(1.5, speed))
+      : DEFAULT_XAI_TTS_SELECTION.synthesisSpeed,
+    textNormalization: value?.textNormalization === true,
+  }
 }
 
 export interface TtsOverrideOptions {
@@ -24,6 +70,8 @@ export interface TtsOverrideOptions {
 
 export const DEFAULT_READER_BUFFER_AHEAD = 3
 export const MAX_READER_BUFFER_AHEAD = 6
+export const DEFAULT_READER_SYNTHESIS_CONCURRENCY = 2
+export const MAX_READER_SYNTHESIS_CONCURRENCY = 3
 
 const MARKERS = [
   /^\(([^()\n]{1,80})\)\s*$/,
@@ -264,7 +312,7 @@ export function ttsOverride(
           providers: { [provider]: { voice } },
         }
       : {}),
-    ...(selection.language?.trim()
+    ...(provider !== 'xai' && selection.language?.trim()
       ? { language: selection.language.trim() }
       : {}),
     ...(selection.instruct?.trim()
@@ -274,12 +322,28 @@ export function ttsOverride(
   if (speed !== undefined) {
     override.speed = speed
   }
-  if (provider === 'xai' && options.xaiAutoSpeechTags) {
-    const xai =
+  if (provider === 'xai' && (selection.xai || options.xaiAutoSpeechTags)) {
+    let xai =
       override.xai && typeof override.xai === 'object'
         ? (override.xai as Record<string, unknown>)
         : {}
-    override.xai = { ...xai, auto_speech_tags: true }
+    if (selection.xai) {
+      const selected = normalizeXaiTtsSelection(selection.xai)
+      xai = {
+        ...xai,
+        auto_speech_tags: selected.autoSpeechTags,
+        bit_rate: selected.bitRate,
+        language: selection.language?.trim() || 'en',
+        optimize_streaming_latency: selected.optimizeStreamingLatency,
+        sample_rate: selected.sampleRate,
+        speed: selected.synthesisSpeed,
+        text_normalization: selected.textNormalization,
+      }
+    }
+    override.xai = {
+      ...xai,
+      ...(options.xaiAutoSpeechTags ? { auto_speech_tags: true } : {}),
+    }
   }
   return override
 }
@@ -332,6 +396,22 @@ export function normalizeReaderBufferAhead(value: unknown): number {
 
 export function readerBufferKey(connectionId: string): string {
   return `hermes-mobile.reader.${connectionId}.buffer-ahead`
+}
+
+export function normalizeReaderSynthesisConcurrency(value: unknown): number {
+  if (value === null || value === undefined || value === '') {
+    return DEFAULT_READER_SYNTHESIS_CONCURRENCY
+  }
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return DEFAULT_READER_SYNTHESIS_CONCURRENCY
+  return Math.max(
+    1,
+    Math.min(MAX_READER_SYNTHESIS_CONCURRENCY, Math.round(numeric)),
+  )
+}
+
+export function readerSynthesisConcurrencyKey(connectionId: string): string {
+  return `hermes-mobile.reader.${connectionId}.synthesis-concurrency`
 }
 
 export function readerProvidersKey(connectionId: string): string {
@@ -389,6 +469,26 @@ export function persistReaderBufferAhead(
   )
 }
 
+export function loadReaderSynthesisConcurrency(connectionId: string): number {
+  if (typeof window === 'undefined') {
+    return DEFAULT_READER_SYNTHESIS_CONCURRENCY
+  }
+  return normalizeReaderSynthesisConcurrency(
+    window.localStorage.getItem(readerSynthesisConcurrencyKey(connectionId)),
+  )
+}
+
+export function persistReaderSynthesisConcurrency(
+  connectionId: string,
+  value: number,
+): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(
+    readerSynthesisConcurrencyKey(connectionId),
+    String(normalizeReaderSynthesisConcurrency(value)),
+  )
+}
+
 export function reconcileReaderProviders(
   selected: string[],
   available: string[],
@@ -424,6 +524,10 @@ export function loadVoiceSelection(connectionId: string): VoiceSelection {
       speed: Number.isFinite(speed) ? Math.max(0.7, Math.min(1.5, speed)) : 1,
       instruct: String(value.instruct ?? ''),
       language: String(value.language ?? ''),
+      xai:
+        value.xai && typeof value.xai === 'object'
+          ? normalizeXaiTtsSelection(value.xai)
+          : undefined,
     }
   } catch {
     return fallback

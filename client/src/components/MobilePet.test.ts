@@ -10,31 +10,46 @@ import {
   PET_ROAM_BORDER_INSET,
   petPositionAtAnimationTime,
   petPositionFromPointer,
+  resolvePetViewport,
   settlePetRoamAnimation,
 } from './MobilePet'
 
 describe('mobile pet roaming', () => {
-  it('mixes distinct short and long walks with real rest windows', () => {
-    const shortValues = [0.2, 0.2, 0.9, 0.5, 0.25]
-    const longValues = [0.9, 0.9, 0.5, 0.5]
+  it('mixes distinct short and long walks at the configured speed floor', () => {
+    const shortValues = [0.2, 0.2, 0.4, 0.9, 0.5, 0.25]
+    const longValues = [0.9, 0.9, 0.7, 0.5, 0.5, 0.5]
+    const shortStart = { x: 140, y: 220 }
+    const longStart = { x: 40, y: 220 }
     const short = nextPetRoamStep(
-      { x: 140, y: 220 },
+      shortStart,
       { height: 500, width: 360 },
       () => shortValues.shift() ?? 0.5,
     )
     const long = nextPetRoamStep(
-      { x: 40, y: 220 },
+      longStart,
       { height: 500, width: 360 },
       () => longValues.shift() ?? 0.5,
     )
-
-    expect(short.durationMs).toBeGreaterThanOrEqual(3_000)
-    expect(short.durationMs).toBeLessThanOrEqual(7_000)
-    expect(short.restMs).toBeGreaterThanOrEqual(4_500)
-    expect(long.durationMs).toBeGreaterThanOrEqual(10_000)
-    expect(Math.abs(long.destination.x - 40)).toBeGreaterThan(
-      Math.abs(short.destination.x - 140),
+    const shortDistance = Math.hypot(
+      short.destination.x - shortStart.x,
+      short.destination.y - shortStart.y,
     )
+    const longDistance = Math.hypot(
+      long.destination.x - longStart.x,
+      long.destination.y - longStart.y,
+    )
+
+    expect((shortDistance / short.durationMs) * 1_000).toBeGreaterThanOrEqual(
+      MIN_PET_ROAM_SPEED - 0.01,
+    )
+    expect((longDistance / long.durationMs) * 1_000).toBeGreaterThanOrEqual(
+      MIN_PET_ROAM_SPEED - 0.01,
+    )
+    expect(short.restMs).toBeGreaterThanOrEqual(4_000)
+    expect(short.restMs).toBeLessThanOrEqual(15_000)
+    expect(long.restMs).toBeGreaterThanOrEqual(4_000)
+    expect(long.restMs).toBeLessThanOrEqual(15_000)
+    expect(longDistance).toBeGreaterThan(shortDistance)
   })
 
   it('keeps automatic destinations inset from the transparent overlay border', () => {
@@ -82,8 +97,25 @@ describe('mobile pet roaming', () => {
       () => 1,
     )
 
-    expect(nearTop.destination.y).toBeGreaterThan(0)
-    expect(nearBottom.destination.y).toBeLessThan(428)
+    expect(nearTop.destination.y).toBeGreaterThanOrEqual(
+      PET_ROAM_BORDER_INSET + 48,
+    )
+    expect(nearBottom.destination.y).toBeLessThanOrEqual(
+      428 - PET_ROAM_BORDER_INSET - 48,
+    )
+  })
+
+  it('uses the full phone-height roaming range instead of a middle-page box', () => {
+    const start = { x: 140, y: 700 }
+    const values = [0.9, 0.8, 0.9, 0.7, 0.1, 0.5]
+    const step = nextPetRoamStep(
+      start,
+      { height: 800, width: 360 },
+      () => values.shift() ?? 0.5,
+    )
+
+    expect(step.destination.y).toBeLessThan(400)
+    expect(Math.abs(step.destination.y - start.y)).toBeGreaterThan(250)
   })
 
   it('does not let a short roaming leg drop below the faster speed floor', () => {
@@ -155,6 +187,7 @@ describe('mobile pet roaming', () => {
         onSidechat: () => undefined,
         roam: false,
         sidechatAvailable: true,
+        speaking: false,
         state: 'idle',
       }),
     )
@@ -180,6 +213,7 @@ describe('mobile pet roaming', () => {
         onSidechat: () => undefined,
         roam: false,
         sidechatAvailable: false,
+        speaking: false,
         state: 'idle',
       }),
     )
@@ -202,5 +236,34 @@ describe('mobile pet roaming', () => {
         { x: 22, y: 28 },
       ),
     ).toEqual({ x: 244, y: 256 })
+  })
+
+  it('uses the visual viewport as the pet coordinate authority', () => {
+    expect(
+      resolvePetViewport({
+        documentHeight: 520,
+        documentWidth: 360,
+        innerHeight: 520,
+        innerWidth: 360,
+        visualViewport: {
+          height: 780,
+          offsetLeft: 3,
+          offsetTop: 7,
+          width: 412,
+        },
+      }),
+    ).toEqual({ height: 780, left: 3, top: 7, width: 412 })
+  })
+
+  it('falls back to the document viewport when visual viewport is unavailable', () => {
+    expect(
+      resolvePetViewport({
+        documentHeight: 760,
+        documentWidth: 390,
+        innerHeight: 700,
+        innerWidth: 360,
+        visualViewport: null,
+      }),
+    ).toEqual({ height: 760, left: 0, top: 0, width: 390 })
   })
 })

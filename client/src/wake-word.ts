@@ -11,6 +11,7 @@ import type { VoicePhase } from './voice'
 export const WAKE_WORD_PHRASE = 'hey hermes'
 
 export type WakeWordMode = 'off' | 'review' | 'send'
+export type ActiveTurnInputMode = 'interrupt' | 'steer'
 export type WakeWordStatus =
   | 'capturing'
   | 'error'
@@ -56,6 +57,32 @@ export function wakeWordModePreferenceKey(connectionId: string): string {
   return `hermes-mobile.wake-word.${connectionId}.mode`
 }
 
+export function activeTurnInputModePreferenceKey(connectionId: string): string {
+  return `hermes-mobile.active-turn-input.${connectionId}.mode`
+}
+
+export function loadActiveTurnInputMode(
+  connectionId: string,
+): ActiveTurnInputMode {
+  if (typeof window === 'undefined') return 'interrupt'
+  return window.localStorage.getItem(
+    activeTurnInputModePreferenceKey(connectionId),
+  ) === 'steer'
+    ? 'steer'
+    : 'interrupt'
+}
+
+export function persistActiveTurnInputMode(
+  connectionId: string,
+  mode: ActiveTurnInputMode,
+): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(
+    activeTurnInputModePreferenceKey(connectionId),
+    mode,
+  )
+}
+
 export function loadWakeWordMode(connectionId: string): WakeWordMode {
   if (typeof window === 'undefined') return 'off'
   const stored = window.localStorage.getItem(
@@ -85,7 +112,14 @@ export function persistWakeWordMode(
 export function stripWakePhrase(transcript: string): string {
   return transcript
     .trim()
-    .replace(/^(?:hey[\s,.:;!?-]*)?hermes\b[\s,.:;!?-]*/i, '')
+    // The acoustic detector owns activation, so its words must never become
+    // part of the submitted request. Host STT commonly hears the bundled
+    // "Hey Hermes" model as "Okay Hermes" or "OK Hermes"; consume those
+    // variants while preserving the command that follows (especially Pet).
+    .replace(
+      /^(?:(?:hey|okay|ok)[\s,.:;!?-]*)?hermes\b[\s,.:;!?-]*/i,
+      '',
+    )
     .trim()
 }
 

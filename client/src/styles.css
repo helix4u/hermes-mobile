@@ -333,7 +333,7 @@ h3 {
 
 .chat-voice-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
   flex: 0 0 auto;
   border-bottom: 1px solid var(--stroke);
@@ -343,7 +343,7 @@ h3 {
 
 .chat-voice-controls label {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.38rem;
   min-width: 0;
@@ -389,16 +389,17 @@ h3 {
 
 .mobile-pet-stage {
   position: fixed;
-  top: calc(var(--safe-top) + 11.65rem);
-  bottom: calc(var(--safe-bottom) + 10.3rem);
-  left: 50%;
-  z-index: 70;
-  width: min(900px, 100%);
+  top: 0;
+  left: 0;
+  /* Keep the companion draggable above its own sidechat (120), while native
+     media viewers and other deliberate full-screen surfaces can still win. */
+  z-index: 130;
+  width: 100vw;
+  height: 100dvh;
   overflow: visible;
   border: 0;
   background: transparent;
   pointer-events: none;
-  transform: translateX(-50%);
 }
 
 .mobile-pet {
@@ -428,7 +429,7 @@ h3 {
 
 .mobile-pet-bubble {
   position: fixed;
-  z-index: 71;
+  z-index: 131;
   box-sizing: border-box;
   width: min(14rem, calc(100vw - 2rem));
   max-width: calc(100vw - 2rem);
@@ -445,6 +446,27 @@ h3 {
   word-break: break-word;
   pointer-events: none;
   transform: translateX(-50%);
+}
+
+.mobile-pet-bubble.is-speaking {
+  border-color: color-mix(in srgb, var(--gold) 48%, var(--stroke));
+  animation: mobile-pet-bubble-speaking 420ms ease-in-out infinite alternate;
+}
+
+@keyframes mobile-pet-bubble-speaking {
+  from {
+    transform: translateX(-50%) scale(0.985);
+  }
+
+  to {
+    transform: translateX(-50%) scale(1.015);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-pet-bubble.is-speaking {
+    animation: none;
+  }
 }
 
 .mobile-pet-chat-button {
@@ -2284,6 +2306,37 @@ h3 {
 .voice-speed-field input {
   width: 100%;
   accent-color: var(--gold);
+}
+
+.xai-tts-controls {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  padding: 0.65rem;
+}
+
+.xai-tts-controls > summary {
+  display: grid;
+  gap: 0.15rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.xai-tts-controls > summary small,
+.xai-tts-controls .voice-speed-field small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.xai-tts-controls[open] > summary {
+  margin-bottom: 0.7rem;
+}
+
+.xai-tts-controls > .setting-grid,
+.xai-tts-controls > .toggle-row {
+  margin-top: 0.65rem;
 }
 
 .voice-library {

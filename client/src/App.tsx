@@ -106,6 +106,7 @@ import {
   type SharedContent,
 } from './transport/native-bridge'
 import {
+  assistantDeltaText,
   canToggleVoiceRecording,
   completedAssistantText,
   loadAutoSpeak,
@@ -113,13 +114,16 @@ import {
   useVoice,
 } from './voice'
 import {
+  loadActiveTurnInputMode,
   loadWakeWordMode,
+  persistActiveTurnInputMode,
   persistWakeWordMode,
+  type ActiveTurnInputMode,
   type WakeWordMode,
   useWakeWord,
 } from './wake-word'
 import { markdownToSpeechText } from './markdown'
-import { petTurnActiveAfterEvent } from './pet'
+import { petSidechatTranscriptPrompt, petTurnActiveAfterEvent } from './pet'
 import {
   pinTranscriptToBottom,
   shouldFollowTranscriptAfterScroll,
@@ -266,6 +270,7 @@ export function App() {
   )
   const [petSidechatOpen, setPetSidechatOpen] = useState(false)
   const petSidechatTranscriptRef = useRef<((text: string) => void) | null>(null)
+  const petSidechatIntentRouterRef = useRef<(text: string) => boolean>(() => false)
   const [commandCatalog, setCommandCatalog] = useState<Array<[string, string]>>(
     [],
   )
@@ -290,6 +295,12 @@ export function App() {
       ? 'off'
       : loadWakeWordMode(initialConnection.id),
   )
+  const [activeTurnInputMode, setActiveTurnInputMode] =
+    useState<ActiveTurnInputMode>(() =>
+      typeof window === 'undefined'
+        ? 'interrupt'
+        : loadActiveTurnInputMode(initialConnection.id),
+    )
   const [wakeReviewPending, setWakeReviewPending] = useState(false)
   const [appIsActive, setAppIsActive] = useState(true)
   const [voiceSelection, setVoiceSelection] = useState<VoiceSelection>(() =>
@@ -390,6 +401,7 @@ export function App() {
     [voiceSelection],
   )
   const appendVoiceTranscript = useCallback((text: string) => {
+    if (petSidechatIntentRouterRef.current(text)) return
     if (petSidechatTranscriptRef.current) {
       petSidechatTranscriptRef.current(text)
       return
@@ -401,13 +413,14 @@ export function App() {
   }, [])
   const {
     activeSpeechId,
+    appendIncrementalSpeech,
+    finishIncrementalSpeech,
     pausePlayback,
     phase: voicePhase,
     playbackPaused,
+    prepareSpeechSequence,
     renderSequence,
     resumePlayback,
-    speak,
-    speakLatest,
     speakSequence,
     stopPlayback,
     toggleRecording,
@@ -430,7 +443,10 @@ export function App() {
     status: wakeWordStatus,
   } = useWakeWord({
     appActive: appIsActive,
-    available: !busy && !turnActive && !wakeReviewPending,
+    // Wake capture is useful during a live turn: pet-prefixed transcripts route
+    // to sidechat first, while ordinary requests use the per-connection active
+    // turn preference below.
+    available: !wakeReviewPending,
     connected,
     connectionId: connection.id,
     enabled: wakeWordMode !== 'off',
@@ -442,6 +458,7 @@ export function App() {
     onError: setError,
     onNotice: setNotice,
     onTranscript: text => {
+      if (petSidechatIntentRouterRef.current(text)) return
       setActiveTab('chat')
       if (wakeWordModeRef.current === 'send') {
         void sendWakeTranscript(text)
@@ -459,14 +476,37 @@ export function App() {
     ensureSession: () => ensureSession(),
     gateway: transportRef.current?.gateway ?? null,
     profile: connection.profile,
+    prepareSpeechSequence,
     runtimeSessionId,
-    speak,
-    speakLatest,
+    speakSequence,
     transcript,
     transport: transportRef.current,
     turnActive,
-    speechBusy: Boolean(activeSpeechId) || voicePhase !== 'idle',
   })
+  petSidechatIntentRouterRef.current = text => {
+    const displayName =
+      pet.personality?.displayName || pet.info.displayName || 'Pet'
+    const routed = petSidechatTranscriptPrompt(
+      text,
+      pet.preferences.sidechatCommands,
+    )
+    if (!routed) return false
+    setActiveTab('chat')
+    setPetSidechatOpen(true)
+    if (!pet.hostCapabilities.sidechat) {
+      setError(`${displayName} sidechat is not available on this Hermes host.`)
+      return true
+    }
+    if (!routed.prompt) {
+      setNotice(`${displayName} sidechat is ready. What do you want to ask?`)
+      return true
+    }
+    void pet.sidechat.send(routed.prompt).then(sent => {
+      if (!sent) return
+      setNotice(`Sent to ${displayName} sidechat.`)
+    })
+    return true
+  }
   useEffect(() => {
     if (!pet.hostCapabilities.sidechat) setPetSidechatOpen(false)
   }, [pet.hostCapabilities.sidechat])
@@ -474,7 +514,7 @@ export function App() {
   const appendEvent = useCallback(
     (event: GatewayEvent) => {
       if (event.type === 'message.complete') {
-        pet.cancelCommentary()
+        pet.finishTurnCommentary()
       }
       setTurnActive(current =>
         petTurnActiveAfterEvent(current, event.type),
@@ -504,10 +544,32 @@ export function App() {
       }
       setTranscript(current => reduceGatewayEvent(current, event))
       if (!autoSpeakRef.current) return
+      const delta = assistantDeltaText(event)
+      if (delta) {
+        appendIncrementalSpeech(
+          delta,
+          'auto-response',
+          getDefaultTtsConfig(),
+        )
+        return
+      }
       const text = completedAssistantText(event)
-      if (text) void speak(markdownToSpeechText(text), 'auto-response')
+      if (event.type === 'message.complete') {
+        finishIncrementalSpeech(
+          text,
+          'auto-response',
+          getDefaultTtsConfig(),
+          pet.waitForSpeechPriority(),
+        )
+      }
     },
-    [pet.cancelCommentary, speak],
+    [
+      appendIncrementalSpeech,
+      finishIncrementalSpeech,
+      getDefaultTtsConfig,
+      pet.finishTurnCommentary,
+      pet.waitForSpeechPriority,
+    ],
   )
 
   const disconnect = useCallback(() => {
@@ -562,6 +624,7 @@ export function App() {
     const nextWakeWordMode = loadWakeWordMode(connection.id)
     setWakeWordMode(nextWakeWordMode)
     wakeWordModeRef.current = nextWakeWordMode
+    setActiveTurnInputMode(loadActiveTurnInputMode(connection.id))
     setWakeReviewPending(false)
     setVoiceSelection(loadVoiceSelection(connection.id))
     stopPlayback()
@@ -1548,6 +1611,7 @@ export function App() {
     setTurnActive(true)
     try {
       await transport.gateway.request('prompt.submit', {
+        busy_mode: activeTurnInputMode,
         session_id: sessionId,
         text,
       })
@@ -1805,6 +1869,11 @@ export function App() {
       cancelWakeCapture()
       setWakeReviewPending(false)
     }
+  }
+
+  function changeActiveTurnInputMode(mode: ActiveTurnInputMode) {
+    setActiveTurnInputMode(mode)
+    persistActiveTurnInputMode(connection.id, mode)
   }
 
   function changeVoiceSelection(selection: VoiceSelection) {
@@ -2089,6 +2158,21 @@ export function App() {
                   <option value="auto">Auto-play</option>
                 </select>
               </label>
+              <label>
+                <span>During turn</span>
+                <select
+                  aria-label="Active turn input behavior"
+                  value={activeTurnInputMode}
+                  onChange={event =>
+                    changeActiveTurnInputMode(
+                      event.target.value as ActiveTurnInputMode,
+                    )
+                  }
+                >
+                  <option value="interrupt">Interrupt</option>
+                  <option value="steer">Steer</option>
+                </select>
+              </label>
             </div>
 
             <div
@@ -2124,9 +2208,22 @@ export function App() {
                   setActiveTab('reader')
                 }}
                 onRespond={respondToRequest}
-                onSpeak={(text, itemId) =>
-                  toggleSpeech(markdownToSpeechText(text), itemId)
-                }
+                onSpeak={(text, itemId, kind) => {
+                  const speechText = markdownToSpeechText(text)
+                  if (kind === 'pet') {
+                    if (
+                      activeSpeechId === itemId &&
+                      (voicePhase === 'speaking' ||
+                        voicePhase === 'synthesizing')
+                    ) {
+                      stopPlayback()
+                      return
+                    }
+                    void pet.listen(speechText, itemId)
+                    return
+                  }
+                  toggleSpeech(speechText, itemId)
+                }}
               />
             </div>
 
@@ -2410,6 +2507,7 @@ export function App() {
               key={connection.id}
               roam={pet.preferences.roam}
               sidechatAvailable={pet.hostCapabilities.sidechat}
+              speaking={pet.speaking}
               state={pet.state}
               onClick={pet.interact}
               onSidechat={() => setPetSidechatOpen(true)}

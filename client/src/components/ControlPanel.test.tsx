@@ -46,6 +46,7 @@ describe('mobile Control settings disclosures', () => {
               contextTurns: 3,
               personalitySlug: 'alien-child',
               roam: true,
+              sidechatCommands: ['Pet'],
               speechMode: 'desktop',
               speechPitch: 0,
               speechProvider: '',

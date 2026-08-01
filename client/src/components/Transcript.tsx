@@ -22,7 +22,11 @@ interface TranscriptProps {
   voicePhase: VoicePhase
   onOpenDocumentPreviewer?: (document: PreviewDocument) => void
   onOpenDocumentReader?: (document: PreviewDocument) => void
-  onSpeak: (text: string, itemId: string) => void
+  onSpeak: (
+    text: string,
+    itemId: string,
+    kind: TranscriptItem['kind'],
+  ) => void
   onRespond: (
     request: RequestTranscriptData,
     value: string,
@@ -455,7 +459,7 @@ export function Transcript({
                   <button
                     aria-label={speaking ? 'Stop reading response' : 'Read response aloud'}
                     className={`speak-button ${speaking ? 'active' : ''}`}
-                    onClick={() => onSpeak(item.text || '', item.id)}
+                    onClick={() => onSpeak(item.text || '', item.id, item.kind)}
                   >
                     {speaking
                       ? voicePhase === 'synthesizing'
@@ -474,7 +478,7 @@ export function Transcript({
                     aria-label="Dismiss pet note"
                     className="pet-dismiss-button"
                     onClick={() => {
-                      if (speaking) onSpeak(item.text || '', item.id)
+                      if (speaking) onSpeak(item.text || '', item.id, item.kind)
                       dismissPet(item.id)
                     }}
                     type="button"
