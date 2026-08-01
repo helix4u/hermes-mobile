@@ -339,6 +339,58 @@ describe('voice helpers', () => {
     expect(starts).toEqual(['first', 'second'])
   })
 
+  test('keeps only the newest pending task in a replaceable speech lane', async () => {
+    let releaseReply!: () => void
+    const replyFinished = new Promise<void>(resolve => {
+      releaseReply = resolve
+    })
+    const starts: string[] = []
+    const queue = createSerialSpeechTaskQueue()
+
+    const reply = queue.enqueue(async () => {
+      starts.push('reply')
+      await replyFinished
+    })
+    const stalePoke = queue.enqueueLatest('pet-interaction', async () => {
+      starts.push('stale poke')
+    })
+    const latestPoke = queue.enqueueLatest('pet-interaction', async () => {
+      starts.push('latest poke')
+    })
+
+    await Promise.resolve()
+    expect(starts).toEqual(['reply'])
+    releaseReply()
+    await Promise.all([reply, stalePoke, latestPoke])
+    expect(starts).toEqual(['reply', 'latest poke'])
+  })
+
+  test('releases only matching active speech for keyed replacement', async () => {
+    let releaseOldPoke!: () => void
+    const oldPokeFinished = new Promise<void>(resolve => {
+      releaseOldPoke = resolve
+    })
+    const starts: string[] = []
+    const queue = createSerialSpeechTaskQueue()
+
+    const oldPoke = queue.enqueueLatest('pet-interaction', async () => {
+      starts.push('old poke')
+      await oldPokeFinished
+    })
+    await Promise.resolve()
+
+    expect(queue.releaseActive('reader')).toBe(false)
+    expect(queue.releaseActive('pet-interaction')).toBe(true)
+    const latestPoke = queue.enqueueLatest('pet-interaction', async () => {
+      starts.push('latest poke')
+    })
+    await latestPoke
+    expect(starts).toEqual(['old poke', 'latest poke'])
+
+    releaseOldPoke()
+    await oldPoke
+  })
+
   test('clears waiting speech without disrupting queue reuse', async () => {
     let releaseFirst!: () => void
     const firstFinished = new Promise<void>(resolve => {

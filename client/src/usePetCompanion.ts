@@ -63,6 +63,11 @@ interface UsePetCompanionOptions {
     id: string,
     ttsConfig?: Record<string, unknown>,
   ) => void | Promise<void>
+  speakLatest: (
+    text: string,
+    id: string,
+    ttsConfig?: Record<string, unknown>,
+  ) => void | Promise<void>
 }
 
 function eventId(): string {
@@ -80,6 +85,7 @@ export function usePetCompanion({
   profile,
   runtimeSessionId,
   speak,
+  speakLatest,
   transcript,
   transport,
   turnActive,
@@ -309,11 +315,19 @@ export function usePetCompanion({
         preferencesRef.current.speakCommentary &&
         (source !== 'generated' || !speechBusyRef.current)
       ) {
-        void speak(clean, `pet-${source}`, speechRef.current.config)
+        if (source === 'interaction') {
+          void speakLatest(
+            clean,
+            'pet-interaction',
+            speechRef.current.config,
+          )
+        } else {
+          void speak(clean, 'pet-generated', speechRef.current.config)
+        }
       }
       void record(clean, source)
     },
-    [record, showBubble, speak],
+    [record, showBubble, speak, speakLatest],
   )
 
   const refreshDesktopSpeech = useCallback(async () => {

@@ -77,6 +77,35 @@ describe('mobile pet companion state', () => {
     expect(builtinMobilePetPersonality('technical')?.sidechat?.prompt).toContain(
       'chosen Mobile pet companion',
     )
+    for (const slug of [
+      'helpful',
+      'concise',
+      'technical',
+      'creative',
+      'teacher',
+      'kawaii',
+      'catgirl',
+      'pirate',
+      'shakespeare',
+      'surfer',
+      'noir',
+      'uwu',
+      'hype',
+    ]) {
+      const preset = builtinMobilePetPersonality(slug)
+      expect(preset?.interactions?.click.length).toBeGreaterThanOrEqual(4)
+      for (const state of [
+        'idle',
+        'run',
+        'review',
+        'failed',
+        'waiting',
+        'wave',
+        'jump',
+      ] as const) {
+        expect(preset?.lines[state].length).toBeGreaterThanOrEqual(2)
+      }
+    }
   })
 
   it('persists personality edits only for the selected saved connection', () => {
