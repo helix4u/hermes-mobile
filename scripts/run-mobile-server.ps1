@@ -113,20 +113,14 @@ if (-not $mutex.WaitOne(0)) {
 
 try {
     $env:HERMES_DASHBOARD_SESSION_TOKEN = $token
-    $waitingLogged = $false
     while ($true) {
         if (-not (Test-DesktopRunning)) {
-            if (-not $waitingLogged) {
-                [System.IO.File]::AppendAllText(
-                    $launcherLog,
-                    "[$([DateTimeOffset]::Now.ToString('O'))] desktop-bound mode waiting for $DesktopExecutable`r`n"
-                )
-                $waitingLogged = $true
-            }
-            Start-Sleep -Seconds 2
-            continue
+            [System.IO.File]::AppendAllText(
+                $launcherLog,
+                "[$([DateTimeOffset]::Now.ToString('O'))] desktop-bound mode found no Desktop process; exiting until the recovery trigger`r`n"
+            )
+            return
         }
-        $waitingLogged = $false
         [System.IO.File]::AppendAllText(
             $launcherLog,
             "[$([DateTimeOffset]::Now.ToString('O'))] starting Hermes Mobile server on 127.0.0.1:$Port with proxy 127.0.0.1:$ProxyPort for $TailnetHost`r`n"
@@ -200,6 +194,9 @@ try {
             $launcherLog,
             "[$([DateTimeOffset]::Now.ToString('O'))] $exitedName ended with code $exitCode; reevaluating lifecycle in 5 seconds`r`n"
         )
+        if ($exitedName -eq 'desktop') {
+            return
+        }
         Start-Sleep -Seconds 5
     }
 } finally {

@@ -3020,6 +3020,60 @@ h3 {
   gap: 0.7rem;
 }
 
+.pet-personality-editor {
+  overflow: hidden;
+  border: 1px solid var(--stroke);
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+}
+
+.pet-personality-editor > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  cursor: pointer;
+  padding: 0.72rem;
+  list-style: none;
+}
+
+.pet-personality-editor > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pet-personality-editor > summary > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.16rem;
+}
+
+.pet-personality-editor > summary strong {
+  font-size: 0.75rem;
+}
+
+.pet-personality-editor > summary small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+
+.pet-personality-editor[open] > summary .disclosure-glyph {
+  transform: rotate(45deg);
+}
+
+.pet-personality-editor-body {
+  display: grid;
+  min-width: 0;
+  gap: 0.72rem;
+  border-top: 1px solid var(--stroke);
+  padding: 0.72rem;
+}
+
+.pet-personality-editor-body textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
 .pet-speech-settings,
 .pet-commentary-settings {
   border: 1px solid var(--stroke);

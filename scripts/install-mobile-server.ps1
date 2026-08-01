@@ -93,10 +93,20 @@ $action = New-ScheduledTaskAction `
     -Execute $powerShell `
     -Argument $arguments `
     -WorkingDirectory $PSScriptRoot
-$trigger = if ($StartupMode -in @('desktop', 'persistent')) {
-    New-ScheduledTaskTrigger -AtLogOn -User $identity
-} else {
-    $null
+$triggers = @()
+if ($StartupMode -in @('desktop', 'persistent')) {
+    $triggers += New-ScheduledTaskTrigger -AtLogOn -User $identity
+}
+if ($StartupMode -eq 'desktop') {
+    # A desktop-bound runner exits completely when Desktop closes, so no
+    # listener or waiting wrapper survives. Task Scheduler's one-minute
+    # recurring trigger is the plugin-owned launch seam when Desktop later
+    # opens. MultipleInstances=IgnoreNew makes each tick a no-op while the
+    # healthy runner is already supervising the backend and proxy.
+    $triggers += New-ScheduledTaskTrigger `
+        -Once `
+        -At (Get-Date).AddMinutes(1) `
+        -RepetitionInterval (New-TimeSpan -Minutes 1)
 }
 $principal = New-ScheduledTaskPrincipal `
     -UserId $identity `
@@ -117,8 +127,8 @@ $register = @{
     Description = "Hermes Mobile loopback backend. Startup mode: $StartupMode. Manage with scripts/mobile_host.py."
     Force = $true
 }
-if ($trigger) {
-    $register.Trigger = $trigger
+if ($triggers.Count -gt 0) {
+    $register.Trigger = $triggers
 }
 Register-ScheduledTask @register | Out-Null
 

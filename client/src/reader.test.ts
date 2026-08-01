@@ -65,6 +65,25 @@ describe('reader helpers', () => {
       speed: 1.1,
       xai: { voice_id: 'eve' },
     })
+    expect(
+      ttsOverride(
+        { provider: 'xai', voice: 'eve', speed: 1.1 },
+        { xaiAutoSpeechTags: true },
+      ),
+    ).toEqual({
+      provider: 'xai',
+      speed: 1.1,
+      xai: { auto_speech_tags: true, voice_id: 'eve' },
+    })
+    expect(
+      ttsOverride(
+        { provider: 'openai', voice: 'nova', speed: 1 },
+        { xaiAutoSpeechTags: true },
+      ),
+    ).toEqual({
+      openai: { voice: 'nova' },
+      provider: 'openai',
+    })
     expect(ttsOverride({ provider: '', voice: '', speed: 1 })).toBeUndefined()
     expect(ttsOverride({ provider: '', voice: '', speed: 1.25 })).toEqual({
       speed: 1.25,

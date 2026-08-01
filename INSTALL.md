@@ -63,12 +63,14 @@ python scripts/mobile_host.py install --startup persistent
 python scripts/mobile_host.py install --startup manual
 ```
 
-`desktop` keeps the scheduled supervisor registered but starts the backend and
-proxy only while the packaged Hermes Desktop process is running. `persistent`
-keeps Mobile reachable independently after Desktop quits. `manual` registers
-no logon trigger and runs only after an explicit start. Re-running install with
-a different policy safely replaces the prior task and its verified listener
-processes.
+`desktop` starts the backend, proxy, and supervisor only while the packaged
+Hermes Desktop process is running. All three exit after Desktop quits. A
+plugin-owned one-minute scheduled recovery trigger starts them again after
+Desktop reopens; duplicate ticks are ignored while the supervisor is healthy.
+`persistent` keeps Mobile reachable independently after Desktop quits.
+`manual` registers no automatic trigger and runs only after an explicit start.
+Re-running install with a different policy safely replaces the prior task and
+its verified listener processes.
 
 The default remains `persistent` for unattended phone access. A workstation
 that should never retain a Mobile backend after Desktop exits should select
@@ -82,9 +84,11 @@ python scripts/mobile_host.py status
 
 The verification must report the scheduled task, both listeners, authenticated
 health, and a compatible or explicitly degraded compatibility response.
-When a desktop-bound host is idle, status reports `waiting-for-desktop` and
-both listeners as stopped instead of failing or pretending the service is
-uninstalled.
+When a desktop-bound host is idle, status reports `waiting-for-desktop`; the
+scheduled task and both listeners are stopped instead of leaving a waiting
+wrapper process or pretending the service is uninstalled. Reconnection after
+Desktop opens can take up to one minute, matching Windows Task Scheduler's
+minimum native repetition interval.
 
 ## Start, stop, restart, or remove the host
 

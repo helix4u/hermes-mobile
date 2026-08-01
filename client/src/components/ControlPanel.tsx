@@ -6,6 +6,7 @@ import type {
   MobilePetInfo,
   PetHostCapabilities,
   PetPersonalityData,
+  PetPersonalityOverride,
   PetPersonalitySummary,
   PetPreferences,
   PetSpeechProfile,
@@ -80,9 +81,12 @@ interface ControlPanelProps {
     hostCapabilities: PetHostCapabilities
     info: MobilePetInfo
     personality: PetPersonalityData | null
+    personalityEdited: boolean
     preferences: PetPreferences
     status: 'idle' | 'loading' | 'ready' | 'unavailable'
     onPreferences: (patch: Partial<PetPreferences>) => void
+    onPersonalityChange: (patch: Partial<PetPersonalityOverride>) => void
+    onPersonalityReset: () => void
     onPreviewVoice: () => void
     onRefreshDesktopSpeech: () => void | Promise<void>
     onTest: () => void | Promise<void>
@@ -563,11 +567,14 @@ export function ControlPanel({
           hostCapabilities={pet.hostCapabilities}
           info={pet.info}
           personality={pet.personality}
+          personalityEdited={pet.personalityEdited}
           preferences={pet.preferences}
           profile={profile}
           status={pet.status}
           transport={transport}
           onPreferences={pet.onPreferences}
+          onPersonalityChange={pet.onPersonalityChange}
+          onPersonalityReset={pet.onPersonalityReset}
           onPreviewVoice={pet.onPreviewVoice}
           onRefreshDesktopSpeech={pet.onRefreshDesktopSpeech}
           onTest={pet.onTest}
@@ -726,11 +733,14 @@ export function ControlPanel({
         hostCapabilities={pet.hostCapabilities}
         info={pet.info}
         personality={pet.personality}
+        personalityEdited={pet.personalityEdited}
         preferences={pet.preferences}
         profile={profile}
         status={pet.status}
         transport={transport}
         onPreferences={pet.onPreferences}
+        onPersonalityChange={pet.onPersonalityChange}
+        onPersonalityReset={pet.onPersonalityReset}
         onPreviewVoice={pet.onPreviewVoice}
         onRefreshDesktopSpeech={pet.onRefreshDesktopSpeech}
         onTest={pet.onTest}
