@@ -1,6 +1,6 @@
 # Hermes Mobile Current Status
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 
 Current milestone: Pet-sidechat streaming speech and active-turn voice control
 
@@ -18,12 +18,22 @@ Current milestone: Pet-sidechat streaming speech and active-turn voice control
   open.
 - Focused and full client tests, typecheck, production build, Capacitor sync,
   and Android debug assembly pass.
+- Inline remote attachments now use stable Markdown renderer identities plus a
+  connection-scoped in-memory preview cache. Concurrent remounts share one host
+  request, completed previews survive transport replacement or disconnect, and
+  refresh failures no longer clear a successful document. The cache is bounded
+  to 24 entries and 32 MiB total with a 16 MiB per-entry ceiling, and attachment
+  contents never cross saved connection IDs.
+- The top host pill now distinguishes Degraded, Connecting, Reconnecting,
+  Connection failed, and intentionally disconnected states. A connected
+  core-gateway compatibility fallback reads `Degraded · <host>` and uses the
+  warning color rather than appearing fully compatible or disconnected.
 - The current verified debug APK was replacement-installed on the intended
   authorized Android test device over the explicitly supplied ADB endpoint. The `-r` install
   retained saved application data and Android Keystore credentials. Android
-  reports package update time `2026-07-31 22:46:50`; a cold launch completed in
-  741 ms and left the expected application process running with no fatal/runtime
-  error signature in its captured process-log tail.
+  reports package update time `2026-08-01 02:04:56`; a cold launch completed in
+  522 ms and left the expected application process running with no error-priority
+  log record, fatal exception, or ANR signature in its captured process tail.
 - Pet poke TTS now uses keyed replacement. Rapid taps retain only the newest
   pending poke and prepare its audio without stopping the current poke. A
   successful returned payload triggers the active-poke handoff; failed or
@@ -159,7 +169,7 @@ and the same prepared-segment fallback for non-streaming providers.
   Desktop ESLint/Prettier checks, TypeScript typecheck, production build, and
   unpacked Windows packaging passed after that tightening.
 - Mobile pet/voice slice: 75 focused tests passed; the full Mobile client suite
-  now passes 52 files and 262 tests. Mobile TypeScript typecheck passes for the
+  now passes 54 files and 271 tests. Mobile TypeScript typecheck passes for the
   sidechat-streaming, xAI-control, and active-turn wake update. Production build,
   Capacitor sync, Android debug assembly, replacement installation, and cold
   launch smoke also pass for this exact revision.
@@ -174,8 +184,8 @@ and the same prepared-segment fallback for non-streaming providers.
 - Scoped `git diff --check` and unmerged-entry checks pass in both repositories.
 - Current replacement-installed Mobile debug APK:
   `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,128,273 bytes, SHA-256
-  `90E814C632418F55A99625A62B42310715EA5303F773C90D743B7A78CC19915B`).
+  (127,129,153 bytes, SHA-256
+  `AA7410767A9224AE0CFDEA8C6DD06DA7835C86956970D693735CD410C5B4C174`).
 - Current Desktop test executable:
   `..\hermes-agent\apps\desktop\release-pet-tts-20260731\win-unpacked\Hermes.exe`
   (214,281,216 bytes, SHA-256
@@ -187,13 +197,15 @@ and the same prepared-segment fallback for non-streaming providers.
   and storage status.
 - This latest APK is replacement-installed on the intended authorized Android test device at
   version name 1.0/version code 1 and package update time
-  `2026-07-31 23:48:54`. A cold launch completed in 1,490 ms, left the app
-  process running, and its captured process-log tail contained no fatal/runtime
-  error signature.
+  `2026-08-01 02:04:56`. A cold launch completed in 522 ms, left the app
+  process running, and its captured process-log tail contained no error-priority
+  record, fatal exception, or ANR signature.
 
 ## Next action
 
-On the replacement-installed short-opening/overlay APK, verify that the acoustic
+On the replacement-installed attachment-stability APK, verify that completed
+inline attachments remain visually stable during transcript updates and brief
+reconnects, and that the host pill exposes degraded/reconnecting state. Then verify that the acoustic
 activation never appears in the submitted prompt, a short first pet sentence
 joins sentence two, the audio state returns to idle after the last segment, and
 the pet remains visible and draggable over the open sidechat. Then continue the

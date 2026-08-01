@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 
 Project root: current repository checkout
 
@@ -95,6 +95,15 @@ Acceptance contract:
   reopens without leaving an orphan supervisor.
 - Existing pet movement, speech, sidechat, capability degradation, Reader,
   provider, session, and file behavior must not regress.
+- Completed inline file attachments remain mounted through unrelated transcript
+  updates and keep their last successful preview through transport replacement
+  or temporary disconnect. Preview bytes and in-flight requests are cached only
+  in memory, scoped by connection ID and path, and bounded by entry count and
+  byte budget; explicit Retry still refreshes the host copy.
+- The top host control reports `Degraded`, `Connecting`, `Reconnecting`, and
+  `Connection failed` directly instead of collapsing every non-connected state
+  to `Connect`. Degraded core-gateway compatibility uses a warning-colored dot
+  while preserving the selected host name.
 - Rapid pet pokes use a replaceable speech lane: stale pending pokes collapse,
   a newer poke renders without silencing the current poke and hands off only
   after replacement audio exists, and ordinary reply, Reader, commentary, and
@@ -204,7 +213,11 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-On the replacement-installed short-opening/overlay APK, verify that both
+On the replacement-installed attachment-stability APK, verify that a completed
+inline image or document does not flash back to Loading or refetch repeatedly
+during later transcript updates, and that it remains visible through a brief
+connection interruption. Verify the host pill shows Degraded for a connected
+core-gateway fallback and Reconnecting during automatic recovery. Then verify both
 `Hey Hermes, <request>` and the observed STT normalization
 `Okay Hermes, <request>` submit only the request, and that a trailing
 `Pet, ...` reaches private sidechat. Confirm that the pet begins playing its

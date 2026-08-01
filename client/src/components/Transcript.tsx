@@ -492,6 +492,7 @@ export function Transcript({
               <p>{item.text}</p>
             ) : (
               <MarkdownContent
+                connectionId={connectionId}
                 onOpenDocumentPreviewer={onOpenDocumentPreviewer}
                 onOpenDocumentReader={onOpenDocumentReader}
                 resolveMediaMarkers={!item.streaming}
