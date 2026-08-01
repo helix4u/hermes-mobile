@@ -5,6 +5,7 @@ import {
   canToggleVoiceRecording,
   createSerialSpeechTaskQueue,
   completedAssistantText,
+  expandSpeechSequence,
   maintainSpeechPlaybackRate,
   normalizeSpeechSequenceBufferAhead,
   runBufferedSpeechQueue,
@@ -226,6 +227,7 @@ describe('voice helpers', () => {
     const plays: number[] = []
     const playback = runBufferedSpeechQueue(items, {
       bufferAhead: 2,
+      maxConcurrentSynthesis: 3,
       synthesize: async (_item, index) => {
         starts.push(index)
         return gates[index].promise
@@ -337,6 +339,65 @@ describe('voice helpers', () => {
     releaseFirst()
     await Promise.all([first, second])
     expect(starts).toEqual(['first', 'second'])
+  })
+
+  test('segments pet sidechat while retaining its independent voice and speed', () => {
+    const petConfig = {
+      provider: 'qwen',
+      qwen: { voice: 'alien-child-clone' },
+      speed: 1.5,
+    }
+    const chunks = expandSpeechSequence(
+      [
+        {
+          id: 'pet-sidechat',
+          text: `${'Short opening. '.repeat(8)}${'Detailed follow-up sentence. '.repeat(30)}`,
+          ttsConfig: petConfig,
+          fallbackTtsConfigs: [undefined],
+        },
+      ],
+      100,
+      280,
+    )
+
+    expect(chunks.length).toBeGreaterThan(2)
+    expect(chunks[0].text.length).toBeLessThanOrEqual(160)
+    expect(chunks.every(chunk => chunk.ttsConfig === petConfig)).toBe(true)
+    expect(chunks.every(chunk => speechPlaybackRate(chunk) === 1.5)).toBe(true)
+  })
+
+  test('plays pending pet speech before a lower-priority final response', async () => {
+    let releaseActive!: () => void
+    const activeFinished = new Promise<void>(resolve => {
+      releaseActive = resolve
+    })
+    const starts: string[] = []
+    const queue = createSerialSpeechTaskQueue()
+
+    const active = queue.enqueue(async () => {
+      starts.push('active')
+      await activeFinished
+    })
+    const finalReply = queue.enqueue(
+      async () => {
+        starts.push('final reply')
+      },
+      'auto-response',
+      -10,
+    )
+    const pet = queue.enqueue(
+      async () => {
+        starts.push('pet')
+      },
+      'pet-generated',
+      20,
+    )
+
+    await Promise.resolve()
+    expect(starts).toEqual(['active'])
+    releaseActive()
+    await Promise.all([active, finalReply, pet])
+    expect(starts).toEqual(['active', 'pet', 'final reply'])
   })
 
   test('keeps only the newest pending task in a replaceable speech lane', async () => {

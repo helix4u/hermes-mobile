@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
+  activeTurnInputModePreferenceKey,
+  loadActiveTurnInputMode,
   loadWakeWordMode,
+  persistActiveTurnInputMode,
   persistWakeWordMode,
   shouldListenForWakeWord,
   stripWakePhrase,
@@ -40,6 +43,18 @@ describe('Mobile wake word', () => {
     expect(loadWakeWordMode('cloud-agent')).toBe('review')
   })
 
+  test('persists active-turn steering independently per connection', () => {
+    persistActiveTurnInputMode('workstation', 'steer')
+    persistActiveTurnInputMode('cloud-agent', 'interrupt')
+
+    expect(loadActiveTurnInputMode('workstation')).toBe('steer')
+    expect(loadActiveTurnInputMode('cloud-agent')).toBe('interrupt')
+    expect(activeTurnInputModePreferenceKey('workstation')).not.toBe(
+      activeTurnInputModePreferenceKey('cloud-agent'),
+    )
+    expect(loadActiveTurnInputMode('new-host')).toBe('interrupt')
+  })
+
   test('migrates the earlier enabled toggle to review mode', () => {
     window.localStorage.setItem(wakeWordPreferenceKey('legacy'), 'true')
     expect(loadWakeWordMode('legacy')).toBe('review')
@@ -49,6 +64,13 @@ describe('Mobile wake word', () => {
     expect(stripWakePhrase('Hey, Hermes. What is the weather?')).toBe(
       'What is the weather?',
     )
+    expect(stripWakePhrase('Okay Hermes, Pet, explain that tool call.')).toBe(
+      'Pet, explain that tool call.',
+    )
+    expect(stripWakePhrase('OK, Hermes: steer toward the new result.')).toBe(
+      'steer toward the new result.',
+    )
+    expect(stripWakePhrase('Okay Hermes')).toBe('')
     expect(stripWakePhrase('Hermes set a timer for ten minutes')).toBe(
       'set a timer for ten minutes',
     )

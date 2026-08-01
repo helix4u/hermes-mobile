@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DEFAULT_READER_BUFFER_AHEAD,
+  DEFAULT_READER_SYNTHESIS_CONCURRENCY,
   MAX_READER_BUFFER_AHEAD,
+  MAX_READER_SYNTHESIS_CONCURRENCY,
   loadReaderBufferAhead,
   loadReaderProviders,
+  loadReaderSynthesisConcurrency,
   parseReaderScript,
   persistReaderBufferAhead,
   persistReaderProviders,
+  persistReaderSynthesisConcurrency,
   reconcileReaderProviders,
   readerFallbackSelections,
   readerSpeakers,
@@ -123,6 +127,11 @@ export function ReaderView({
       ? DEFAULT_READER_BUFFER_AHEAD
       : loadReaderBufferAhead(connectionId),
   )
+  const [synthesisConcurrency, setSynthesisConcurrency] = useState(() =>
+    typeof window === 'undefined'
+      ? DEFAULT_READER_SYNTHESIS_CONCURRENCY
+      : loadReaderSynthesisConcurrency(connectionId),
+  )
   const blockNodes = useRef(new Map<string, HTMLElement>())
   const readerRun = useRef(0)
   const {
@@ -144,6 +153,7 @@ export function ReaderView({
     setText(stored)
     setAssignments(loadAssignments(connectionId))
     setBufferAhead(loadReaderBufferAhead(connectionId))
+    setSynthesisConcurrency(loadReaderSynthesisConcurrency(connectionId))
     setDocument(null)
     setDocumentContent('')
     setSavedDocumentContent('')
@@ -189,6 +199,10 @@ export function ReaderView({
   useEffect(() => {
     persistReaderBufferAhead(connectionId, bufferAhead)
   }, [bufferAhead, connectionId])
+
+  useEffect(() => {
+    persistReaderSynthesisConcurrency(connectionId, synthesisConcurrency)
+  }, [connectionId, synthesisConcurrency])
 
   useEffect(() => {
     persistReaderProviders(connectionId, selectedProviders)
@@ -337,6 +351,7 @@ export function ReaderView({
     void onSpeak(items, {
       speechId: 'reader',
       bufferAhead,
+      maxConcurrentSynthesis: synthesisConcurrency,
       onActive: itemId => {
         if (readerRun.current === run) setActiveBlock(itemId)
       },
@@ -404,6 +419,7 @@ export function ReaderView({
     try {
       const blob = await onRender(items, {
         bufferAhead,
+        maxConcurrentSynthesis: synthesisConcurrency,
         onProgress: (completed, total) =>
           setRenderProgress(`Rendering ${completed} of ${total}`),
       })
@@ -567,7 +583,7 @@ export function ReaderView({
                     {catalogSupported === false
                       ? 'Host default'
                       : `${selectedProviders.length || providers.length} providers`}{' '}
-                    · {bufferAhead} ahead
+                    · {bufferAhead} ahead · {synthesisConcurrency} parallel
                   </small>
                 </span>
                 <span className="disclosure-glyph">+</span>
@@ -613,6 +629,23 @@ export function ReaderView({
                       }
                     />
                   </label>
+                  <label className="reader-buffer-field">
+                    <span>
+                      Parallel renders <output>{synthesisConcurrency}</output>
+                    </span>
+                    <input
+                      aria-label="Parallel speech renders"
+                      disabled={reading}
+                      max={MAX_READER_SYNTHESIS_CONCURRENCY}
+                      min="1"
+                      step="1"
+                      type="range"
+                      value={synthesisConcurrency}
+                      onChange={event =>
+                        setSynthesisConcurrency(Number(event.target.value))
+                      }
+                    />
+                  </label>
                   <span className="state-chip">Voice fallback · automatic</span>
                 </div>
                 <p className="section-help reader-buffer-help">
@@ -622,7 +655,7 @@ export function ReaderView({
                       } prepared. Switching to a compatible host restores multivoice selection automatically.`
                     : `Prepares ${bufferAhead} upcoming ${
                         bufferAhead === 1 ? 'block' : 'blocks'
-                      }. Failed voices try another selected voice, then the host default.`}
+                      }. At most ${synthesisConcurrency} synthesis requests run in parallel to avoid provider bursts. Failed voices try another selected voice, then the host default.`}
                 </p>
                 {selectedProviders.includes('xai') && (
                   <p className="section-help reader-buffer-help">

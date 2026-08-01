@@ -21,6 +21,7 @@ interface MobilePetProps {
   info: MobilePetInfo
   roam: boolean
   sidechatAvailable: boolean
+  speaking: boolean
   state: MobilePetState
   onClick: () => void
   onSidechat: () => void
@@ -31,19 +32,72 @@ export interface Point {
   y: number
 }
 
+export interface PetViewport {
+  height: number
+  left: number
+  top: number
+  width: number
+}
+
 type PetGestureInput = 'pointer' | 'touch'
 
 const PET_SIZE = 72
 const DRAG_SLOP = 4
-export const MIN_PET_ROAM_SPEED = 12
-export const PET_ROAM_BORDER_INSET = 12
-const PET_ROAM_EDGE_TURN_ZONE = 42
-const MIN_PET_ROAM_LEG = 36
+export const MIN_PET_ROAM_SPEED = 40
+export const PET_ROAM_BORDER_INSET = 18
+const PET_ROAM_EDGE_TURN_ZONE = 64
+const PET_ROAM_EDGE_ARRIVAL_GAP = 10
+const MIN_PET_ROAM_LEG = 48
 const BUBBLE_GAP = 8
 const BUBBLE_MARGIN = 12
 const BUBBLE_MAX_WIDTH = 224
 const positionKey = (connectionId: string) =>
   `hermes-mobile.pet-position.v1.${connectionId || 'default'}`
+
+export function resolvePetViewport({
+  documentHeight,
+  documentWidth,
+  innerHeight,
+  innerWidth,
+  visualViewport,
+}: {
+  documentHeight: number
+  documentWidth: number
+  innerHeight: number
+  innerWidth: number
+  visualViewport?: {
+    height: number
+    offsetLeft: number
+    offsetTop: number
+    width: number
+  } | null
+}): PetViewport {
+  return {
+    height: Math.max(
+      PET_SIZE,
+      visualViewport?.height || documentHeight || innerHeight || PET_SIZE,
+    ),
+    left: visualViewport?.offsetLeft || 0,
+    top: visualViewport?.offsetTop || 0,
+    width: Math.max(
+      PET_SIZE,
+      visualViewport?.width || documentWidth || innerWidth || PET_SIZE,
+    ),
+  }
+}
+
+function readPetViewport(): PetViewport {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return { height: 640, left: 0, top: 0, width: 360 }
+  }
+  return resolvePetViewport({
+    documentHeight: document.documentElement.clientHeight,
+    documentWidth: document.documentElement.clientWidth,
+    innerHeight: window.innerHeight,
+    innerWidth: window.innerWidth,
+    visualViewport: window.visualViewport,
+  })
+}
 
 export function clampPetBubbleLeft(
   petCenter: number,
@@ -115,36 +169,70 @@ export function nextPetRoamStep(
   const minY = verticalInset
   const maxY = Math.max(minY, rawMaxY - verticalInset)
   const longWalk = random() > 0.68
-  const span = longWalk ? Math.max(90, maxX * 0.7) : 45 + random() * 95
-  const preferredSign = random() > 0.5 ? 1 : -1
-  const turnZone = Math.min(
-    PET_ROAM_EDGE_TURN_ZONE,
-    Math.max(0, (maxX - minX) / 3),
+  const rangeX = Math.max(0, maxX - minX)
+  const rangeY = Math.max(0, maxY - minY)
+  const xSpan = longWalk
+    ? rangeX * (0.55 + random() * 0.35)
+    : 55 + random() * 130
+  const ySpan = longWalk
+    ? rangeY * (0.28 + random() * 0.42)
+    : 30 + random() * 105
+
+  const destinationOnAxis = (
+    value: number,
+    min: number,
+    max: number,
+    requestedSpan: number,
+    preferredSign: 1 | -1,
+  ) => {
+    const range = Math.max(0, max - min)
+    const origin = Math.max(min, Math.min(max, value))
+    const turnZone = Math.min(PET_ROAM_EDGE_TURN_ZONE, range / 3)
+    let sign = preferredSign
+    if (origin <= min + turnZone) sign = 1
+    else if (origin >= max - turnZone) sign = -1
+
+    const room = (direction: 1 | -1) =>
+      direction > 0 ? max - origin : origin - min
+    if (room(sign) < MIN_PET_ROAM_LEG && room(sign === 1 ? -1 : 1) > room(sign)) {
+      sign = sign === 1 ? -1 : 1
+    }
+    const available = Math.max(0, room(sign) - PET_ROAM_EDGE_ARRIVAL_GAP)
+    let travel = Math.min(Math.max(MIN_PET_ROAM_LEG, requestedSpan), available)
+    if (travel < MIN_PET_ROAM_LEG && range >= MIN_PET_ROAM_LEG) {
+      const opposite = sign === 1 ? -1 : 1
+      const oppositeAvailable = Math.max(
+        0,
+        room(opposite) - PET_ROAM_EDGE_ARRIVAL_GAP,
+      )
+      if (oppositeAvailable > available) {
+        sign = opposite
+        travel = Math.min(
+          Math.max(MIN_PET_ROAM_LEG, requestedSpan),
+          oppositeAvailable,
+        )
+      }
+    }
+    return Math.max(min, Math.min(max, origin + travel * sign))
+  }
+
+  const x = destinationOnAxis(
+    current.x,
+    minX,
+    maxX,
+    xSpan,
+    random() > 0.5 ? 1 : -1,
   )
-  let sign = preferredSign
-  if (current.x <= minX + turnZone) sign = 1
-  else if (current.x >= maxX - turnZone) sign = -1
-
-  const clampX = (value: number) => Math.max(minX, Math.min(maxX, value))
-  let x = clampX(current.x + span * sign)
-  if (
-    maxX - minX >= MIN_PET_ROAM_LEG &&
-    Math.abs(x - current.x) < MIN_PET_ROAM_LEG
-  ) {
-    sign = current.x >= (minX + maxX) / 2 ? -1 : 1
-    x = clampX(current.x + Math.max(MIN_PET_ROAM_LEG, span) * sign)
-  }
-
-  let verticalDelta = (random() - 0.5) * 42
-  if (current.y <= minY + PET_ROAM_BORDER_INSET) {
-    verticalDelta = Math.abs(verticalDelta)
-  } else if (current.y >= maxY - PET_ROAM_BORDER_INSET) {
-    verticalDelta = -Math.abs(verticalDelta)
-  }
-  const y = Math.max(minY, Math.min(maxY, current.y + verticalDelta))
+  const y = destinationOnAxis(
+    current.y,
+    minY,
+    maxY,
+    ySpan,
+    random() > 0.5 ? 1 : -1,
+  )
   const distance = Math.hypot(x - current.x, y - current.y)
   const plannedDuration =
-    (longWalk ? 10_000 : 7_000) + random() * 6_000
+    (longWalk ? 9_000 : 4_500) + random() * (longWalk ? 5_000 : 4_500)
   return {
     destination: { x, y },
     durationMs: Math.round(
@@ -156,7 +244,7 @@ export function nextPetRoamStep(
         ),
       ),
     ),
-    restMs: Math.round(4_500 + random() * 10_500),
+    restMs: Math.round(4_000 + random() * 11_000),
   }
 }
 
@@ -244,9 +332,11 @@ function PetCanvas({
 
 function PetBubble({
   petRef,
+  speaking,
   text,
 }: {
   petRef: RefObject<HTMLDivElement | null>
+  speaking: boolean
   text: string
 }) {
   const bubbleRef = useRef<HTMLDivElement | null>(null)
@@ -290,7 +380,11 @@ function PetBubble({
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="mobile-pet-bubble" ref={bubbleRef} role="status">
+    <div
+      className={`mobile-pet-bubble ${speaking ? 'is-speaking' : ''}`}
+      ref={bubbleRef}
+      role="status"
+    >
       {text}
     </div>,
     document.body,
@@ -305,10 +399,12 @@ export function MobilePet({
   onSidechat,
   roam,
   sidechatAvailable,
+  speaking,
   state,
 }: MobilePetProps) {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const petRef = useRef<HTMLDivElement | null>(null)
+  const viewportRef = useRef<PetViewport>(readPetViewport())
   const pointRef = useRef<Point>({ x: 12, y: 220 })
   const animationRef = useRef<{
     animation: Animation
@@ -333,6 +429,7 @@ export function MobilePet({
   const [walking, setWalking] = useState(false)
   const [roamRevision, setRoamRevision] = useState(0)
   const [sidechatVisible, setSidechatVisible] = useState(false)
+  const [viewport, setViewport] = useState(viewportRef.current)
   const movingAllowed = petShouldTravel(roam, state)
 
   const revealSidechat = useCallback(() => {
@@ -357,10 +454,9 @@ export function MobilePet({
   )
 
   const bounds = useCallback(() => {
-    const stage = stageRef.current
     return {
-      height: Math.max(PET_SIZE, stage?.clientHeight ?? 0),
-      width: Math.max(PET_SIZE, stage?.clientWidth ?? 0),
+      height: viewportRef.current.height,
+      width: viewportRef.current.width,
     }
   }, [])
 
@@ -490,11 +586,13 @@ export function MobilePet({
       if (Math.hypot(clientX - drag.startX, clientY - drag.startY) > DRAG_SLOP) {
         drag.moved = true
       }
-      const rect = stage.getBoundingClientRect()
       setPoint(
         petPositionFromPointer(
           { x: clientX, y: clientY },
-          { x: rect.left, y: rect.top },
+          {
+            x: viewportRef.current.left,
+            y: viewportRef.current.top,
+          },
           { x: drag.offsetX, y: drag.offsetY },
         ),
       )
@@ -562,6 +660,29 @@ export function MobilePet({
     const area = bounds()
     setPoint(saved ?? { x: 12, y: Math.max(0, area.height - PET_SIZE - 12) })
   }, [bounds, connectionId, setPoint])
+
+  useEffect(() => {
+    const reconcileViewport = () => {
+      /*
+       * Rotation, split-screen resizing, and the Android keyboard all change
+       * the fixed overlay's usable bounds. Commit any in-flight position,
+       * clamp it into the new viewport, and restart roaming from that real
+       * point so the pet never becomes unreachable or snaps back later.
+      */
+      freezeAtRenderedPosition()
+      const nextViewport = readPetViewport()
+      viewportRef.current = nextViewport
+      setViewport(nextViewport)
+      setPoint(pointRef.current, true)
+      setRoamRevision(current => current + 1)
+    }
+    window.addEventListener('resize', reconcileViewport)
+    window.visualViewport?.addEventListener('resize', reconcileViewport)
+    return () => {
+      window.removeEventListener('resize', reconcileViewport)
+      window.visualViewport?.removeEventListener('resize', reconcileViewport)
+    }
+  }, [freezeAtRenderedPosition, setPoint])
 
   useEffect(() => {
     let stopped = false
@@ -646,8 +767,20 @@ export function MobilePet({
   if (!info.enabled || (!info.spritesheetBase64 && !info.spritesheetUrl)) return null
 
   const stage = (
-    <div className="mobile-pet-stage" aria-label="Hermes pet companion" ref={stageRef}>
-      {bubble && <PetBubble petRef={petRef} text={bubble} />}
+    <div
+      className="mobile-pet-stage"
+      aria-label="Hermes pet companion"
+      ref={stageRef}
+      style={{
+        height: `${viewport.height}px`,
+        left: `${viewport.left}px`,
+        top: `${viewport.top}px`,
+        width: `${viewport.width}px`,
+      }}
+    >
+      {bubble && (
+        <PetBubble petRef={petRef} speaking={speaking} text={bubble} />
+      )}
       <div
         aria-label={`Interact with ${info.displayName || 'your Hermes pet'}`}
         className="mobile-pet"

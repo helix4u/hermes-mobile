@@ -16,6 +16,7 @@ import {
   petPersonalityOverrideFromData,
   petRowForState,
   petSidechatPrompt,
+  petSidechatTranscriptPrompt,
   petShouldTravel,
   petSpeechProfileFromConfig,
   petToolObserverHasSettledNewEvidence,
@@ -30,6 +31,7 @@ describe('mobile pet companion state', () => {
       commentary: true,
       personalitySlug: 'alien-child',
       roam: true,
+      sidechatCommands: ['Pet'],
       speechMode: 'desktop',
       visible: true,
     })
@@ -226,6 +228,75 @@ describe('mobile pet companion state', () => {
     expect(gate.begin(true, true)).toBeNull()
     gate.finish(nextTurn!)
     expect(gate.begin(true, true)).not.toBeNull()
+  })
+
+  it('lets an accepted in-turn observation finish after the final message', () => {
+    const gate = createPetCommentaryRequestGate()
+    const request = gate.begin(true, true)
+
+    expect(request).not.toBeNull()
+    expect(gate.canPublish(request!, true, false)).toBe(true)
+    gate.cancel()
+    expect(gate.canPublish(request!, true, false)).toBe(false)
+  })
+
+  it('routes captured requests beginning with the standalone word pet', () => {
+    expect(
+      petSidechatTranscriptPrompt('Pet, explain why that failed.'),
+    ).toEqual({ prompt: 'explain why that failed.' })
+    expect(petSidechatTranscriptPrompt('  PET: what did you see?')).toEqual({
+      prompt: 'what did you see?',
+    })
+    expect(petSidechatTranscriptPrompt('pet')).toEqual({
+      prompt: '',
+    })
+    expect(petSidechatTranscriptPrompt('petroleum prices are rising')).toBeNull()
+    expect(petSidechatTranscriptPrompt('please ask the pet')).toBeNull()
+    expect(petSidechatTranscriptPrompt('Hey Alien Child, hello')).toBeNull()
+  })
+
+  it('safely rebuilds the start matcher from multiple saved aliases', () => {
+    const aliases = [
+      'Pet',
+      'Pet Child',
+      'Alien Child',
+      'Jackass',
+      'Jaskass',
+      'C++',
+    ]
+
+    expect(
+      petSidechatTranscriptPrompt(
+        'Alien   Child, explain the tool result.',
+        aliases,
+      ),
+    ).toEqual({ prompt: 'explain the tool result.' })
+    expect(
+      petSidechatTranscriptPrompt('jaskass: what are you doing?', aliases),
+    ).toEqual({ prompt: 'what are you doing?' })
+    expect(
+      petSidechatTranscriptPrompt('Pet Child, give me the recap.', aliases),
+    ).toEqual({ prompt: 'give me the recap.' })
+    expect(
+      petSidechatTranscriptPrompt('C++, inspect this output.', aliases),
+    ).toEqual({ prompt: 'inspect this output.' })
+    expect(
+      petSidechatTranscriptPrompt('Alien Childhood memory', aliases),
+    ).toBeNull()
+    expect(
+      petSidechatTranscriptPrompt('please ask Jackass about this', aliases),
+    ).toBeNull()
+  })
+
+  it('normalizes persisted aliases and retains a safe default', () => {
+    expect(
+      normalizePetPreferences({
+        sidechatCommands: [' Pet ', 'pet', 'Alien   Child', '', 'Jaskass'],
+      }).sidechatCommands,
+    ).toEqual(['Pet', 'Alien Child', 'Jaskass'])
+    expect(
+      normalizePetPreferences({ sidechatCommands: [] }).sidechatCommands,
+    ).toEqual(['Pet'])
   })
 
   it('allows manual pet tests while idle but rejects automatic idle requests', () => {

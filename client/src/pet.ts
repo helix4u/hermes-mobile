@@ -11,6 +11,11 @@ import ponytailPrincipalPersonalityJson from './assets/ponytail-principal-person
 import shipbreakerQaPersonalityJson from './assets/shipbreaker-qa-personality.json'
 import alienChildSpritesheetUrl from './assets/alien-child-spritesheet.webp?url'
 import { ADAPTED_DEFAULT_PET_PERSONALITIES } from './default-pet-personalities'
+import {
+  DEFAULT_XAI_TTS_SELECTION,
+  normalizeXaiTtsSelection,
+  type XaiTtsSelection,
+} from './reader'
 
 export type MobilePetState =
   | 'failed'
@@ -83,12 +88,15 @@ export interface PetPreferences {
   roam: boolean
   commentary: boolean
   speakCommentary: boolean
+  sidechatCommands: string[]
   speechMode: 'desktop' | 'custom'
   speechProvider: string
   speechVoice: string
   speechSpeed: number
   speechPitch: number
   speechVolume: number
+  speechXai?: XaiTtsSelection
+  speechXaiLanguage?: string
   personalitySlug: string
   commentaryLens: PetCommentaryLens
   contextTurns: number
@@ -180,11 +188,11 @@ export function createPetCommentaryRequestGate(): PetCommentaryRequestGate {
       epoch += 1
       activeRequestId = 0
     },
-    canPublish(requestId, automatic, turnActive) {
-      return (
-        requestId === activeRequestId &&
-        (!automatic || turnActive)
-      )
+    canPublish(requestId, _automatic, _turnActive) {
+      // begin() already proves that automatic work started during an active
+      // turn. Let that one accepted request finish after message.complete;
+      // explicit cancel(), connection changes, and Stop still invalidate it.
+      return requestId === activeRequestId
     },
     finish(requestId) {
       if (requestId === activeRequestId) activeRequestId = 0
@@ -215,6 +223,8 @@ export interface PetSpeechProfile {
   speed: number
   pitch: number
   volume: number
+  xai?: XaiTtsSelection
+  language?: string
 }
 
 export interface PetObserverFrames {
@@ -331,6 +341,33 @@ export function petSidechatPrompt(
     .join('\n\n')
 }
 
+export function petSidechatTranscriptPrompt(
+  transcript: string,
+  commandWords: unknown = ['Pet'],
+): { prompt: string } | null {
+  const commands = normalizePetSidechatCommands(commandWords).sort(
+    (left, right) => right.length - left.length,
+  )
+  const alternatives = commands.map(command =>
+    command
+      .split(' ')
+      .map(token => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('\\s+'),
+  )
+  const commandPrefix = new RegExp(
+    `^\\s*(?:${alternatives.join('|')})(?=$|[\\s,.:;!?…—–-])`,
+    'iu',
+  )
+  const matchedPrefix = transcript.match(commandPrefix)
+  if (!matchedPrefix) return null
+  return {
+    prompt: transcript
+      .slice(matchedPrefix[0].length)
+      .replace(/^[\s,.:;!?—–-]+/u, '')
+      .trim(),
+  }
+}
+
 export function compactPetBubbleText(text: string, maximum = 240): string {
   const clean = text.replace(/\s+/g, ' ').trim()
   if (clean.length <= maximum) return clean
@@ -377,12 +414,15 @@ const DEFAULT_PET_PREFERENCES: PetPreferences = {
   roam: true,
   commentary: true,
   speakCommentary: false,
+  sidechatCommands: ['Pet'],
   speechMode: 'desktop',
   speechProvider: '',
   speechVoice: '',
   speechSpeed: 1,
   speechPitch: 0,
   speechVolume: 1,
+  speechXai: DEFAULT_XAI_TTS_SELECTION,
+  speechXaiLanguage: 'en',
   personalitySlug: 'alien-child',
   commentaryLens: 'companion',
   contextTurns: 3,
@@ -544,6 +584,25 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {}
 }
 
+export function normalizePetSidechatCommands(value: unknown): string[] {
+  const candidates = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[,;\n]/)
+      : []
+  const commands: string[] = []
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    const command = String(candidate).trim().replace(/\s+/g, ' ').slice(0, 64)
+    const key = command.toLocaleLowerCase()
+    if (!command || seen.has(key)) continue
+    seen.add(key)
+    commands.push(command)
+    if (commands.length >= 12) break
+  }
+  return commands.length ? commands : ['Pet']
+}
+
 export function normalizePetPreferences(
   value: Partial<PetPreferences> | null | undefined,
 ): PetPreferences {
@@ -564,6 +623,7 @@ export function normalizePetPreferences(
       typeof value?.speakCommentary === 'boolean'
         ? value.speakCommentary
         : DEFAULT_PET_PREFERENCES.speakCommentary,
+    sidechatCommands: normalizePetSidechatCommands(value?.sidechatCommands),
     speechMode:
       value?.speechMode === 'custom'
         ? 'custom'
@@ -573,6 +633,8 @@ export function normalizePetPreferences(
     speechSpeed: boundedDecimal(value?.speechSpeed, 1, 0.5, 2),
     speechPitch: boundedDecimal(value?.speechPitch, 0, -12, 12, 1),
     speechVolume: boundedDecimal(value?.speechVolume, 1, 0, 1),
+    speechXai: normalizeXaiTtsSelection(value?.speechXai),
+    speechXaiLanguage: String(value?.speechXaiLanguage ?? 'en').trim() || 'en',
     personalitySlug:
       String(value?.personalitySlug || '').trim() ||
       DEFAULT_PET_PREFERENCES.personalitySlug,
@@ -602,6 +664,17 @@ export function petSpeechProfileFromConfig(
     speed: boundedDecimal(speech.speed, 1, 0.5, 2),
     pitch: boundedDecimal(speech.pitch, 0, -12, 12, 1),
     volume: boundedDecimal(speech.volume, 1, 0, 1),
+    xai:
+      speech.xai && typeof speech.xai === 'object'
+        ? normalizeXaiTtsSelection(speech.xai as Partial<XaiTtsSelection>)
+        : undefined,
+    language: String(
+      speech.language ??
+        (speech.xai && typeof speech.xai === 'object'
+          ? (speech.xai as Record<string, unknown>).language
+          : '') ??
+        '',
+    ).trim(),
   }
 }
 
@@ -616,7 +689,13 @@ function backendPetPitch(pitch: number): number {
 export function petTtsConfigOverride(
   speech: Pick<
     PetSpeechProfile,
-    'provider' | 'voice' | 'speed' | 'pitch' | 'volume'
+    | 'provider'
+    | 'voice'
+    | 'speed'
+    | 'pitch'
+    | 'volume'
+    | 'xai'
+    | 'language'
   >,
 ): Record<string, unknown> | undefined {
   const provider = speech.provider.trim().toLowerCase()
@@ -654,6 +733,23 @@ export function petTtsConfigOverride(
         config[provider] = customVoice
         config.providers = { [provider]: customVoice }
       }
+    }
+  }
+  if (provider === 'xai' && speech.xai) {
+    const selected = normalizeXaiTtsSelection(speech.xai)
+    const xai =
+      config.xai && typeof config.xai === 'object'
+        ? (config.xai as Record<string, unknown>)
+        : {}
+    config.xai = {
+      ...xai,
+      auto_speech_tags: selected.autoSpeechTags,
+      bit_rate: selected.bitRate,
+      language: speech.language?.trim() || 'en',
+      optimize_streaming_latency: selected.optimizeStreamingLatency,
+      sample_rate: selected.sampleRate,
+      speed: selected.synthesisSpeed,
+      text_normalization: selected.textNormalization,
     }
   }
   if (Math.abs(speech.speed - 1) >= 0.01) {
@@ -695,6 +791,8 @@ export function effectivePetSpeech(
       speed: preferences.speechSpeed,
       pitch: preferences.speechPitch,
       volume: preferences.speechVolume,
+      xai: preferences.speechXai,
+      language: preferences.speechXaiLanguage,
     }
     return {
       config: petTtsConfigOverride(custom),
@@ -710,6 +808,8 @@ export function effectivePetSpeech(
     speed: 1,
     pitch: 0,
     volume: 1,
+    xai: undefined,
+    language: undefined,
   }
   return { source: 'host', speech: host }
 }

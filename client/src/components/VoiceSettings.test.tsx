@@ -76,6 +76,38 @@ describe('mobile voice settings', () => {
     expect(html).toContain('Create clone')
   })
 
+  test('exposes native xAI synthesis controls separately from playback speed', () => {
+    const html = renderToStaticMarkup(
+      <VoiceSettings
+        connected
+        onChange={vi.fn()}
+        selection={{
+          instruct: '',
+          language: 'auto',
+          provider: 'xai',
+          speed: 1.4,
+          voice: 'eve',
+          xai: {
+            autoSpeechTags: true,
+            bitRate: 128_000,
+            optimizeStreamingLatency: 1,
+            sampleRate: 24_000,
+            synthesisSpeed: 1.2,
+            textNormalization: true,
+          },
+        }}
+        transport={{} as HermesTransport}
+      />,
+    )
+
+    expect(html).toContain('xAI synthesis controls')
+    expect(html).toContain('Native voice speed')
+    expect(html).toContain('Latency optimization')
+    expect(html).toContain('Automatic expressive tags')
+    expect(html).toContain('Spoken-text normalization')
+    expect(html).toContain('general playback-speed control')
+  })
+
   test('uses a quiet host-default explanation when the catalog route is absent', () => {
     voiceCatalogState.current.catalog = []
     voiceCatalogState.current.catalogSupported = false

@@ -73,7 +73,7 @@ index in the same work session.
 - Milestones 6-8 remain the longer-term profiles/projects, same-origin PWA, and
   production-hardening program.
 
-## Current work: Mobile pet personality catalog and host lifecycle
+## Current work: Pet-sidechat streaming speech and active-turn voice control
 
 Acceptance contract:
 
@@ -96,16 +96,75 @@ Acceptance contract:
 - Existing pet movement, speech, sidechat, capability degradation, Reader,
   provider, session, and file behavior must not regress.
 - Rapid pet pokes use a replaceable speech lane: stale pending pokes collapse,
-  a newer poke may supersede active poke speech, and ordinary reply, Reader,
-  commentary, and sidechat speech remains serial and cannot be interrupted by
-  a poke.
+  a newer poke renders without silencing the current poke and hands off only
+  after replacement audio exists, and ordinary reply, Reader, commentary, and
+  sidechat speech remains serial and cannot be interrupted by a poke.
+- The transparent pet overlay spans the usable visual viewport rather than a
+  middle-page box. Automatic movement is genuinely two-dimensional, turns
+  inward before edges, maintains at least 40 px/s, and re-clamps after
+  rotation, split-screen, or keyboard-driven viewport changes.
+- The pet canvas and speech bubble remain above the pet-sidechat popout so the
+  companion stays visible, draggable, and visually attached to its private
+  conversation; deliberate full-screen media surfaces remain above both.
 - Every adapted Hermes personality has multiple state reactions and at least
   four distinct poke lines instead of a single canned response.
+- The pet overlay is portaled to the document body and uses the Android visual
+  viewport as its coordinate authority, so neither the chat workspace row nor
+  an inner scrolling surface can restrict drag or roaming.
+- Auto-speak begins synthesizing complete natural segments while the assistant
+  reply is still streaming. It grows from one sentence to three, then five,
+  honors paragraph and bounded word transitions, and always plays prepared
+  audio in transcript order.
+- The first segment is useful runway rather than a token opener: an opening
+  sentence shorter than 96 characters waits for and joins sentence two, while
+  a substantial first sentence can still begin playback immediately.
+- Provider requests use a conservative bounded concurrency lane. Reader
+  exposes a connection-scoped one-to-three parallel-render setting; ordinary
+  Mobile auto-speak combines that cap with connection-scoped provider timing,
+  voice speed, synthesis latency, and playback duration estimates.
+- Every pet speech surface, including transcript Listen and full sidechat
+  replies, uses the effective independent pet provider/voice and the same
+  adaptive startup segmentation, bounded synthesis overlap, timing history,
+  and client playback-rate enforcement as ordinary Mobile response speech.
+- Pet sidechat emits auxiliary-model text deltas through the generic gateway,
+  starts its serial playback consumer immediately, and plays the first complete
+  natural segment as soon as synthesis finishes instead of waiting for the full
+  sidechat response. Later segments keep preparing concurrently and remain in
+  transcript order.
+- Starting the sidechat playback consumer early never steals finalization from
+  the producer. The final response closes the prepared-speech input exactly
+  once even when the playback promise already exists, so the consumer settles
+  after the last segment instead of remaining in `preparing reply audio`.
+- Normal and custom-pet xAI selectors expose native synthesis speed, latency
+  optimization, language, sample rate, MP3 bit rate, automatic expressive tags,
+  and spoken-text normalization. Native xAI speed remains distinct from the
+  phone's final playback-rate control.
+- Pet generation and playback form one priority barrier: no new automatic
+  observation is generated while pet work is pending, accepted end-of-turn
+  commentary finishes instead of being discarded, and pending pet audio plays
+  before final-response auto-speech without interrupting active audio.
+- The roaming bubble appears when pet audio actually begins, animates only
+  while a segment is playing, and clears with the completed sequence.
+- The acoustic wake detector remains the real bundled `Hey Hermes` model.
+  After wake or ordinary microphone capture, a recognized follow-up beginning
+  with any connection-scoped command alias (default `Pet`) routes the remainder
+  to private sidechat. Comma-separated aliases cover pet names and likely STT
+  spellings; an escaped, longest-first start matcher prevents partial or later
+  mentions from stealing ordinary Hermes prompts.
+- Wake activation words are never submitted as request text. The post-wake
+  cleanup consumes `Hey Hermes`, bare `Hermes`, and the common host-STT
+  normalizations `Okay Hermes` and `OK Hermes`, while preserving a trailing
+  command such as `Pet, ...` for the sidechat router.
+- Wake capture and ordinary voice input remain available while a Hermes turn is
+  active. Pet-prefixed transcripts continue to route directly to sidechat;
+  ordinary active-turn messages use a connection-scoped `Interrupt` or `Steer`
+  preference sent per request, without changing the selected host's config.
 
 ## Near-term backlog
 
-1. Complete physical-device acceptance for the personality picker/editor and
-   Desktop-bound host lifecycle.
+1. Complete physical-device acceptance for full-viewport pet drag/roaming,
+   prepared-audio poke handoff, incremental final-response speech, and Reader
+   parallel rendering without provider throttling or audible segment gaps.
 2. Continue ordinary-device acceptance for foreground lifecycle, long TTS,
    wake-word capture, and provider-specific behavior.
 3. Finish the revisioned event journal and durable replay contract.
@@ -145,9 +204,12 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-Verify the newly replacement-installed Mobile debug APK on the physical
-Samsung: rapid pokes should speak only the newest relevant reaction without
-interrupting ordinary speech. Spot-check the expanded adapted presets, the
-grouped personality picker, a custom edit and reset on Workstation, isolation
-from a Cloud connection, and automatic Workstation recovery after Desktop
-closes and reopens.
+On the replacement-installed short-opening/overlay APK, verify that both
+`Hey Hermes, <request>` and the observed STT normalization
+`Okay Hermes, <request>` submit only the request, and that a trailing
+`Pet, ...` reaches private sidechat. Confirm that the pet begins playing its
+first prepared sidechat segment, joins a tiny opening sentence to sentence two,
+and returns to idle after the last segment rather than remaining on
+`preparing reply audio`. Confirm the pet and bubble render above the open
+sidechat. Then continue the independent pet voice/speed, Interrupt/Steer, and
+xAI-control device acceptance already described above.

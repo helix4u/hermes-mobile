@@ -12,7 +12,9 @@ import type {
   PetSpeechProfile,
 } from '../pet'
 import type { HermesTransport } from '../transport/hermes-transport'
+import { DEFAULT_XAI_TTS_SELECTION } from '../reader'
 import { useVoiceCatalog } from './useVoiceCatalog'
+import { XaiTtsControls } from './XaiTtsControls'
 
 interface ModelProvider {
   slug: string
@@ -89,6 +91,10 @@ export function PetSettings({
   const [auxEffort, setAuxEffort] = useState('')
   const [saving, setSaving] = useState(false)
   const [auxError, setAuxError] = useState('')
+  const serializedSidechatCommands = preferences.sidechatCommands.join(', ')
+  const [sidechatCommandDraft, setSidechatCommandDraft] = useState(
+    serializedSidechatCommands,
+  )
   const [auxiliarySupported, setAuxiliarySupported] = useState<boolean | null>(
     null,
   )
@@ -115,6 +121,10 @@ export function PetSettings({
     () => models.providers?.find(row => row.slug === auxProvider),
     [auxProvider, models.providers],
   )
+
+  useEffect(() => {
+    setSidechatCommandDraft(serializedSidechatCommands)
+  }, [serializedSidechatCommands])
 
   const refreshAuxiliary = useCallback(async () => {
     if (!hostCapabilities.commentary || !gateway || !transport) {
@@ -294,6 +304,29 @@ export function PetSettings({
             {hostCapabilities.commentary ? ' and generated commentary' : ''}
           </span>
         </label>
+        <label>
+          <span>Sidechat command words</span>
+          <input
+            maxLength={512}
+            placeholder="Pet, Alien Child, Jaskass"
+            value={sidechatCommandDraft}
+            onChange={event => setSidechatCommandDraft(event.target.value)}
+            onBlur={() =>
+              onPreferences({
+                sidechatCommands: sidechatCommandDraft.split(/[,;\n]/),
+              })
+            }
+            onKeyDown={event => {
+              if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+          />
+          <small>
+            After “Hey Hermes” or ordinary microphone capture, begin with any
+            comma-separated alias above. Mobile strips the matched alias and
+            sends the remainder to private pet sidechat. Add likely STT spellings
+            as separate aliases.
+          </small>
+        </label>
 
         {preferences.speakCommentary && (
           <div className="pet-speech-settings">
@@ -354,6 +387,13 @@ export function PetSettings({
                       onPreferences({
                         speechProvider: event.target.value,
                         speechVoice: '',
+                        ...(event.target.value === 'xai'
+                          ? {
+                              speechXai:
+                                preferences.speechXai ??
+                                DEFAULT_XAI_TTS_SELECTION,
+                            }
+                          : {}),
                       })
                     }
                   >
@@ -470,6 +510,15 @@ export function PetSettings({
                     }
                   />
                 </label>
+                {preferences.speechProvider === 'xai' && (
+                  <XaiTtsControls
+                    language={preferences.speechXaiLanguage}
+                    value={preferences.speechXai}
+                    onChange={(speechXai, speechXaiLanguage) =>
+                      onPreferences({ speechXai, speechXaiLanguage })
+                    }
+                  />
+                )}
               </div>
             )}
 
@@ -569,6 +618,10 @@ export function PetSettings({
                     onPersonalityChange({ displayName: event.target.value })
                   }
                 />
+                <small>
+                  This name controls the pet’s identity and labels. Voice routing
+                  uses the separate sidechat command aliases above.
+                </small>
               </label>
               <label>
                 <span>Description</span>

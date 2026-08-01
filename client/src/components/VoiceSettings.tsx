@@ -1,8 +1,12 @@
 import { useEffect } from 'react'
-import type { VoiceSelection } from '../reader'
+import {
+  DEFAULT_XAI_TTS_SELECTION,
+  type VoiceSelection,
+} from '../reader'
 import type { HermesTransport } from '../transport/hermes-transport'
 import { VoiceLibrary } from './VoiceLibrary'
 import { useVoiceCatalog } from './useVoiceCatalog'
+import { XaiTtsControls } from './XaiTtsControls'
 
 interface VoiceSettingsProps {
   connected: boolean
@@ -85,6 +89,10 @@ export function VoiceSettings({
                 voice: '',
                 instruct: '',
                 language: '',
+                xai:
+                  event.target.value === 'xai'
+                    ? selection.xai ?? DEFAULT_XAI_TTS_SELECTION
+                    : selection.xai,
               })
             }
           >
@@ -194,6 +202,16 @@ export function VoiceSettings({
             }
           />
         </label>
+        {selection.provider === 'xai' && (
+          <XaiTtsControls
+            disabled={!connected}
+            language={selection.language || 'en'}
+            value={selection.xai}
+            onChange={(xai, language) =>
+              onChange({ ...selection, language, xai })
+            }
+          />
+        )}
       </div>
       <p className="section-help">
         {catalogSupported === false
