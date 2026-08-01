@@ -542,14 +542,6 @@ export function ReaderView({
 
           <section className="reader-controls">
             <div className="reader-action-row reader-primary-actions">
-              {reading && !followPlayback && (
-                <button
-                  className="quiet-button"
-                  onClick={() => setFollowPlayback(true)}
-                >
-                  Resume follow
-                </button>
-              )}
               <button
                 className="quiet-button"
                 disabled={
@@ -783,6 +775,16 @@ export function ReaderView({
           >
             <span aria-hidden="true">■</span>
             Stop
+          </button>
+          <button
+            aria-pressed={followPlayback}
+            className={followPlayback ? 'quiet-button active' : 'quiet-button'}
+            disabled={!reading}
+            onClick={() => setFollowPlayback(value => !value)}
+            type="button"
+          >
+            <span aria-hidden="true">◎</span>
+            Follow
           </button>
         </div>
       </div>

@@ -100,6 +100,15 @@ Acceptance contract:
   or temporary disconnect. Preview bytes and in-flight requests are cached only
   in memory, scoped by connection ID and path, and bounded by entry count and
   byte budget; explicit Retry still refreshes the host copy.
+- Chat media markers and bare media links render in place with native Android
+  audio/video controls. The shared format catalog covers MP4/WebM/MOV/MKV/AVI,
+  phone 3GP/3G2, MPEG transport/video variants, and common MP3/AAC/M4A/M4B,
+  WAV/FLAC/Ogg/Opus/AIFF/AMR/Caf audio while retaining Download as the codec or
+  host-size fallback.
+- Reader's sticky transport remains available without occupying a tall card.
+  Play/Resume, Pause, Stop, and a visible pressed-state Follow toggle share one
+  compact row; manual touch/wheel scrolling disables Follow and re-enabling it
+  recenters the currently spoken block.
 - The top host control reports `Degraded`, `Connecting`, `Reconnecting`, and
   `Connection failed` directly instead of collapsing every non-connected state
   to `Connect`. Degraded core-gateway compatibility uses a warning-colored dot
@@ -172,8 +181,9 @@ Acceptance contract:
 ## Near-term backlog
 
 1. Complete physical-device acceptance for full-viewport pet drag/roaming,
-   prepared-audio poke handoff, incremental final-response speech, and Reader
-   parallel rendering without provider throttling or audible segment gaps.
+   prepared-audio poke handoff, incremental final-response speech, inline
+   audio/video playback, and Reader Follow/parallel rendering without provider
+   throttling, audible segment gaps, or transport-bar crowding.
 2. Continue ordinary-device acceptance for foreground lifecycle, long TTS,
    wake-word capture, and provider-specific behavior.
 3. Finish the revisioned event journal and durable replay contract.
@@ -213,7 +223,10 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-On the replacement-installed attachment-stability APK, verify that a completed
+On the replacement-installed media/Reader APK, verify that MP4 and representative local
+audio attachments play inline in Chat, and that Reader's compact transport
+keeps Play/Pause/Stop/Follow reachable while manual scrolling disables Follow
+until explicitly re-enabled. Also verify that a completed
 inline image or document does not flash back to Loading or refetch repeatedly
 during later transcript updates, and that it remains visible through a brief
 connection interruption. Verify the host pill shows Degraded for a connected

@@ -28,8 +28,22 @@ Current milestone: Pet-sidechat streaming speech and active-turn voice control
   Connection failed, and intentionally disconnected states. A connected
   core-gateway compatibility fallback reads `Degraded · <host>` and uses the
   warning color rather than appearing fully compatible or disconnected.
+- Chat now treats MP4 and a broader Android-relevant audio/video extension set
+  as first-class inline media. Authenticated generated files and direct bare
+  links render through native `audio`/`video` controls in the transcript, with
+  Download retained when the host size ceiling or device codec support prevents
+  inline playback.
+- Reader's sticky playback dock is shorter and uses one compact horizontal row.
+  It now keeps Play/Resume, Pause, Stop, and an explicit Follow toggle together;
+  manual scrolling disengages Follow and the pressed toggle restores active-
+  block tracking.
+- Desktop pet commentary now captures both the live display message and newest
+  durable row when observation begins. The gateway validates and persists that
+  anchor, and delayed commentary inserts at that transcript position instead of
+  stacking after the final reply. Existing compact inline rendering, Copy, and
+  Dismiss behavior is unchanged.
 - The current verified debug APK was replacement-installed on the intended
-  authorized Android test device over the explicitly supplied ADB endpoint. The `-r` install
+  Samsung SM-S918U over the explicitly supplied ADB endpoint. The `-r` install
   retained saved application data and Android Keystore credentials. Android
   reports package update time `2026-08-01 02:04:56`; a cold launch completed in
   522 ms and left the expected application process running with no error-priority
@@ -168,42 +182,52 @@ and the same prepared-segment fallback for non-streaming providers.
   UI run passed 54 files and 409 tests before the final queue-ID tightening.
   Desktop ESLint/Prettier checks, TypeScript typecheck, production build, and
   unpacked Windows packaging passed after that tightening.
-- Mobile pet/voice slice: 75 focused tests passed; the full Mobile client suite
-  now passes 54 files and 271 tests. Mobile TypeScript typecheck passes for the
-  sidechat-streaming, xAI-control, and active-turn wake update. Production build,
-  Capacitor sync, Android debug assembly, replacement installation, and cold
-  launch smoke also pass for this exact revision.
+- The prior Mobile pet/voice slice passed 75 focused tests and its full client
+  suite passed 54 files and 271 tests. That revision also passed TypeScript,
+  production build, Capacitor sync, Android assembly, replacement installation,
+  and cold-launch smoke before the media/Reader follow-up below.
 - The follow-up prepared-input regression slice passes 3 files and 32 tests,
   including the early-consumer/final-close case; TypeScript typecheck also
   passes after the fix.
 - The short-opening/overlay follow-up passes 3 focused files and 44 tests,
   including the two-sentence startup rule; TypeScript typecheck, production
   build, Capacitor sync, and Android debug assembly pass.
+- The media/Reader follow-up passes 3 focused files and 8 tests; the complete
+  Mobile client suite passes 54 files and 272 tests. TypeScript typecheck,
+  production build, Capacitor sync, and Android debug assembly pass.
+- Desktop commentary ordering passes 3 focused files and 17 tests. Desktop
+  TypeScript typecheck, changed-file ESLint with zero errors, Python module
+  compilation, production build, and unpacked Windows packaging pass. The
+  backend-focused Python regression was added but not executed under the local
+  no-Python-tests safety rule.
 - Python prompt guidance compiled and an import smoke check confirmed both the
   Desktop and `hermes-mobile` Reader handoff hints.
 - Scoped `git diff --check` and unmerged-entry checks pass in both repositories.
-- Current replacement-installed Mobile debug APK:
+- Current built Mobile debug APK (replacement-installed on the intended
+  Samsung SM-S918U at `2026-08-01 05:12:41`):
   `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,129,153 bytes, SHA-256
-  `AA7410767A9224AE0CFDEA8C6DD06DA7835C86956970D693735CD410C5B4C174`).
+  (127,129,363 bytes, SHA-256
+  `805CC47BD226EF6B63DB265EC052CA6C6F033123997F1316E751EDE4812B3849`).
 - Current Desktop test executable:
-  `..\hermes-agent\apps\desktop\release-pet-tts-20260731\win-unpacked\Hermes.exe`
+  `..\hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe`
   (214,281,216 bytes, SHA-256
-  `0B49490E8C5CE12FB02802D018E942935343E84FCB3A0223DEE8D140F33BD2FD`).
+  `5C82EB0954B6BA9ED5D342393A2AE4E1AB3AA26B3779C46D7AF722DCA1A7E016`).
 - The same verified Desktop build now occupies the normal stable
   `apps\desktop\release\win-unpacked\Hermes.exe` target used by the Desktop,
   Start-menu, and taskbar shortcuts. Launching the Desktop shortcut produced a
   visible responding window, a fresh `HERMES_BACKEND_READY`, and `ok` dashboard
   and storage status.
-- This latest APK is replacement-installed on the intended authorized Android test device at
+- The current APK is replacement-installed on the intended Samsung SM-S918U at
   version name 1.0/version code 1 and package update time
-  `2026-08-01 02:04:56`. A cold launch completed in 522 ms, left the app
-  process running, and its captured process-log tail contained no error-priority
-  record, fatal exception, or ANR signature.
+  `2026-08-01 05:12:41`. A cold launch completed in 933 ms, left the app
+  process running in the foreground, and its captured process-log tail
+  contained no error-priority record, fatal exception, or ANR signature.
 
 ## Next action
 
-On the replacement-installed attachment-stability APK, verify that completed
+On the replacement-installed media/Reader APK, verify representative MP4 and audio playback in
+Chat plus the compact Follow transport during manual and automatic Reader
+scrolling. Then verify that completed
 inline attachments remain visually stable during transcript updates and brief
 reconnects, and that the host pill exposes degraded/reconnecting state. Then verify that the acoustic
 activation never appears in the submitted prompt, a short first pet sentence

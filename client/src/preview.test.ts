@@ -12,6 +12,18 @@ describe('file preview helpers', () => {
       kind: 'video',
       mimeType: 'video/mp4',
     })
+    expect(previewMediaInfo('/work/phone-recording.3gp')).toEqual({
+      kind: 'video',
+      mimeType: 'video/3gpp',
+    })
+    expect(previewMediaInfo('/work/podcast.m4b')).toEqual({
+      kind: 'audio',
+      mimeType: 'audio/mp4',
+    })
+    expect(previewMediaInfo('/work/camera-export.m4v')).toEqual({
+      kind: 'video',
+      mimeType: 'video/x-m4v',
+    })
     expect(previewMediaInfo('C:\\audio\\voice.wav')?.kind).toBe('audio')
     expect(previewMediaInfo('/work/image.webp')?.kind).toBe('image')
     expect(previewMediaInfo('/work/README.md')).toBeNull()

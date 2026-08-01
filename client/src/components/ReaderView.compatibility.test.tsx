@@ -65,6 +65,8 @@ describe('Reader host compatibility', () => {
     expect(html).toContain('>Play</button>')
     expect(html).toContain('>Pause</button>')
     expect(html).toContain('>Stop</button>')
+    expect(html).toContain('aria-pressed="true"')
+    expect(html).toContain('>Follow</button>')
   })
 
   test('shows persistent resume and stop controls for paused Reader audio', () => {
@@ -99,5 +101,6 @@ describe('Reader host compatibility', () => {
     expect(html).toContain('Reader paused')
     expect(html).toContain('>Resume</button>')
     expect(html).toContain('>Stop</button>')
+    expect(html).toContain('>Follow</button>')
   })
 })
