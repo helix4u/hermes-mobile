@@ -1,21 +1,26 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   BUILTIN_ALIEN_CHILD_INFO,
   BUILTIN_ALIEN_CHILD_PERSONALITY,
+  BUILTIN_MOBILE_PET_CATALOG,
+  builtinMobilePetPersonality,
   compactPetBubbleText,
   createPetCommentaryRequestGate,
   deriveMobilePetState,
   effectivePetSpeech,
+  loadPetPersonalityOverrides,
   normalizePetPreferences,
   petContextFromTranscript,
   petFrameCount,
   petObserverFramesFromTranscript,
+  petPersonalityOverrideFromData,
   petRowForState,
   petSidechatPrompt,
   petShouldTravel,
   petSpeechProfileFromConfig,
   petToolObserverHasSettledNewEvidence,
   petTurnActiveAfterEvent,
+  persistPetPersonalityOverrides,
   resolvePetRuntimeSession,
 } from './pet'
 
@@ -39,6 +44,69 @@ describe('mobile pet companion state', () => {
     expect(
       BUILTIN_ALIEN_CHILD_PERSONALITY.interactions?.click.length,
     ).toBeGreaterThan(0)
+  })
+
+  it('bundles the real local pet catalog plus adapted Hermes defaults', () => {
+    const slugs = BUILTIN_MOBILE_PET_CATALOG.map(row => row.slug)
+
+    expect(slugs).toEqual(
+      expect.arrayContaining([
+        'alien-child',
+        'dr-house',
+        'fight-club-narrator',
+        'gremlin',
+        'noir-build-detective',
+        'ponytail-principal',
+        'shipbreaker-qa',
+        'helpful',
+        'technical',
+        'pirate',
+        'hype',
+      ]),
+    )
+    expect(BUILTIN_MOBILE_PET_CATALOG).toHaveLength(20)
+    expect(builtinMobilePetPersonality('alien-child')).toBe(
+      BUILTIN_ALIEN_CHILD_PERSONALITY,
+    )
+    expect(builtinMobilePetPersonality('dr-house')?.displayName).toBe(
+      'Dr. House',
+    )
+    expect(
+      builtinMobilePetPersonality('ponytail-principal')?.commentary?.prompt,
+    ).toContain('Ponytail Principal')
+    expect(builtinMobilePetPersonality('technical')?.sidechat?.prompt).toContain(
+      'chosen Mobile pet companion',
+    )
+  })
+
+  it('persists personality edits only for the selected saved connection', () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, value),
+    })
+    localStorage.clear()
+    const base = BUILTIN_ALIEN_CHILD_PERSONALITY
+    const edited = {
+      ...petPersonalityOverrideFromData(base),
+      displayName: 'My Alien Child',
+      clickLines: ['Move.', 'I am busy.'],
+    }
+
+    persistPetPersonalityOverrides('workstation', {
+      'alien-child': edited,
+    })
+
+    expect(
+      loadPetPersonalityOverrides('workstation')['alien-child'],
+    ).toMatchObject({
+      displayName: 'My Alien Child',
+      clickLines: ['Move.', 'I am busy.'],
+    })
+    expect(loadPetPersonalityOverrides('cloud')).toEqual({})
+    vi.unstubAllGlobals()
   })
 
   it('inherits the shared Desktop pet provider, voice, and pitch curve', () => {

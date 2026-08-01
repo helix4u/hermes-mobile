@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest'
 import {
   BUILTIN_ALIEN_CHILD_INFO,
   BUILTIN_ALIEN_CHILD_PERSONALITY,
-  BUILTIN_ALIEN_CHILD_SUMMARY,
+  BUILTIN_MOBILE_PET_CATALOG,
   FULL_PET_HOST_CAPABILITIES,
   normalizePetPreferences,
   VISUAL_ONLY_PET_HOST_CAPABILITIES,
@@ -19,7 +19,7 @@ function renderPetSettings(
 ) {
   return renderToStaticMarkup(
     createElement(PetSettings, {
-      catalog: [BUILTIN_ALIEN_CHILD_SUMMARY],
+      catalog: BUILTIN_MOBILE_PET_CATALOG,
       desktopSpeech: null,
       desktopSpeechStatus: 'missing',
       error: '',
@@ -27,10 +27,13 @@ function renderPetSettings(
       hostCapabilities,
       info: BUILTIN_ALIEN_CHILD_INFO,
       onPreferences: () => undefined,
+      onPersonalityChange: () => undefined,
+      onPersonalityReset: () => undefined,
       onPreviewVoice: () => undefined,
       onRefreshDesktopSpeech: () => undefined,
       onTest: () => undefined,
       personality: BUILTIN_ALIEN_CHILD_PERSONALITY,
+      personalityEdited: false,
       preferences: normalizePetPreferences({
         speakCommentary: true,
       }),
@@ -46,7 +49,13 @@ describe('pet settings host capabilities', () => {
     const html = renderPetSettings(VISUAL_ONLY_PET_HOST_CAPABILITIES)
 
     expect(html).toContain('visual only on this host')
-    expect(html).toContain('Alien Child is built into Mobile')
+    expect(html).toContain('Pet personalities are built into Mobile')
+    expect(html).toContain('Your pet presets')
+    expect(html).toContain('Dr. House')
+    expect(html).toContain('Ponytail Principal')
+    expect(html).toContain('Adapted Hermes defaults')
+    expect(html).toContain('Technical Expert')
+    expect(html).toContain('Edit selected personality')
     expect(html).toContain('same host-default TTS path as Listen and Reader')
     expect(html).toContain('Speak pet interactions')
     expect(html).not.toContain('Generate personality commentary')

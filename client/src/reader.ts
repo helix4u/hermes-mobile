@@ -18,6 +18,10 @@ export interface VoiceSelection {
   language?: string
 }
 
+export interface TtsOverrideOptions {
+  xaiAutoSpeechTags?: boolean
+}
+
 export const DEFAULT_READER_BUFFER_AHEAD = 3
 export const MAX_READER_BUFFER_AHEAD = 6
 
@@ -238,6 +242,7 @@ export function voiceChoices(
 
 export function ttsOverride(
   selection: VoiceSelection,
+  options: TtsOverrideOptions = {},
 ): Record<string, unknown> | undefined {
   const provider = selection.provider.trim()
   const speed =
@@ -268,6 +273,13 @@ export function ttsOverride(
   }
   if (speed !== undefined) {
     override.speed = speed
+  }
+  if (provider === 'xai' && options.xaiAutoSpeechTags) {
+    const xai =
+      override.xai && typeof override.xai === 'object'
+        ? (override.xai as Record<string, unknown>)
+        : {}
+    override.xai = { ...xai, auto_speech_tags: true }
   }
   return override
 }

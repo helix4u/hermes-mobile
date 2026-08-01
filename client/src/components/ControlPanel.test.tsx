@@ -36,6 +36,7 @@ describe('mobile Control settings disclosures', () => {
             },
             info: { enabled: false },
             personality: null,
+            personalityEdited: false,
             preferences: {
               commentary: true,
               delaySeconds: 12,
@@ -57,6 +58,8 @@ describe('mobile Control settings disclosures', () => {
             },
             status: 'idle',
             onPreferences: () => {},
+            onPersonalityChange: () => {},
+            onPersonalityReset: () => {},
             onPreviewVoice: () => {},
             onRefreshDesktopSpeech: () => {},
             onTest: () => {},

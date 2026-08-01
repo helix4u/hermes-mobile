@@ -3,7 +3,14 @@ import {
   type TranscriptItem,
 } from './state/transcript'
 import alienChildPersonalityJson from './assets/alien-child-personality.json'
+import drHousePersonalityJson from './assets/dr-house-personality.json'
+import fightClubNarratorPersonalityJson from './assets/fight-club-narrator-personality.json'
+import gremlinPersonalityJson from './assets/gremlin-personality.json'
+import noirBuildDetectivePersonalityJson from './assets/noir-build-detective-personality.json'
+import ponytailPrincipalPersonalityJson from './assets/ponytail-principal-personality.json'
+import shipbreakerQaPersonalityJson from './assets/shipbreaker-qa-personality.json'
 import alienChildSpritesheetUrl from './assets/alien-child-spritesheet.webp?url'
+import { ADAPTED_DEFAULT_PET_PERSONALITIES } from './default-pet-personalities'
 
 export type MobilePetState =
   | 'failed'
@@ -39,6 +46,7 @@ export interface PetPersonalitySummary {
   path: string
   revision: string
   valid: boolean
+  source?: 'host' | 'mobile-default' | 'mobile-local'
 }
 
 export interface PetPersonalityData {
@@ -59,6 +67,16 @@ export interface PetPersonalityData {
     prompt: string
   }
 }
+
+export interface PetPersonalityOverride {
+  displayName: string
+  description: string
+  clickLines: string[]
+  commentaryPrompt: string
+  sidechatPrompt: string
+}
+
+export type PetPersonalityOverrides = Record<string, PetPersonalityOverride>
 
 export interface PetPreferences {
   visible: boolean
@@ -239,6 +257,61 @@ export interface PetActivity {
 export const BUILTIN_ALIEN_CHILD_PERSONALITY =
   alienChildPersonalityJson as PetPersonalityData
 
+const BUNDLED_MOBILE_PET_PERSONALITIES = [
+  BUILTIN_ALIEN_CHILD_PERSONALITY,
+  drHousePersonalityJson as PetPersonalityData,
+  fightClubNarratorPersonalityJson as PetPersonalityData,
+  gremlinPersonalityJson as PetPersonalityData,
+  noirBuildDetectivePersonalityJson as PetPersonalityData,
+  ponytailPrincipalPersonalityJson as PetPersonalityData,
+  shipbreakerQaPersonalityJson as PetPersonalityData,
+  ...ADAPTED_DEFAULT_PET_PERSONALITIES,
+]
+
+const LOCAL_PET_PERSONALITY_SLUGS = new Set([
+  'alien-child',
+  'dr-house',
+  'fight-club-narrator',
+  'gremlin',
+  'noir-build-detective',
+  'ponytail-principal',
+  'shipbreaker-qa',
+])
+
+export const BUILTIN_MOBILE_PET_PERSONALITIES: Readonly<
+  Record<string, PetPersonalityData>
+> = Object.freeze(
+  Object.fromEntries(
+    BUNDLED_MOBILE_PET_PERSONALITIES.map(personality => [
+      personality.id,
+      personality,
+    ]),
+  ),
+)
+
+export const BUILTIN_MOBILE_PET_CATALOG: PetPersonalitySummary[] =
+  BUNDLED_MOBILE_PET_PERSONALITIES.map(personality => ({
+    slug: personality.id,
+    displayName: personality.displayName,
+    description: personality.description,
+    path: `mobile://${
+      LOCAL_PET_PERSONALITY_SLUGS.has(personality.id)
+        ? 'pet-presets'
+        : 'adapted-defaults'
+    }/${personality.id}`,
+    revision: 'mobile-builtin-v1',
+    valid: true,
+    source: LOCAL_PET_PERSONALITY_SLUGS.has(personality.id)
+      ? 'mobile-local'
+      : 'mobile-default',
+  }))
+
+export function builtinMobilePetPersonality(
+  slug: string,
+): PetPersonalityData | null {
+  return BUILTIN_MOBILE_PET_PERSONALITIES[slug] ?? null
+}
+
 export function petSidechatPrompt(
   personality: PetPersonalityData | null | undefined,
   fallbackName = 'Your pet',
@@ -271,6 +344,7 @@ export const BUILTIN_ALIEN_CHILD_SUMMARY: PetPersonalitySummary = {
   path: 'mobile://built-in/alien-child',
   revision: 'mobile-builtin-v1',
   valid: true,
+  source: 'mobile-local',
 }
 
 export const BUILTIN_ALIEN_CHILD_INFO: MobilePetInfo = {
@@ -320,6 +394,121 @@ const DEFAULT_PET_PREFERENCES: PetPreferences = {
 
 function storageKey(connectionId: string): string {
   return `hermes-mobile.pet.v1.${connectionId || 'default'}`
+}
+
+function personalityStorageKey(connectionId: string): string {
+  return `hermes-mobile.pet-personalities.v1.${connectionId || 'default'}`
+}
+
+function clippedText(value: unknown, maximum: number): string {
+  return String(value ?? '').trim().slice(0, maximum)
+}
+
+function normalizedPersonalityOverride(
+  value: Partial<PetPersonalityOverride> | null | undefined,
+): PetPersonalityOverride {
+  const clickLines = Array.isArray(value?.clickLines)
+    ? value.clickLines
+        .map(line => clippedText(line, 500))
+        .filter(Boolean)
+        .slice(0, 50)
+    : []
+  return {
+    displayName: clippedText(value?.displayName, 120),
+    description: clippedText(value?.description, 500),
+    clickLines,
+    commentaryPrompt: clippedText(value?.commentaryPrompt, 20_000),
+    sidechatPrompt: clippedText(value?.sidechatPrompt, 20_000),
+  }
+}
+
+export function petPersonalityOverrideFromData(
+  personality: PetPersonalityData,
+): PetPersonalityOverride {
+  return normalizedPersonalityOverride({
+    displayName: personality.displayName,
+    description: personality.description,
+    clickLines: personality.interactions?.click ?? [],
+    commentaryPrompt: personality.commentary?.prompt ?? '',
+    sidechatPrompt: personality.sidechat?.prompt ?? '',
+  })
+}
+
+export function applyPetPersonalityOverride(
+  personality: PetPersonalityData,
+  override: PetPersonalityOverride | null | undefined,
+): PetPersonalityData {
+  if (!override) return personality
+  const normalized = normalizedPersonalityOverride(override)
+  return {
+    ...personality,
+    displayName: normalized.displayName || personality.displayName,
+    description: normalized.description || personality.description,
+    interactions: {
+      click: normalized.clickLines.length
+        ? normalized.clickLines
+        : personality.interactions?.click ?? [],
+      resetAfterSeconds: personality.interactions?.resetAfterSeconds ?? 20,
+    },
+    commentary: {
+      prompt:
+        normalized.commentaryPrompt || personality.commentary?.prompt || '',
+      maxCharacters: personality.commentary?.maxCharacters ?? 180,
+    },
+    sidechat: {
+      prompt: normalized.sidechatPrompt || petSidechatPrompt(personality),
+    },
+  }
+}
+
+export function loadPetPersonalityOverrides(
+  connectionId: string,
+): PetPersonalityOverrides {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem(personalityStorageKey(connectionId)) || '{}',
+    ) as Record<string, unknown>
+    return Object.fromEntries(
+      Object.entries(raw)
+        .filter(([slug, value]) =>
+          /^[a-z0-9][a-z0-9-]{0,79}$/.test(slug) &&
+          Boolean(value) &&
+          typeof value === 'object' &&
+          !Array.isArray(value),
+        )
+        .slice(0, 32)
+        .map(([slug, value]) => [
+          slug,
+          normalizedPersonalityOverride(
+            value as Partial<PetPersonalityOverride>,
+          ),
+        ]),
+    )
+  } catch {
+    return {}
+  }
+}
+
+export function persistPetPersonalityOverrides(
+  connectionId: string,
+  overrides: PetPersonalityOverrides,
+): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(
+    personalityStorageKey(connectionId),
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(overrides)
+          .filter(([slug]) => /^[a-z0-9][a-z0-9-]{0,79}$/.test(slug))
+          .slice(0, 32)
+          .map(([slug, value]) => [
+            slug,
+            normalizedPersonalityOverride(value),
+          ]),
+      ),
+    ),
+  )
 }
 
 function boundedNumber(

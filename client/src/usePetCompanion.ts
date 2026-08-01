@@ -10,19 +10,24 @@ import { isMissingCapabilityError } from './capability-errors'
 import { resolvePetCapabilityProbe } from './pet-host-capabilities'
 import type { JsonRpcGatewayClient } from './protocol/json-rpc-client'
 import {
+  applyPetPersonalityOverride,
   BUILTIN_ALIEN_CHILD_INFO,
   BUILTIN_ALIEN_CHILD_PERSONALITY,
-  BUILTIN_ALIEN_CHILD_SUMMARY,
+  BUILTIN_MOBILE_PET_CATALOG,
+  builtinMobilePetPersonality,
   CHECKING_PET_HOST_CAPABILITIES,
   compactPetBubbleText,
   createPetCommentaryRequestGate,
   deriveMobilePetState,
   effectivePetSpeech,
   FULL_PET_HOST_CAPABILITIES,
+  loadPetPersonalityOverrides,
   loadPetPreferences,
   normalizePetPreferences,
   petObserverFramesFromTranscript,
+  petPersonalityOverrideFromData,
   petSidechatPrompt,
+  persistPetPersonalityOverrides,
   persistPetPreferences,
   petContextFromTranscript,
   petSpeechProfileFromConfig,
@@ -32,6 +37,8 @@ import {
   type MobilePetInfo,
   type PetHostCapabilities,
   type PetPersonalityData,
+  type PetPersonalityOverride,
+  type PetPersonalityOverrides,
   type PetPersonalitySummary,
   type PetPreferences,
   type PetSpeechProfile,
@@ -84,11 +91,25 @@ export function usePetCompanion({
   const preferencesRef = useRef(preferences)
   preferencesRef.current = preferences
   const [info, setInfo] = useState<MobilePetInfo>(BUILTIN_ALIEN_CHILD_INFO)
-  const [catalog, setCatalog] = useState<PetPersonalitySummary[]>([
-    BUILTIN_ALIEN_CHILD_SUMMARY,
-  ])
-  const [personality, setPersonality] = useState<PetPersonalityData | null>(
+  const [catalog, setCatalog] = useState<PetPersonalitySummary[]>(
+    BUILTIN_MOBILE_PET_CATALOG,
+  )
+  const [basePersonality, setBasePersonality] = useState<PetPersonalityData | null>(
     BUILTIN_ALIEN_CHILD_PERSONALITY,
+  )
+  const [personalityOverrides, setPersonalityOverrides] =
+    useState<PetPersonalityOverrides>(() =>
+      loadPetPersonalityOverrides(connectionId),
+    )
+  const personality = useMemo(
+    () =>
+      basePersonality
+        ? applyPetPersonalityOverride(
+            basePersonality,
+            personalityOverrides[basePersonality.id],
+          )
+        : null,
+    [basePersonality, personalityOverrides],
   )
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   const [hostCapabilities, setHostCapabilities] =
@@ -162,11 +183,16 @@ export function usePetCompanion({
   useLayoutEffect(() => {
     cancelCommentary(true)
     const nextPreferences = loadPetPreferences(connectionId)
+    const nextOverrides = loadPetPersonalityOverrides(connectionId)
     preferencesRef.current = nextPreferences
     setPreferences(nextPreferences)
+    setPersonalityOverrides(nextOverrides)
     setInfo(BUILTIN_ALIEN_CHILD_INFO)
-    setCatalog([BUILTIN_ALIEN_CHILD_SUMMARY])
-    setPersonality(BUILTIN_ALIEN_CHILD_PERSONALITY)
+    setCatalog(BUILTIN_MOBILE_PET_CATALOG)
+    setBasePersonality(
+      builtinMobilePetPersonality(nextPreferences.personalitySlug) ??
+        BUILTIN_ALIEN_CHILD_PERSONALITY,
+    )
     setHostCapabilities(
       connected
         ? CHECKING_PET_HOST_CAPABILITIES
@@ -193,6 +219,34 @@ export function usePetCompanion({
     },
     [connectionId],
   )
+
+  const updatePersonality = useCallback(
+    (patch: Partial<PetPersonalityOverride>) => {
+      if (!basePersonality) return
+      setPersonalityOverrides(current => {
+        const slug = basePersonality.id
+        const next = {
+          ...(current[slug] ??
+            petPersonalityOverrideFromData(basePersonality)),
+          ...patch,
+        }
+        const updated = { ...current, [slug]: next }
+        persistPetPersonalityOverrides(connectionId, updated)
+        return updated
+      })
+    },
+    [basePersonality, connectionId],
+  )
+
+  const resetPersonality = useCallback(() => {
+    if (!basePersonality) return
+    setPersonalityOverrides(current => {
+      const updated = { ...current }
+      delete updated[basePersonality.id]
+      persistPetPersonalityOverrides(connectionId, updated)
+      return updated
+    })
+  }, [basePersonality, connectionId])
 
   const showBubble = useCallback((text: string) => {
     const clean = text.trim()
@@ -301,8 +355,11 @@ export function usePetCompanion({
   useEffect(() => {
     if (!connected || !gateway) {
       setInfo(BUILTIN_ALIEN_CHILD_INFO)
-      setCatalog([BUILTIN_ALIEN_CHILD_SUMMARY])
-      setPersonality(BUILTIN_ALIEN_CHILD_PERSONALITY)
+      setCatalog(BUILTIN_MOBILE_PET_CATALOG)
+      setBasePersonality(
+        builtinMobilePetPersonality(preferences.personalitySlug) ??
+          BUILTIN_ALIEN_CHILD_PERSONALITY,
+      )
       setHostCapabilities(VISUAL_ONLY_PET_HOST_CAPABILITIES)
       setStatus('ready')
       return
@@ -324,8 +381,11 @@ export function usePetCompanion({
         if (personalityResult.status === 'rejected') {
           const probe = resolvePetCapabilityProbe(personalityResult)
           setInfo(BUILTIN_ALIEN_CHILD_INFO)
-          setCatalog([BUILTIN_ALIEN_CHILD_SUMMARY])
-          setPersonality(BUILTIN_ALIEN_CHILD_PERSONALITY)
+          setCatalog(BUILTIN_MOBILE_PET_CATALOG)
+          setBasePersonality(
+            builtinMobilePetPersonality(preferences.personalitySlug) ??
+              BUILTIN_ALIEN_CHILD_PERSONALITY,
+          )
           setHostCapabilities(probe.capabilities)
           setStatus('ready')
           setError(probe.error)
@@ -339,10 +399,14 @@ export function usePetCompanion({
         const hostPersonalities = (listed.personalities ?? []).filter(
           row => row.valid,
         )
+        const bundledSlugs = new Set(
+          BUILTIN_MOBILE_PET_CATALOG.map(row => row.slug),
+        )
         const personalities = [
-          hostPersonalities.find(row => row.slug === 'alien-child') ??
-            BUILTIN_ALIEN_CHILD_SUMMARY,
-          ...hostPersonalities.filter(row => row.slug !== 'alien-child'),
+          ...BUILTIN_MOBILE_PET_CATALOG,
+          ...hostPersonalities
+            .filter(row => !bundledSlugs.has(row.slug))
+            .map(row => ({ ...row, source: 'host' as const })),
         ]
         const chosen =
           personalities.find(row => row.slug === preferences.personalitySlug) ??
@@ -360,29 +424,27 @@ export function usePetCompanion({
           resolvePetCapabilityProbe(personalityResult).capabilities,
         )
         let loaded: { ok: boolean; personality: PetPersonalityData }
-        try {
+        const bundled = builtinMobilePetPersonality(chosen.slug)
+        if (bundled) {
+          loaded = { ok: true, personality: bundled }
+        } else {
           loaded = await gateway.request<{
             ok: boolean
             personality: PetPersonalityData
           }>('pet.personality.get', { profile, slug: chosen.slug })
-        } catch {
-          if (chosen.slug !== 'alien-child') {
-            throw new Error(`Could not load pet personality '${chosen.slug}'.`)
-          }
-          loaded = {
-            ok: true,
-            personality: BUILTIN_ALIEN_CHILD_PERSONALITY,
-          }
         }
         if (!active) return
-        setPersonality(loaded.personality)
+        setBasePersonality(loaded.personality)
         setStatus('ready')
       })
       .catch(loadError => {
         if (!active) return
         setInfo(BUILTIN_ALIEN_CHILD_INFO)
-        setCatalog([BUILTIN_ALIEN_CHILD_SUMMARY])
-        setPersonality(BUILTIN_ALIEN_CHILD_PERSONALITY)
+        setCatalog(BUILTIN_MOBILE_PET_CATALOG)
+        setBasePersonality(
+          builtinMobilePetPersonality(preferences.personalitySlug) ??
+            BUILTIN_ALIEN_CHILD_PERSONALITY,
+        )
         setHostCapabilities(VISUAL_ONLY_PET_HOST_CAPABILITIES)
         setStatus('ready')
         if (!isMissingCapabilityError(loadError)) {
@@ -401,22 +463,13 @@ export function usePetCompanion({
   ])
 
   useEffect(() => {
-    if (
-      !gateway ||
-      status !== 'ready' ||
-      !hostCapabilities.personalities
-    ) {
+    const bundled = builtinMobilePetPersonality(preferences.personalitySlug)
+    if (bundled) {
+      setBasePersonality(bundled)
+      setError('')
       return
     }
-    if (
-      preferences.personalitySlug === 'alien-child' &&
-      !catalog.some(
-        row =>
-          row.slug === 'alien-child' &&
-          row.path !== BUILTIN_ALIEN_CHILD_SUMMARY.path,
-      )
-    ) {
-      setPersonality(BUILTIN_ALIEN_CHILD_PERSONALITY)
+    if (!gateway || status !== 'ready' || !hostCapabilities.personalities) {
       return
     }
     let active = true
@@ -426,7 +479,7 @@ export function usePetCompanion({
         slug: preferences.personalitySlug,
       })
       .then(result => {
-        if (active) setPersonality(result.personality)
+        if (active) setBasePersonality(result.personality)
       })
       .catch(loadError => {
         if (active) {
@@ -437,7 +490,6 @@ export function usePetCompanion({
       active = false
     }
   }, [
-    catalog,
     gateway,
     hostCapabilities.personalities,
     preferences.personalitySlug,
@@ -861,6 +913,9 @@ export function usePetCompanion({
     info,
     interact,
     personality,
+    personalityEdited: Boolean(
+      basePersonality && personalityOverrides[basePersonality.id],
+    ),
     preferences,
     previewVoice,
     refreshDesktopSpeech,
@@ -875,6 +930,8 @@ export function usePetCompanion({
     },
     state,
     status,
+    resetPersonality,
+    updatePersonality,
     updatePreferences,
   }
 }

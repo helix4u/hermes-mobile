@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isMissingCapabilityError } from '../capability-errors'
 import type { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
+import { petSidechatPrompt } from '../pet'
 import type {
   MobilePetInfo,
   PetHostCapabilities,
   PetPersonalityData,
+  PetPersonalityOverride,
   PetPersonalitySummary,
   PetPreferences,
   PetSpeechProfile,
@@ -41,11 +43,14 @@ interface PetSettingsProps {
   hostCapabilities: PetHostCapabilities
   info: MobilePetInfo
   personality: PetPersonalityData | null
+  personalityEdited: boolean
   preferences: PetPreferences
   profile: string
   status: 'idle' | 'loading' | 'ready' | 'unavailable'
   transport: HermesTransport | null
   onPreferences: (patch: Partial<PetPreferences>) => void
+  onPersonalityChange: (patch: Partial<PetPersonalityOverride>) => void
+  onPersonalityReset: () => void
   onPreviewVoice: () => void
   onRefreshDesktopSpeech: () => void | Promise<void>
   onTest: () => void | Promise<void>
@@ -66,10 +71,13 @@ export function PetSettings({
   hostCapabilities,
   info,
   onPreferences,
+  onPersonalityChange,
+  onPersonalityReset,
   onPreviewVoice,
   onRefreshDesktopSpeech,
   onTest,
   personality,
+  personalityEdited,
   preferences,
   profile,
   status,
@@ -93,6 +101,15 @@ export function PetSettings({
   )
   const visualOnlyHost =
     hostCapabilities.mode === 'visual-only' && Boolean(transport)
+  const localPersonalities = catalog.filter(
+    row => row.source === 'mobile-local',
+  )
+  const adaptedPersonalities = catalog.filter(
+    row => row.source === 'mobile-default',
+  )
+  const hostPersonalities = catalog.filter(
+    row => row.source !== 'mobile-local' && row.source !== 'mobile-default',
+  )
 
   const selectedProvider = useMemo(
     () => models.providers?.find(row => row.slug === auxProvider),
@@ -206,9 +223,9 @@ export function PetSettings({
           <strong>Pet companion</strong>
           <small>
             {visualOnlyHost
-              ? `${info.displayName || 'Alien Child'} · visual only on this host`
+              ? `${personality?.displayName || info.displayName || 'Pet'} · visual only on this host`
               : hostCapabilities.mode === 'visual-only'
-                ? `${info.displayName || 'Alien Child'} · built into Mobile`
+                ? `${personality?.displayName || info.displayName || 'Pet'} · built into Mobile`
               : personality?.displayName ||
                 info.displayName ||
                 (status === 'unavailable'
@@ -227,11 +244,11 @@ export function PetSettings({
         </p>
         {hostCapabilities.mode === 'visual-only' && (
           <div className="pet-capability-note">
-            <strong>Alien Child is built into Mobile.</strong>
+            <strong>Pet personalities are built into Mobile.</strong>
             <small>
               {visualOnlyHost
-                ? 'This host does not provide pet AI commentary, sidechat, host-local personalities, or an auxiliary pet model. Tap lines and roaming still work. Pet speech can use the same host-default TTS path as Listen and Reader.'
-                : 'The visual pet, tap lines, position, and roaming stay available while disconnected. Server-backed commentary, sidechat, personalities, and speech return with a capable connection.'}
+                ? 'This host does not provide pet AI commentary, sidechat, host-local personalities, or an auxiliary pet model. Bundled personality tap lines and roaming still work. Pet speech can use the same host-default TTS path as Listen and Reader.'
+                : 'The bundled personalities, visual pet, tap lines, position, and roaming stay available while disconnected. Server-backed commentary, sidechat, and speech return with a capable connection.'}
             </small>
           </div>
         )}
@@ -482,28 +499,145 @@ export function PetSettings({
           </div>
         )}
 
-        {hostCapabilities.personalities ? (
-          <label>
-            <span>Personality</span>
-            <select
-              disabled={catalog.length === 0}
-              value={preferences.personalitySlug}
-              onChange={event =>
-                onPreferences({ personalitySlug: event.target.value })
-              }
-            >
-              {catalog.map(row => (
-                <option key={row.slug} value={row.slug}>
-                  {row.displayName} · {row.description}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <div className="pet-voice-summary">
-            <strong>{info.displayName || 'Alien Child'}</strong>
-            <small>Built into this app for this connection.</small>
-          </div>
+        <label>
+          <span>Personality</span>
+          <select
+            disabled={catalog.length === 0}
+            value={preferences.personalitySlug}
+            onChange={event =>
+              onPreferences({ personalitySlug: event.target.value })
+            }
+          >
+            {localPersonalities.length > 0 && (
+              <optgroup label="Your pet presets">
+                {localPersonalities.map(row => (
+                  <option key={row.slug} value={row.slug}>
+                    {row.displayName}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {adaptedPersonalities.length > 0 && (
+              <optgroup label="Adapted Hermes defaults">
+                {adaptedPersonalities.map(row => (
+                  <option key={row.slug} value={row.slug}>
+                    {row.displayName}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {hostPersonalities.length > 0 && (
+              <optgroup label="This Hermes host">
+                {hostPersonalities.map(row => (
+                  <option key={row.slug} value={row.slug}>
+                    {row.displayName}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <small>
+            {personality?.description ||
+              'Choose a bundled or host-provided personality.'}
+          </small>
+        </label>
+
+        {personality && (
+          <details className="pet-personality-editor">
+            <summary>
+              <span>
+                <strong>Edit selected personality</strong>
+                <small>
+                  {personalityEdited
+                    ? 'Customized for this saved connection'
+                    : 'Connection-scoped local override'}
+                </small>
+              </span>
+              <span className="disclosure-glyph">+</span>
+            </summary>
+            <div className="pet-personality-editor-body">
+              <p className="advanced-copy">
+                These edits stay on this phone for this saved connection. The
+                bundled preset and host files are never overwritten.
+              </p>
+              <label>
+                <span>Display name</span>
+                <input
+                  maxLength={120}
+                  value={personality.displayName}
+                  onChange={event =>
+                    onPersonalityChange({ displayName: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>Description</span>
+                <textarea
+                  maxLength={500}
+                  rows={3}
+                  value={personality.description}
+                  onChange={event =>
+                    onPersonalityChange({ description: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>Tap lines</span>
+                <textarea
+                  maxLength={25_000}
+                  placeholder="One pet reaction per line"
+                  rows={5}
+                  value={(personality.interactions?.click ?? []).join('\n')}
+                  onChange={event =>
+                    onPersonalityChange({
+                      clickLines: event.target.value
+                        .split(/\r?\n/)
+                        .map(line => line.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                <span>Ambient commentary prompt</span>
+                <textarea
+                  maxLength={20_000}
+                  rows={7}
+                  value={personality.commentary?.prompt ?? ''}
+                  onChange={event =>
+                    onPersonalityChange({
+                      commentaryPrompt: event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                <span>Private sidechat prompt</span>
+                <textarea
+                  maxLength={20_000}
+                  placeholder="Leave the preset wording in place for full character embodiment."
+                  rows={8}
+                  value={
+                    personality.sidechat?.prompt ??
+                    petSidechatPrompt(personality)
+                  }
+                  onChange={event =>
+                    onPersonalityChange({
+                      sidechatPrompt: event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <button
+                className="quiet-button"
+                disabled={!personalityEdited}
+                type="button"
+                onClick={onPersonalityReset}
+              >
+                Reset selected personality
+              </button>
+            </div>
+          </details>
         )}
 
         {hostCapabilities.commentary && (

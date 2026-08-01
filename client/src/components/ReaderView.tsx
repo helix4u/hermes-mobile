@@ -278,6 +278,9 @@ export function ReaderView({
   }
 
   function sequence(): SpeechSequenceItem[] {
+    const readerTtsOverride = (selection: VoiceSelection) =>
+      ttsOverride(selection, { xaiAutoSpeechTags: true })
+
     return blocks.map(block => {
       const key = assignments[block.speaker] || ''
       const choice = availableChoices.find(
@@ -300,13 +303,13 @@ export function ReaderView({
       return {
         id: block.id,
         text: block.text,
-        ttsConfig: ttsOverride(selection),
+        ttsConfig: readerTtsOverride(selection),
         fallbackTtsConfigs: [
           ...readerFallbackSelections(
             selection,
             availableChoices,
             normalVoice.speed,
-          ).map(ttsOverride),
+          ).map(readerTtsOverride),
           undefined,
         ],
       }
@@ -514,6 +517,11 @@ export function ReaderView({
                 value={text}
               />
             </label>
+            <p className="section-help">
+              Hermes can send a marked .md or .txt attachment for this surface.
+              Use Open in Reader on its file card to inspect, edit, assign voices,
+              play, or export it.
+            </p>
           </section>
 
           <section className="reader-controls">
@@ -616,6 +624,12 @@ export function ReaderView({
                         bufferAhead === 1 ? 'block' : 'blocks'
                       }. Failed voices try another selected voice, then the host default.`}
                 </p>
+                {selectedProviders.includes('xai') && (
+                  <p className="section-help reader-buffer-help">
+                    xAI Reader voices add expressive speech tags automatically
+                    for playback and saved podcast renders.
+                  </p>
+                )}
               </div>
             </details>
           </section>
