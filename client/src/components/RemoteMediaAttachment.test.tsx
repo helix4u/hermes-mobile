@@ -13,6 +13,27 @@ import {
 } from './RemoteMediaAttachment'
 
 describe('RemoteMediaAttachment', () => {
+  test('renders direct MP4 and audio attachments with native inline controls', () => {
+    const video = renderToStaticMarkup(
+      <RemoteMediaAttachment
+        path="https://files.example/demo.mp4"
+        transport={null}
+      />,
+    )
+    const audio = renderToStaticMarkup(
+      <RemoteMediaAttachment
+        path="https://files.example/podcast.m4b"
+        transport={null}
+      />,
+    )
+
+    expect(video).toContain('<video')
+    expect(video).toContain('playsInline=""')
+    expect(video).toContain('src="https://files.example/demo.mp4"')
+    expect(audio).toContain('<audio')
+    expect(audio).toContain('src="https://files.example/podcast.m4b"')
+  })
+
   test('loads with a private filename instead of exposing the host path', () => {
     const html = renderToStaticMarkup(
       <RemoteMediaAttachment
