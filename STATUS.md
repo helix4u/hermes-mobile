@@ -45,8 +45,8 @@ Current milestone: Pet-sidechat streaming speech and active-turn voice control
 - The current verified debug APK was replacement-installed on the intended
   Samsung SM-S918U over the explicitly supplied ADB endpoint. The `-r` install
   retained saved application data and Android Keystore credentials. Android
-  reports package update time `2026-08-01 02:04:56`; a cold launch completed in
-  522 ms and left the expected application process running with no error-priority
+  reports package update time `2026-08-01 14:00:40`; a cold launch completed in
+  1.003 seconds and left the expected application process running with no error-priority
   log record, fatal exception, or ANR signature in its captured process tail.
 - Pet poke TTS now uses keyed replacement. Rapid taps retain only the newest
   pending poke and prepare its audio without stopping the current poke. A
@@ -64,6 +64,11 @@ Current milestone: Pet-sidechat streaming speech and active-turn voice control
   preparation uses one-, three-, and five-sentence batches, paragraph breaks,
   and a bounded word fallback for punctuation-free output, while playback stays
   strictly ordered.
+- Auto-speak now reconciles its input before segmentation. A repeated
+  `message.complete` frame is idempotent until the next turn, cumulative stream
+  snapshots append only their unseen suffix, and substantial replay overlap is
+  removed at the boundary. Short repeated tokens remain untouched so deliberate
+  phrasing such as "no, no" is still spoken faithfully.
 - Synthesis is rate-limit aware: ordinary Mobile speech uses connection-scoped
   provider timing and playback-rate metrics to choose conservative chunk and
   look-ahead behavior, and Reader persists an explicit one-to-three parallel
@@ -193,8 +198,10 @@ and the same prepared-segment fallback for non-streaming providers.
   including the two-sentence startup rule; TypeScript typecheck, production
   build, Capacitor sync, and Android debug assembly pass.
 - The media/Reader follow-up passes 3 focused files and 8 tests; the complete
-  Mobile client suite passes 54 files and 272 tests. TypeScript typecheck,
-  production build, Capacitor sync, and Android debug assembly pass.
+  Mobile client suite passed 54 files and 272 tests. The subsequent speech-
+  deduplication slice passes 2 files and 33 tests, and the complete client suite
+  now passes 54 files and 275 tests. TypeScript typecheck, production build,
+  Capacitor sync, and Android debug assembly pass.
 - Desktop commentary ordering passes 3 focused files and 17 tests. Desktop
   TypeScript typecheck, changed-file ESLint with zero errors, Python module
   compilation, production build, and unpacked Windows packaging pass. The
@@ -203,11 +210,10 @@ and the same prepared-segment fallback for non-streaming providers.
 - Python prompt guidance compiled and an import smoke check confirmed both the
   Desktop and `hermes-mobile` Reader handoff hints.
 - Scoped `git diff --check` and unmerged-entry checks pass in both repositories.
-- Current built Mobile debug APK (replacement-installed on the intended
-  Samsung SM-S918U at `2026-08-01 05:12:41`):
+- Current built and replacement-installed Mobile debug APK:
   `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,129,363 bytes, SHA-256
-  `805CC47BD226EF6B63DB265EC052CA6C6F033123997F1316E751EDE4812B3849`).
+  (127,129,674 bytes, SHA-256
+  `FE23BB8D991B12C4146978EAB7A36488B04E678841D9A70FFF68ADBA319EA051`).
 - Current Desktop test executable:
   `..\hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe`
   (214,281,216 bytes, SHA-256
@@ -217,15 +223,16 @@ and the same prepared-segment fallback for non-streaming providers.
   Start-menu, and taskbar shortcuts. Launching the Desktop shortcut produced a
   visible responding window, a fresh `HERMES_BACKEND_READY`, and `ok` dashboard
   and storage status.
-- The current APK is replacement-installed on the intended Samsung SM-S918U at
+- The current speech-deduplication APK is replacement-installed on the intended Samsung SM-S918U at
   version name 1.0/version code 1 and package update time
-  `2026-08-01 05:12:41`. A cold launch completed in 933 ms, left the app
+  `2026-08-01 14:00:40`. A cold launch completed in 1.003 seconds, left the app
   process running in the foreground, and its captured process-log tail
   contained no error-priority record, fatal exception, or ANR signature.
 
 ## Next action
 
-On the replacement-installed media/Reader APK, verify representative MP4 and audio playback in
+On the replacement-installed speech-deduplication APK, verify a long auto-spoken response
+does not repeat any prepared segment or replay after completion. Then verify representative MP4 and audio playback in
 Chat plus the compact Follow transport during manual and automatic Reader
 scrolling. Then verify that completed
 inline attachments remain visually stable during transcript updates and brief

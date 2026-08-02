@@ -133,6 +133,10 @@ Acceptance contract:
   reply is still streaming. It grows from one sentence to three, then five,
   honors paragraph and bounded word transitions, and always plays prepared
   audio in transcript order.
+- Streamed speech input is turn-idempotent. Replayed terminal completion frames
+  cannot enqueue a second response, cumulative snapshots contribute only their
+  new suffix, and substantial reconnect overlap is removed without suppressing
+  intentional short repetitions in model speech.
 - The first segment is useful runway rather than a token opener: an opening
   sentence shorter than 96 characters waits for and joins sentence two, while
   a substantial first sentence can still begin playback immediately.
@@ -223,7 +227,8 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-On the replacement-installed media/Reader APK, verify that MP4 and representative local
+On the replacement-installed speech-deduplication APK, verify that long auto-spoken replies
+never replay a completed segment or terminal response. Then verify that MP4 and representative local
 audio attachments play inline in Chat, and that Reader's compact transport
 keeps Play/Pause/Stop/Follow reachable while manual scrolling disables Follow
 until explicitly re-enabled. Also verify that a completed

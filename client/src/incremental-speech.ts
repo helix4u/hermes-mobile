@@ -225,7 +225,70 @@ export function streamedCompletionSuffix(
   if (completedText.startsWith(streamedText)) {
     return completedText.slice(streamedText.length)
   }
+  const reconciled = streamedDeltaSuffix(streamedText, completedText)
+  if (reconciled !== completedText) return reconciled
   return ''
+}
+
+const MIN_REPLAY_OVERLAP_CHARS = 24
+
+export function streamedDeltaSuffix(
+  streamedText: string,
+  incomingText: string,
+): string {
+  if (!incomingText) return ''
+  if (!streamedText) return incomingText
+
+  // Some compatibility/reconnect paths surface a cumulative snapshot instead
+  // of a true delta. Only append the part that has not already been prepared.
+  if (incomingText.startsWith(streamedText)) {
+    return incomingText.slice(streamedText.length)
+  }
+
+  const maxOverlap = Math.min(streamedText.length, incomingText.length)
+  for (
+    let overlap = maxOverlap;
+    overlap >= MIN_REPLAY_OVERLAP_CHARS;
+    overlap -= 1
+  ) {
+    if (streamedText.endsWith(incomingText.slice(0, overlap))) {
+      return incomingText.slice(overlap)
+    }
+  }
+
+  // Keep short repeated model tokens intact. An intentional "no, no" should
+  // not disappear merely because two legitimate deltas happen to be equal.
+  return incomingText
+}
+
+export interface SpeechCompletionGuard {
+  accept(speechId: string, completedText: string): boolean
+  begin(speechId: string): void
+  previous(speechId: string): string
+}
+
+export function createSpeechCompletionGuard(): SpeechCompletionGuard {
+  const completed = new Map<
+    string,
+    { fingerprint: string; text: string }
+  >()
+
+  return {
+    accept(speechId: string, completedText: string) {
+      const text = completedText.trim()
+      if (!text) return true
+      const fingerprint = text.replace(/\s+/g, ' ')
+      if (completed.get(speechId)?.fingerprint === fingerprint) return false
+      completed.set(speechId, { fingerprint, text })
+      return true
+    },
+    begin(speechId: string) {
+      completed.delete(speechId)
+    },
+    previous(speechId: string) {
+      return completed.get(speechId)?.text ?? ''
+    },
+  }
 }
 
 export interface PreparedSpeechInput {
@@ -244,8 +307,10 @@ export function createPreparedSpeechInput<T>(
   return {
     append(delta: string) {
       if (cancelled || finished || !delta) return
-      streamedText += delta
-      stream.append(delta)
+      const suffix = streamedDeltaSuffix(streamedText, delta)
+      if (!suffix) return
+      streamedText += suffix
+      stream.append(suffix)
     },
     cancel() {
       if (cancelled) return

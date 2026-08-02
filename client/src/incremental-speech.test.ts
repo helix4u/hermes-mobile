@@ -5,6 +5,8 @@ import {
   createNaturalSpeechSegmenter,
   createPreparedSpeechInput,
   createPreparedSpeechStream,
+  createSpeechCompletionGuard,
+  streamedDeltaSuffix,
   streamedCompletionSuffix,
 } from './incremental-speech'
 
@@ -94,6 +96,36 @@ describe('incremental speech preparation', () => {
     expect(streamedCompletionSuffix('old text', 'replacement')).toBe('')
   })
 
+  it('removes cumulative and substantially overlapping replay deltas', () => {
+    const streamed = 'The first prepared segment is already safely buffered.'
+
+    expect(
+      streamedDeltaSuffix(
+        streamed,
+        `${streamed} The second segment is new.`,
+      ),
+    ).toBe(' The second segment is new.')
+    expect(
+      streamedDeltaSuffix(
+        `${streamed} A boundary phrase is already here.`,
+        'A boundary phrase is already here. Only this tail is new.',
+      ),
+    ).toBe(' Only this tail is new.')
+    expect(streamedDeltaSuffix('No, ', 'no, ')).toBe('no, ')
+  })
+
+  it('makes repeated completion frames idempotent until a new turn begins', () => {
+    const guard = createSpeechCompletionGuard()
+
+    expect(guard.accept('auto-response', 'A complete response.')).toBe(true)
+    expect(guard.accept('auto-response', 'A complete response.')).toBe(false)
+    expect(guard.accept('auto-response', 'A complete\nresponse.')).toBe(false)
+    expect(guard.previous('auto-response')).toBe('A complete response.')
+
+    guard.begin('auto-response')
+    expect(guard.accept('auto-response', 'A complete response.')).toBe(true)
+  })
+
   it('closes prepared input after playback has already started', () => {
     const appended: string[] = []
     let cancelled = 0
@@ -117,6 +149,29 @@ describe('incremental speech preparation', () => {
     expect(appended).toEqual(['First segment.', ' Final segment.'])
     expect(finished).toBe(1)
     expect(cancelled).toBe(0)
+  })
+
+  it('does not prepare a cumulative replay twice', () => {
+    const appended: string[] = []
+    const input = createPreparedSpeechInput({
+      append: delta => appended.push(delta),
+      cancel: () => undefined,
+      finish: () => undefined,
+      next: async () => null,
+    })
+
+    input.append('The first sentence is already buffered.')
+    input.append(
+      'The first sentence is already buffered. The second sentence is new.',
+    )
+    input.finish(
+      'The first sentence is already buffered. The second sentence is new.',
+    )
+
+    expect(appended).toEqual([
+      'The first sentence is already buffered.',
+      ' The second sentence is new.',
+    ])
   })
 
   it('cuts a long punctuation-free stream at a nearby word boundary', () => {

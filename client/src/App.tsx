@@ -415,6 +415,7 @@ export function App() {
   const {
     activeSpeechId,
     appendIncrementalSpeech,
+    beginIncrementalSpeechTurn,
     finishIncrementalSpeech,
     pausePlayback,
     phase: voicePhase,
@@ -1744,6 +1745,7 @@ export function App() {
     setWakeReviewPending(false)
     transcriptFollowRef.current = true
     try {
+      beginIncrementalSpeechTurn()
       if (text.startsWith('/')) {
         await runSlash(text)
       } else {
