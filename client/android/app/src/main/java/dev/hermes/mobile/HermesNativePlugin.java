@@ -991,7 +991,7 @@ public class HermesNativePlugin extends Plugin {
         }
 
         final String credential = credentialOrNull(connectionId);
-        final String httpUrl = url.replaceFirst("^wss:", "https:");
+        final String httpUrl = websocketToHttp(url);
         if (credential == null && cookiesFor(httpUrl).isEmpty()) {
             call.reject("No usable authentication is stored for this connection");
             return;
@@ -1968,10 +1968,15 @@ public class HermesNativePlugin extends Plugin {
         try {
             URI uri = URI.create(value);
             String expected = websocket ? "wss" : "https";
+            String loopbackScheme = websocket ? "ws" : "http";
+            String host = uri.getHost();
+            boolean localCleartext =
+                loopbackScheme.equalsIgnoreCase(uri.getScheme()) &&
+                isLoopbackHost(host);
             if (
-                !expected.equalsIgnoreCase(uri.getScheme()) ||
-                uri.getHost() == null ||
-                uri.getHost().isBlank() ||
+                (!expected.equalsIgnoreCase(uri.getScheme()) && !localCleartext) ||
+                host == null ||
+                host.isBlank() ||
                 uri.getUserInfo() != null
             ) {
                 call.reject(
@@ -1985,6 +1990,18 @@ public class HermesNativePlugin extends Plugin {
             call.reject("The Hermes connection URL is invalid");
             return false;
         }
+    }
+
+    private boolean isLoopbackHost(String host) {
+        return host != null && (
+            "localhost".equalsIgnoreCase(host) ||
+            "127.0.0.1".equals(host) ||
+            "::1".equals(host)
+        );
+    }
+
+    private String websocketToHttp(String url) {
+        return url.replaceFirst("^wss:", "https:").replaceFirst("^ws:", "http:");
     }
 
     private String credential(String connectionId) throws Exception {
@@ -2338,7 +2355,7 @@ public class HermesNativePlugin extends Plugin {
         String websocketUrl,
         String credential
     ) throws Exception {
-        String httpUrl = websocketUrl.replaceFirst("^wss:", "https:");
+        String httpUrl = websocketToHttp(websocketUrl);
         HttpUrl gatewayUrl = HttpUrl.get(httpUrl);
         String path = gatewayUrl.encodedPath();
         int marker = path.indexOf(GATEWAY_PATH);
@@ -2400,13 +2417,15 @@ public class HermesNativePlugin extends Plugin {
     }
 
     private String withTicket(String websocketUrl, Ticket ticket) {
-        String httpUrl = websocketUrl.replaceFirst("^wss:", "https:");
+        String httpUrl = websocketToHttp(websocketUrl);
         String ticketed = HttpUrl.get(httpUrl).newBuilder()
             .query(null)
             .addQueryParameter(ticket.name, ticket.value)
             .build()
             .toString();
-        return ticketed.replaceFirst("^https:", "wss:");
+        return ticketed
+            .replaceFirst("^https:", "wss:")
+            .replaceFirst("^http:", "ws:");
     }
 
     private String responseBody(ResponseBody body)

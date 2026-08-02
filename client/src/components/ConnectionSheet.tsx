@@ -276,7 +276,7 @@ export function ConnectionSheet(props: ConnectionSheetProps) {
                     })
                   }
                 >
-                  <option value="direct">Direct HTTPS</option>
+                  <option value="direct">Direct HTTPS / local</option>
                   <option value="tailnet">Tailnet HTTPS</option>
                 </select>
               </label>
