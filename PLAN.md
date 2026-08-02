@@ -73,9 +73,57 @@ index in the same work session.
 - Milestones 6-8 remain the longer-term profiles/projects, same-origin PWA, and
   production-hardening program.
 
-## Current work: Pet-sidechat streaming speech and active-turn voice control
+## Current work: Host plugin surfaces and pet-sidechat voice control
 
 Acceptance contract:
+
+- Support Ops is a connection-scoped host capability, not a hardcoded Mobile
+  feature. Mobile probes the selected host's authenticated
+  `/api/plugins/support-ops/health` route and exposes no Support navigation when
+  that plugin is missing.
+- A successful Support Ops probe adds a native Mobile tab without requiring the
+  Hermes Mobile server plugin or any Hermes core change. The same authenticated
+  request transport works for direct/Tailnet hosts and Cloud core-gateway
+  fallback connections.
+- The Mobile Support surface includes queue counts, search and filtering,
+  per-thread sync and ticket actions, Markdown transcripts with copy controls,
+  attachments, durable ticket/workspace/draft views, workflow actions, job
+  state, private agent sidechat, and thread/default run settings. It preserves
+  the backend invariant that no action posts automatically to Discord.
+- Archived Support attachments use a Support Ops-owned authenticated media
+  route constrained to the configured DiscordSync archive and a 16 MiB inline
+  preview ceiling. They do not pass through the generic session-workspace file
+  route or gain access to unrelated host paths.
+- Support availability is re-probed after reconnect and periodically while the
+  host is connected. A transient network or authentication failure does not
+  falsely erase a previously discovered plugin; a confirmed missing route does.
+- A transport interruption keeps the last successful Support queue or thread
+  mounted as read-only cached content, marks it reconnecting, and resumes
+  polling after recovery instead of replacing the page with an empty state.
+- Support thread detail loading is single-flight and polls conservatively; a
+  reconnect never creates overlapping expensive controller loads or clears a
+  successfully rendered thread merely because transport callbacks changed.
+- Every Support Ops prose composer has native voice dictation: operator notes,
+  draft guidance, private sidechat, suggested-response editing, and rejection
+  feedback. The selected field receives exactly one transcript before normal
+  chat and pet command routing resumes; search, numeric, credential, and model
+  configuration controls remain deliberate typed inputs.
+- Support detail is a hard-contained mobile surface. Long Discord URLs,
+  inline code, thread titles, message metadata, Markdown, and action rows wrap
+  within the device viewport instead of widening the page or creating a
+  horizontally clipped desktop canvas.
+- On short landscape viewports, the app becomes a three-zone shell: a fixed
+  identity/navigation rail on the left, the active scroll surface in the
+  center, and Chat voice/composer controls in a bounded right lane. Sheets use
+  the right lane as a drawer, and Support/Reader/file content remains width
+  constrained rather than being scaled or squashed.
+- Android system-bar and cutout insets are bridged from the native window into
+  CSS on initial load and every configuration change. Landscape reserves the
+  real status/navigation area around the complete shell, including three-button
+  navigation on either side, instead of relying on WebView safe-area values
+  that can incorrectly remain zero.
+- Connection surfaces use theme tokens. In particular, Nous Blue uses its blue
+  surface instead of a hardcoded near-black connection-sheet background.
 
 - Mobile bundles the seven real local pet definitions: Alien Child, Dr. House,
   Fight Club Narrator, Gremlin, Noir Build Detective, Ponytail Principal, and
@@ -195,6 +243,9 @@ Acceptance contract:
    cleanly without showing unsupported-endpoint errors.
 5. Evaluate plugin offloading only when the generic seam preserves identical
    Desktop, Mobile, local, remote, and Cloud behavior.
+6. After Mobile landscape acceptance, discuss a separate Desktop resource
+   monitor plugin: a compact theme-aware information deck with configurable
+   metrics and sizing, without adding monitor-specific behavior to core.
 
 ## Plugin refactor decision rule
 
@@ -227,7 +278,18 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-On the replacement-installed speech-deduplication APK, verify that long auto-spoken replies
+On the replacement-installed responsive Support build, rotate the physical
+device while Chat, Support, Reader, and a connection sheet are open. Confirm
+the left rail remains fixed, the active center surface scrolls normally, Chat's
+voice/composer lane remains usable, and no content creates horizontal overflow.
+Connect to the workstation host and verify that archived screenshots render
+inline, cached content remains visible across a brief reconnect, and Support
+appears only there (and not on a vanilla Cloud host). Exercise queue filtering,
+open a thread, render its Discord/ticket Markdown, and start only a safe
+operator-owned sync or agent job while confirming no external Discord post is
+possible. Dictate into each Support prose field and confirm the transcript
+appends only to the selected field, including a microphone-permission failure
+followed by ordinary Chat voice input. Then verify that long auto-spoken replies
 never replay a completed segment or terminal response. Then verify that MP4 and representative local
 audio attachments play inline in Chat, and that Reader's compact transport
 keeps Play/Pause/Stop/Follow reachable while manual scrolling disables Follow

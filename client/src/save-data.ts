@@ -39,3 +39,28 @@ export async function saveBlob(
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000)
   }
 }
+
+export async function saveDataUrl(
+  dataUrl: string,
+  filename: string,
+  mimeType = 'application/octet-stream',
+): Promise<boolean> {
+  if (isNativeHermesClient()) {
+    const result = await HermesNative.saveDataFile({
+      dataUrl,
+      filename,
+      mimeType,
+    })
+    return result.saved
+  }
+
+  const anchor = document.createElement('a')
+  anchor.href = dataUrl
+  anchor.download = filename
+  anchor.rel = 'noopener noreferrer'
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  return true
+}

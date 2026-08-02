@@ -2,10 +2,58 @@
 
 Last updated: 2026-08-01
 
-Current milestone: Pet-sidechat streaming speech and active-turn voice control
+Current milestone: Host plugin surfaces and pet-sidechat voice control
 
 ## Current result
 
+- Support Ops is now exposed as a selected-host capability. Mobile performs an
+  authenticated health probe through its existing connection transport and
+  adds a sixth Support tab only when that host has the plugin route installed.
+  Missing routes remain invisible; transient host failures preserve the last
+  confirmed capability instead of flickering navigation.
+- The new mobile-native Support Ops view covers queue counts and filters,
+  search, per-row sync and ticket creation/update, full thread detail, rendered
+  Discord/ticket/workspace/draft Markdown with copy actions, archived
+  attachments through a bounded plugin-owned media route, workflow and
+  cancellation controls, thread agent sidechat, job history, and grouped
+  thread/default run settings. The UI states explicitly that it cannot post
+  automatically to Discord.
+- No Hermes core or Mobile server-plugin change was required. Direct/Tailnet
+  and Cloud connections use the same authenticated generic HTTP seam already
+  owned by Mobile. Support Ops gained one narrow archive-media route that
+  validates the configured DiscordSync root and enforces a 16 MiB preview cap.
+- Reconnect interruptions no longer blank a loaded Support page or surface
+  Android's expected `InterruptedIOException` as a fatal operator error. Cached
+  queue/thread content remains visible with a reconnect banner, while host
+  mutations stay disabled until transport health returns.
+- Support thread refresh is now single-flight and uses a 12-second detail poll.
+  Reconnect callback churn no longer tears down cached detail or overlaps
+  controller loads. Support controller initialization and settings/detail/job
+  entry points are dispatched off the backend event loop; after the live plugin
+  refresh, three authenticated detail loads completed in 1.23-1.59 seconds with
+  no new event-loop-stall record.
+- Native voice dictation is available in every Support Ops prose composer:
+  operator notes, run guidance, thread sidechat, response editing, and rejection
+  feedback. Dictation appends to current text through a one-shot target that is
+  resolved before pet-command or ordinary Chat routing and cleared on capture
+  completion or failure.
+- Support detail now has explicit inline-size containment from the page root
+  through messages and Markdown. Thread titles, metadata, action rows, long
+  links, and inline code wrap within the phone viewport; transcript links are
+  rendered as links rather than inheriting the oversized Support action-pill
+  treatment.
+- Short landscape viewports now use a purpose-built three-zone shell: a fixed
+  left identity/navigation rail, the active scroll surface in the center, and
+  a bounded Chat voice/composer lane on the right. Connection and other sheets
+  become right drawers, while Support, Reader, and file views retain strict
+  viewport containment.
+- The Android activity now reports actual system-bar and display-cutout insets
+  to CSS on page load, rotation, and other configuration changes. The landscape
+  shell, right drawers, and fixed overlays reserve those insets globally, so
+  Samsung three-button navigation and the status bar no longer cover the right
+  input lane or header when WebView reports zero browser safe-area values.
+- The connection sheet now uses the active theme surface token. Nous Blue gets
+  its blue connection background instead of the previous hardcoded black.
 - Mobile now bundles all seven local pet definitions plus thirteen adapted
   Hermes defaults in a grouped picker that remains available without pet RPCs.
 - Alien Child's prior Mobile definition is unchanged and remains the default.
@@ -210,7 +258,7 @@ and the same prepared-segment fallback for non-streaming providers.
 - Python prompt guidance compiled and an import smoke check confirmed both the
   Desktop and `hermes-mobile` Reader handoff hints.
 - Scoped `git diff --check` and unmerged-entry checks pass in both repositories.
-- Current built and replacement-installed Mobile debug APK:
+- Earlier verified pet/voice Mobile debug APK:
   `client\android\app\build\outputs\apk\debug\app-debug.apk`
   (127,129,674 bytes, SHA-256
   `FE23BB8D991B12C4146978EAB7A36488B04E678841D9A70FFF68ADBA319EA051`).
@@ -228,10 +276,50 @@ and the same prepared-segment fallback for non-streaming providers.
   `2026-08-01 14:00:40`. A cold launch completed in 1.003 seconds, left the app
   process running in the foreground, and its captured process-log tail
   contained no error-priority record, fatal exception, or ANR signature.
+- The Support Ops Mobile slice passes 6 focused tests, the complete client suite
+  passes 56 files and 282 tests, TypeScript typecheck and the Vite production
+  build pass, and Android debug assembly completes successfully. The live
+  authenticated host reports a healthy 35-thread queue; a known archived
+  thread exposes all three attachments and returns an `image/png` data URL from
+  the new bounded route. The Support Ops module compiles; its focused Python
+  regression was added but not executed under the local no-Python-tests rule.
+- Current Support Ops stability and dictation APK, replacement-installed on the
+  intended Samsung SM-S918U through the refreshed Wireless ADB endpoint:
+  `client\android\app\build\outputs\apk\debug\app-debug.apk`
+  (127,138,237 bytes, SHA-256
+  `E4A9B372670A9BF056604C357C3235688B43910A77082F24676ECB0D2F5F0D30`).
+  Android reports package update time `2026-08-01 22:39:01`. The `-r` install
+  preserved app and Keystore data; a cold launch completed in 925 ms, left the
+  app process running, and produced no fatal exception or ANR. The process tail
+  contains only platform ashmem/Samsung library warnings and Chromium paint-
+  metric diagnostics, not an application crash.
+- Current responsive Support/landscape APK, replacement-installed on the same
+  Samsung SM-S918U:
+  `client\android\app\build\outputs\apk\debug\app-debug.apk`
+  (127,138,235 bytes, SHA-256
+  `0F8D2F4E2038B31A79D79808EF94A88023D13411BDB1AF7430AD06540D03CE28`).
+  Android reports package update time `2026-08-01 23:23:56`. TypeScript
+  typecheck, the complete 56-file/282-test client suite, Vite production build,
+  Capacitor sync, and Android debug assembly pass. Chromium portrait and
+  landscape viewport captures verify the shell transition and right drawer;
+  a real-phone Support capture verifies the formerly overflowing thread fits
+  the portrait viewport. Native compilation also verifies the Android inset
+  bridge. The installed process remains live with no fatal exception or ANR
+  signature in its error-priority log.
 
 ## Next action
 
-On the replacement-installed speech-deduplication APK, verify a long auto-spoken response
+On the replacement-installed responsive Support Ops APK, physically rotate
+Chat, Support, Reader, and a connection sheet and verify the fixed left rail,
+center scrolling, bounded right composer lane, and absence of horizontal
+overflow. Then verify capability-driven tab
+visibility against both the workstation and a vanilla Cloud host. Confirm
+archived screenshots render inline and the loaded view remains mounted through
+a brief reconnect. Dictate into each Support prose field and confirm no
+transcript leaks to another field, Chat, or pet sidechat. Then
+exercise queue/thread Markdown, sync/ticket actions, run settings, and private
+agent sidechat without authorizing an external post. On
+the replacement-installed speech-deduplication APK, also verify a long auto-spoken response
 does not repeat any prepared segment or replay after completion. Then verify representative MP4 and audio playback in
 Chat plus the compact Follow transport during manual and automatic Reader
 scrolling. Then verify that completed
