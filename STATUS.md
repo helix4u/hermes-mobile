@@ -1,6 +1,6 @@
 # Hermes Mobile Current Status
 
-Last updated: 2026-08-01
+Last updated: 2026-08-02
 
 Current milestone: Host plugin surfaces and pet-sidechat voice control
 
@@ -18,6 +18,12 @@ Current milestone: Host plugin surfaces and pet-sidechat voice control
   cancellation controls, thread agent sidechat, job history, and grouped
   thread/default run settings. The UI states explicitly that it cannot post
   automatically to Discord.
+- Support run settings now mirror the host authority model. Operators can pick
+  analysis-only, support-investigation, coding-workspace, full-access/YOLO, or
+  custom authority; toggle individual Hermes toolsets; select the Codex
+  sandbox; and explicitly opt into Codex's dangerous approval/sandbox bypass.
+  Thread actions also expose investigate-plus-ticket regeneration for existing
+  durable tickets.
 - No Hermes core or Mobile server-plugin change was required. Direct/Tailnet
   and Cloud connections use the same authenticated generic HTTP seam already
   owned by Mobile. Support Ops gained one narrow archive-media route that
@@ -32,6 +38,13 @@ Current milestone: Host plugin surfaces and pet-sidechat voice control
   entry points are dispatched off the backend event loop; after the live plugin
   refresh, three authenticated detail loads completed in 1.23-1.59 seconds with
   no new event-loop-stall record.
+- Targeted Support sync now has an honest host capability boundary. Mobile
+  loads Support health with the queue, disables both Sync entry points unless
+  `targeted_sync` is explicitly true, and explains that ticket and agent
+  actions still work. The workstation plugin installer migrated the existing
+  DiscordSync batch location to the credential-safe targeted wrapper plus the
+  local artifact build, preserving all unrelated config. The restarted live
+  host reports targeted sync available and external posting disabled.
 - Native voice dictation is available in every Support Ops prose composer:
   operator notes, run guidance, thread sidechat, response editing, and rejection
   feedback. Dictation appends to current text through a one-shot target that is
@@ -283,6 +296,12 @@ and the same prepared-segment fallback for non-streaming providers.
   thread exposes all three attachments and returns an `image/png` data URL from
   the new bounded route. The Support Ops module compiles; its focused Python
   regression was added but not executed under the local no-Python-tests rule.
+- The targeted-sync follow-up passes 2 focused files and 8 tests; the complete
+  client suite passes 56 files and 283 tests. TypeScript typecheck, Vite
+  production build, Capacitor sync, and Android debug assembly pass. The current
+  APK is `client\android\app\build\outputs\apk\debug\app-debug.apk`
+  (127,138,443 bytes, SHA-256
+  `3B7BA6C66795648295BA0CA76A9ABA7DE3B9A059AE2CB0902FA958778E9E193A`).
 - Current Support Ops stability and dictation APK, replacement-installed on the
   intended Samsung SM-S918U through the refreshed Wireless ADB endpoint:
   `client\android\app\build\outputs\apk\debug\app-debug.apk`
@@ -306,6 +325,17 @@ and the same prepared-segment fallback for non-streaming providers.
   the portrait viewport. Native compilation also verifies the Android inset
   bridge. The installed process remains live with no fatal exception or ANR
   signature in its error-priority log.
+- Current Support authority-controls APK:
+  `client\android\app\build\outputs\apk\debug\app-debug.apk`
+  (127,139,438 bytes, SHA-256
+  `564D9FBA075AE62A323BD333C8AE7086248F21B93B9F4770AB5C94C6E2E9EB31`).
+  The focused Support test, complete 56-file/283-test client suite, TypeScript
+  typecheck, production build, Capacitor sync, and Android debug assembly pass.
+  It was replacement-installed on the intended Samsung SM-S918U through the
+  refreshed Wireless ADB endpoint. Android reports package update time
+  `2026-08-02 01:29:00`; the preserved-data cold launch completed in 771 ms,
+  left the expected process running, and its error-priority process log had no
+  fatal-exception or ANR signature.
 
 ## Next action
 
@@ -318,7 +348,12 @@ archived screenshots render inline and the loaded view remains mounted through
 a brief reconnect. Dictate into each Support prose field and confirm no
 transcript leaks to another field, Chat, or pet sidechat. Then
 exercise queue/thread Markdown, sync/ticket actions, run settings, and private
-agent sidechat without authorizing an external post. On
+agent sidechat without authorizing an external post. Confirm the workstation
+Sync action is enabled, while a host advertising `targeted_sync: false` keeps
+Sync disabled without blocking ticket or agent actions. Verify Support
+investigation gives Hermes the selected toolsets in the configured repository,
+Codex honors read-only/workspace-write/YOLO selection, and Investigate + redo
+ticket updates the linked ticket without creating a duplicate. On
 the replacement-installed speech-deduplication APK, also verify a long auto-spoken response
 does not repeat any prepared segment or replay after completion. Then verify representative MP4 and audio playback in
 Chat plus the compact Follow transport during manual and automatic Reader

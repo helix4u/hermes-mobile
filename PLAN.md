@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-08-01
+Last updated: 2026-08-02
 
 Project root: current repository checkout
 
@@ -90,6 +90,11 @@ Acceptance contract:
   attachments, durable ticket/workspace/draft views, workflow actions, job
   state, private agent sidechat, and thread/default run settings. It preserves
   the backend invariant that no action posts automatically to Discord.
+- Thread/default run settings expose analysis-only, support-investigation,
+  coding-workspace, full-access/YOLO, and custom authority presets. Hermes
+  toolsets are individually selectable; Codex exposes its sandbox and explicit
+  approval/sandbox bypass. The same surface offers investigate-plus-ticket
+  regeneration without authorizing Discord posting.
 - Archived Support attachments use a Support Ops-owned authenticated media
   route constrained to the configured DiscordSync archive and a 16 MiB inline
   preview ceiling. They do not pass through the generic session-workspace file
@@ -97,6 +102,10 @@ Acceptance contract:
 - Support availability is re-probed after reconnect and periodically while the
   host is connected. A transient network or authentication failure does not
   falsely erase a previously discovered plugin; a confirmed missing route does.
+- Support Sync is capability-gated independently from Support availability.
+  Mobile disables both queue and detail Sync actions when a host reports
+  `targeted_sync: false`, explains that tickets and agent work remain usable,
+  and never presents an absent connector as a runnable operation.
 - A transport interruption keeps the last successful Support queue or thread
   mounted as read-only cached content, marks it reconnecting, and resumes
   polling after recovery instead of replacing the page with an empty state.
@@ -285,11 +294,16 @@ voice/composer lane remains usable, and no content creates horizontal overflow.
 Connect to the workstation host and verify that archived screenshots render
 inline, cached content remains visible across a brief reconnect, and Support
 appears only there (and not on a vanilla Cloud host). Exercise queue filtering,
-open a thread, render its Discord/ticket Markdown, and start only a safe
-operator-owned sync or agent job while confirming no external Discord post is
-possible. Dictate into each Support prose field and confirm the transcript
+open a thread, render its Discord/ticket Markdown, and verify Sync is enabled on
+the migrated workstation connector but disabled with an explanatory capability
+notice on a host without targeted sync. Start only a safe operator-owned sync or
+agent job while confirming no external Discord post is possible. Dictate into
+each Support prose field and confirm the transcript
 appends only to the selected field, including a microphone-permission failure
-followed by ordinary Chat voice input. Then verify that long auto-spoken replies
+followed by ordinary Chat voice input. Verify Support
+investigation gives Hermes the advertised toolsets in the configured repo,
+Codex honors read-only/workspace-write/YOLO selection, and Investigate + redo
+ticket updates the linked ticket without creating a duplicate. Then verify that long auto-spoken replies
 never replay a completed segment or terminal response. Then verify that MP4 and representative local
 audio attachments play inline in Chat, and that Reader's compact transport
 keeps Play/Pause/Stop/Follow reachable while manual scrolling disables Follow
