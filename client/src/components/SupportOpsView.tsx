@@ -19,8 +19,10 @@ import {
   normalizeSupportMarkdown,
   plainSupportTitle,
   supportOpsPath,
+  supportOpsTargetedSyncAvailable,
   type SupportAttachment,
   type SupportJob,
+  type SupportOpsHealth,
   type SupportOption,
   type SupportQueueFilter,
   type SupportQueuePayload,
@@ -407,6 +409,60 @@ function SettingsEditor({
   const selectedModel = value.model
     ? JSON.stringify([value.provider ?? '', value.model])
     : ''
+  const accessPresets = optionRows(options.access_presets, [
+    { value: 'analysis', label: 'Analysis only' },
+    { value: 'support', label: 'Support investigation' },
+    { value: 'coding', label: 'Coding workspace' },
+    { value: 'full', label: 'Full access / YOLO' },
+    { value: 'custom', label: 'Custom' },
+  ])
+  const toolsetOptions = optionRows(options.hermes_toolsets, [
+    { value: 'web', label: 'Web' },
+    { value: 'vision', label: 'Vision' },
+    { value: 'terminal', label: 'Terminal' },
+    { value: 'file', label: 'File' },
+    { value: 'skills', label: 'Skills' },
+    { value: 'browser', label: 'Browser' },
+    { value: 'todo', label: 'Todo' },
+    { value: 'memory', label: 'Memory' },
+    { value: 'session_search', label: 'Session search' },
+    { value: 'code_execution', label: 'Code execution' },
+    { value: 'delegation', label: 'Delegation' },
+    { value: 'debugging', label: 'Debugging' },
+    { value: 'coding', label: 'Coding' },
+    { value: 'hermes-cli', label: 'Hermes CLI' },
+  ])
+  const applyAccessPreset = (access_preset: string) => {
+    const presets: Record<string, Partial<SupportSettings>> = {
+      analysis: {
+        hermes_toolsets: [],
+        codex_sandbox: 'read-only',
+        codex_yolo: false,
+      },
+      support: {
+        hermes_toolsets: ['debugging', 'skills', 'vision', 'todo', 'session_search'],
+        codex_sandbox: 'read-only',
+        codex_yolo: false,
+      },
+      coding: {
+        hermes_toolsets: ['coding'],
+        codex_sandbox: 'workspace-write',
+        codex_yolo: false,
+      },
+      full: {
+        hermes_toolsets: ['hermes-cli'],
+        codex_sandbox: 'danger-full-access',
+        codex_yolo: true,
+      },
+    }
+    patch({ access_preset, ...(presets[access_preset] ?? {}) })
+  }
+  const toggleHermesToolset = (name: string, enabled: boolean) => {
+    const selected = new Set(value.hermes_toolsets ?? [])
+    if (enabled) selected.add(name)
+    else selected.delete(name)
+    patch({ access_preset: 'custom', hermes_toolsets: [...selected] })
+  }
 
   return (
     <div className="support-settings-grid">
@@ -524,6 +580,89 @@ function SettingsEditor({
           ))}
         </select>
       </label>
+      <label className="support-wide-field">
+        <span>Tools and access preset</span>
+        <select
+          value={value.access_preset ?? 'support'}
+          onChange={event => applyAccessPreset(event.target.value)}
+        >
+          {accessPresets.map(option => (
+            <option key={optionValue(option)} value={optionValue(option)}>
+              {optionLabel(option)}
+            </option>
+          ))}
+        </select>
+        <small>
+          {accessPresets.find(
+            option => optionValue(option) === (value.access_preset ?? 'support'),
+          )?.description ?? 'Choose a preset or customize the runner authority.'}
+        </small>
+      </label>
+      {value.program === 'codex' ? (
+        <>
+          <label>
+            <span>Codex sandbox</span>
+            <select
+              disabled={Boolean(value.codex_yolo)}
+              value={value.codex_sandbox ?? 'read-only'}
+              onChange={event =>
+                patch({
+                  access_preset: 'custom',
+                  codex_sandbox: event.target.value as SupportSettings['codex_sandbox'],
+                  codex_yolo: false,
+                })
+              }
+            >
+              {optionRows(options.codex_sandboxes, [
+                { value: 'read-only', label: 'Read only' },
+                { value: 'workspace-write', label: 'Workspace write' },
+                { value: 'danger-full-access', label: 'Unrestricted filesystem' },
+              ]).map(option => (
+                <option key={optionValue(option)} value={optionValue(option)}>
+                  {optionLabel(option)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="support-check-row support-danger-access">
+            <input
+              checked={Boolean(value.codex_yolo)}
+              onChange={event =>
+                patch({
+                  access_preset: 'custom',
+                  codex_yolo: event.target.checked,
+                  codex_sandbox: event.target.checked
+                    ? 'danger-full-access'
+                    : value.codex_sandbox ?? 'read-only',
+                })
+              }
+              type="checkbox"
+            />
+            <span>YOLO: bypass Codex approvals and sandbox</span>
+          </label>
+        </>
+      ) : (
+        <details className="support-toolset-picker support-wide-field">
+          <summary>
+            Hermes toolsets ({value.hermes_toolsets?.length ?? 0} selected)
+          </summary>
+          <div className="support-toolset-grid">
+            {toolsetOptions.map(option => {
+              const name = optionValue(option)
+              return (
+                <label key={name} title={option.description ?? ''}>
+                  <input
+                    checked={(value.hermes_toolsets ?? []).includes(name)}
+                    onChange={event => toggleHermesToolset(name, event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>{optionLabel(option)}</span>
+                </label>
+              )
+            })}
+          </div>
+        </details>
+      )}
       <label className="support-check-row">
         <input
           checked={Boolean(value.include_agent_chat)}
@@ -716,6 +855,7 @@ export function SupportOpsView({
   voiceRecordingAvailable = false,
 }: SupportOpsViewProps) {
   const [queue, setQueue] = useState<SupportQueuePayload | null>(null)
+  const [health, setHealth] = useState<SupportOpsHealth | null>(null)
   const [queueLoading, setQueueLoading] = useState(false)
   const [selectedId, setSelectedId] = useState('')
   const selectedIdRef = useRef(selectedId)
@@ -760,6 +900,20 @@ export function SupportOpsView({
       fail(error)
     } finally {
       setQueueLoading(false)
+    }
+  }, [connected, fail, transport])
+
+  const loadHealth = useCallback(async () => {
+    if (!connected || !transport) return
+    try {
+      const payload = await transport.requestJson<SupportOpsHealth>(
+        supportOpsPath('/health'),
+        undefined,
+        { timeoutMs: 8_000 },
+      )
+      setHealth(payload)
+    } catch (error) {
+      fail(error)
     }
   }, [connected, fail, transport])
 
@@ -832,6 +986,7 @@ export function SupportOpsView({
 
   useEffect(() => {
     setQueue(null)
+    setHealth(null)
     setSelectedId('')
     setDetail(null)
     setSettingsPayload(null)
@@ -841,10 +996,13 @@ export function SupportOpsView({
 
   useEffect(() => {
     if (!active || !connected || !transport) return
-    void loadQueue()
-    const timer = window.setInterval(() => void loadQueue(), 30_000)
+    void Promise.all([loadQueue(), loadHealth()])
+    const timer = window.setInterval(
+      () => void Promise.all([loadQueue(), loadHealth()]),
+      30_000,
+    )
     return () => window.clearInterval(timer)
-  }, [active, connected, loadQueue, transport])
+  }, [active, connected, loadHealth, loadQueue, transport])
 
   useEffect(() => {
     setDetail(null)
@@ -868,6 +1026,7 @@ export function SupportOpsView({
   )
   const summary = queue?.summary ?? {}
   const settings = settingsPayload?.settings ?? {}
+  const targetedSyncAvailable = supportOpsTargetedSyncAvailable(health)
   const activeJob = jobs.find(job => ['queued', 'running'].includes(job.status ?? ''))
   const attachmentsByMessage = useMemo(() => {
     const result = new Map<string, SupportAttachment[]>()
@@ -1002,6 +1161,11 @@ export function SupportOpsView({
         </header>
 
         {localError && <div className="support-inline-error">{localError}</div>}
+        {health && !targetedSyncAvailable && (
+          <div className="support-inline-warning">
+            Targeted thread sync is unavailable on this host. Ticket and agent actions remain available.
+          </div>
+        )}
         {detail?.detail_warning && <div className="support-inline-warning">{detail.detail_warning}</div>}
         {detailLoading && !detail ? (
           <div className="support-loading">Loading thread…</div>
@@ -1010,7 +1174,9 @@ export function SupportOpsView({
             <SupportSection title="Operator actions">
               {detail?.detail_pending && (
                 <p className="support-muted">
-                  Detailed context is catching up. Sync before running an agent workflow.
+                  {targetedSyncAvailable
+                    ? 'Detailed context is catching up. Sync before running an agent workflow.'
+                    : 'Detailed context is catching up, but targeted sync is unavailable on this host.'}
                 </p>
               )}
               <div className="support-voice-field">
@@ -1071,6 +1237,28 @@ export function SupportOpsView({
                   onClick={() =>
                     void mutate(
                       `/threads/${selectedId}/runs`,
+                      {
+                        action: 'investigate_ticket',
+                        operator_notes: operatorNotes,
+                        settings,
+                      },
+                      'POST',
+                      detail?.ticket
+                        ? 'Investigation and ticket rebuild'
+                        : 'Investigation and ticket generation',
+                    )
+                  }
+                  type="button"
+                >
+                  {detail?.ticket
+                    ? 'Investigate + redo ticket'
+                    : 'Investigate + ticket'}
+                </button>
+                <button
+                  disabled={Boolean(!connected || busy || activeJob || detail?.detail_pending)}
+                  onClick={() =>
+                    void mutate(
+                      `/threads/${selectedId}/runs`,
                       { action: 'suggest_reply', operator_notes: operatorNotes, settings },
                       'POST',
                       'Response draft',
@@ -1081,7 +1269,7 @@ export function SupportOpsView({
                   Suggest response
                 </button>
                 <button
-                  disabled={Boolean(!connected || busy || activeJob)}
+                  disabled={Boolean(!connected || busy || activeJob || !targetedSyncAvailable)}
                   onClick={() =>
                     void mutate(`/threads/${selectedId}/sync`, {}, 'POST', 'Thread sync')
                   }
@@ -1293,11 +1481,20 @@ export function SupportOpsView({
           <h1>Support Ops</h1>
           <small>No automatic Discord posting</small>
         </div>
-        <button disabled={!connected || queueLoading} onClick={() => void loadQueue()} type="button">
+        <button
+          disabled={!connected || queueLoading}
+          onClick={() => void Promise.all([loadQueue(), loadHealth()])}
+          type="button"
+        >
           {queueLoading ? 'Refreshing…' : 'Refresh'}
         </button>
       </header>
       {localError && <div className="support-inline-error">{localError}</div>}
+      {health && !targetedSyncAvailable && (
+        <div className="support-inline-warning">
+          Targeted thread sync is unavailable on this host. Ticket actions remain available.
+        </div>
+      )}
       <div className="support-metrics" aria-label="Support queue counts">
         {[
           ['all', 'Open', summary.open],
@@ -1353,7 +1550,7 @@ export function SupportOpsView({
               </button>
               <div className="support-thread-actions">
                 <button
-                  disabled={Boolean(!connected || busy)}
+                  disabled={Boolean(!connected || busy || !targetedSyncAvailable)}
                   onClick={() => void quickAction(row, 'sync')}
                   type="button"
                 >

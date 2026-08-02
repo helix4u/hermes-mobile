@@ -78,6 +78,10 @@ export interface SupportSettings {
   custom_instructions?: string
   include_agent_chat?: boolean
   agent_chat_turns?: number
+  access_preset?: string
+  hermes_toolsets?: string[]
+  codex_sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  codex_yolo?: boolean
 }
 
 export interface SupportOption {
@@ -87,6 +91,7 @@ export interface SupportOption {
   provider?: string
   model?: string
   is_default?: boolean
+  description?: string
 }
 
 export interface SupportSettingsPayload {
@@ -98,6 +103,9 @@ export interface SupportSettingsPayload {
     workflows?: SupportOption[]
     execution_modes?: SupportOption[]
     programs?: SupportOption[]
+    access_presets?: SupportOption[]
+    codex_sandboxes?: SupportOption[]
+    hermes_toolsets?: SupportOption[]
     reasoning_efforts?: string[]
     profiles?: SupportOption[]
     models?: SupportOption[]
@@ -126,6 +134,12 @@ export interface SupportThreadDetail {
 export function supportOpsPath(path: string): string {
   const suffix = path.startsWith('/') ? path : `/${path}`
   return `${SUPPORT_OPS_API_ROOT}${suffix}`
+}
+
+export function supportOpsTargetedSyncAvailable(
+  health: SupportOpsHealth | null | undefined,
+): boolean {
+  return health?.capabilities?.targeted_sync === true
 }
 
 export async function probeSupportOps(

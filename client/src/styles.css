@@ -2214,6 +2214,46 @@ h3 {
   width: auto;
 }
 
+.support-danger-access {
+  color: var(--danger) !important;
+}
+
+.support-toolset-picker {
+  border: 1px solid var(--stroke);
+  border-radius: 0.8rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.support-toolset-picker summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.support-toolset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.support-settings-grid .support-toolset-grid label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.45rem;
+  border: 1px solid var(--stroke);
+  border-radius: 0.6rem;
+  padding: 0.48rem 0.55rem;
+  color: var(--text);
+}
+
+.support-toolset-grid input {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .support-wide-field {
   grid-column: 1 / -1;
 }
@@ -4503,6 +4543,10 @@ textarea:focus {
   }
 
   .support-queue-tools {
+    grid-template-columns: 1fr;
+  }
+
+  .support-toolset-grid {
     grid-template-columns: 1fr;
   }
 

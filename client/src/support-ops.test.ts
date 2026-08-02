@@ -5,6 +5,7 @@ import {
   normalizeSupportMarkdown,
   plainSupportTitle,
   probeSupportOps,
+  supportOpsTargetedSyncAvailable,
 } from './support-ops'
 
 function transportWith(requestJson: HermesTransport['requestJson']): HermesTransport {
@@ -12,6 +13,16 @@ function transportWith(requestJson: HermesTransport['requestJson']): HermesTrans
 }
 
 describe('Support Ops host capability', () => {
+  it('requires the host to explicitly advertise targeted sync', () => {
+    expect(supportOpsTargetedSyncAvailable(undefined)).toBe(false)
+    expect(
+      supportOpsTargetedSyncAvailable({ capabilities: { targeted_sync: false } }),
+    ).toBe(false)
+    expect(
+      supportOpsTargetedSyncAvailable({ capabilities: { targeted_sync: true } }),
+    ).toBe(true)
+  })
+
   it('reports the host plugin only after its authenticated health probe succeeds', async () => {
     const requestJson = vi.fn().mockResolvedValue({ ok: true })
     await expect(probeSupportOps(transportWith(requestJson))).resolves.toBe(
