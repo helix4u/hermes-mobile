@@ -18,6 +18,7 @@ import { PetSidechatSheet } from './components/PetSidechatSheet'
 import { ReaderView } from './components/ReaderView'
 import { ShareSheet } from './components/ShareSheet'
 import { SessionsView } from './components/SessionsView'
+import { SupportOpsView } from './components/SupportOpsView'
 import { WorkspaceSheet } from './components/WorkspaceSheet'
 import { Transcript, type ToolDetailMode } from './components/Transcript'
 import type {
@@ -126,12 +127,16 @@ import {
 import { markdownToSpeechText } from './markdown'
 import { petSidechatTranscriptPrompt, petTurnActiveAfterEvent } from './pet'
 import {
+  probeSupportOps,
+  type SupportOpsAvailability,
+} from './support-ops'
+import {
   pinTranscriptToBottom,
   shouldFollowTranscriptAfterScroll,
 } from './transcript-follow'
 import { usePetCompanion } from './usePetCompanion'
 
-type AppTab = 'chat' | 'sessions' | 'reader' | 'files' | 'control'
+type AppTab = 'chat' | 'sessions' | 'reader' | 'files' | 'support' | 'control'
 const MAX_RECONNECT_ATTEMPTS = 5
 
 function normalizeToolDetailMode(value: unknown): ToolDetailMode {
@@ -191,6 +196,13 @@ function NavIcon({ tab }: { tab: AppTab }) {
       </svg>
     )
   }
+  if (tab === 'support') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M5 6.5h14v10H9l-4 3zM9 10h6M9 13h4" />
+      </svg>
+    )
+  }
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">
       <path d="M5 7h14M5 17h14M9 4v6M15 14v6" />
@@ -229,6 +241,8 @@ export function App() {
   const [capabilities, setCapabilities] = useState<MobileCapabilities | null>(
     null,
   )
+  const [supportOpsAvailability, setSupportOpsAvailability] =
+    useState<SupportOpsAvailability>('unknown')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectTree[]>([])
   const [activeProjectId, setActiveProjectId] = useState('')
@@ -271,6 +285,7 @@ export function App() {
   )
   const [petSidechatOpen, setPetSidechatOpen] = useState(false)
   const petSidechatTranscriptRef = useRef<((text: string) => void) | null>(null)
+  const supportOpsTranscriptRef = useRef<((text: string) => void) | null>(null)
   const petSidechatIntentRouterRef = useRef<(text: string) => boolean>(() => false)
   const [commandCatalog, setCommandCatalog] = useState<Array<[string, string]>>(
     [],
@@ -402,6 +417,12 @@ export function App() {
     [voiceSelection],
   )
   const appendVoiceTranscript = useCallback((text: string) => {
+    const supportTarget = supportOpsTranscriptRef.current
+    if (supportTarget) {
+      supportOpsTranscriptRef.current = null
+      supportTarget(text)
+      return
+    }
     if (petSidechatIntentRouterRef.current(text)) return
     if (petSidechatTranscriptRef.current) {
       petSidechatTranscriptRef.current(text)
@@ -573,6 +594,12 @@ export function App() {
       pet.waitForSpeechPriority,
     ],
   )
+  useEffect(() => {
+    if (voicePhase === 'idle') supportOpsTranscriptRef.current = null
+  }, [voicePhase])
+  useEffect(() => {
+    if (error) supportOpsTranscriptRef.current = null
+  }, [error])
 
   const disconnect = useCallback(() => {
     connectionEpochRef.current += 1
@@ -592,6 +619,7 @@ export function App() {
     runtimeSessionIdRef.current = ''
     setRuntimeSessionId('')
     setTurnActive(false)
+    setSupportOpsAvailability('unknown')
   }, [])
 
   useEffect(() => () => disconnect(), [disconnect])
@@ -974,6 +1002,9 @@ export function App() {
           refreshSessions(transport, activeConnection.profile),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
+          probeSupportOps(transport).then(result => {
+            if (result !== 'unknown') setSupportOpsAvailability(result)
+          }),
         ])
         setError('')
         setNotice(`Reconnected to ${activeConnection.name || 'Hermes'}`)
@@ -1093,6 +1124,9 @@ export function App() {
           refreshSessions(transport, activeTarget.profile),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
+          probeSupportOps(transport).then(result => {
+            if (result !== 'unknown') setSupportOpsAvailability(result)
+          }),
         ])
         setConnectionOpen(false)
         setNotice(`Connected to ${activeTarget.name || 'Hermes'}`)
@@ -2051,6 +2085,24 @@ export function App() {
     connection.name,
     desiredConnectedRef.current,
   )
+  const supportOpsAvailable = supportOpsAvailability === 'available'
+
+  useEffect(() => {
+    if (!connected) return
+    const transport = transportRef.current
+    if (!transport) return
+    const refresh = async () => {
+      const result = await probeSupportOps(transport)
+      if (transportRef.current !== transport || result === 'unknown') return
+      setSupportOpsAvailability(result)
+    }
+    const timer = window.setInterval(() => void refresh(), 60_000)
+    return () => window.clearInterval(timer)
+  }, [connected, connection.id])
+
+  useEffect(() => {
+    if (activeTab === 'support' && !supportOpsAvailable) setActiveTab('chat')
+  }, [activeTab, supportOpsAvailable])
 
   return (
     <EmbedPreferencesProvider connectionId={connection.id}>
@@ -2458,6 +2510,46 @@ export function App() {
             />
           </section>
 
+          {supportOpsAvailable && (
+            <section
+              className={`app-view support-view ${
+                activeTab === 'support' ? 'active' : ''
+              }`}
+            >
+              <SupportOpsView
+                active={activeTab === 'support'}
+                connected={connected}
+                connectionId={connection.id}
+                key={connection.id}
+                transport={transportRef.current}
+                onError={setError}
+                onNotice={setNotice}
+                onVoiceInput={target => {
+                  supportOpsTranscriptRef.current = target
+                  toggleRecording()
+                }}
+                onOpenDocumentPreviewer={document => {
+                  setReaderImport({
+                    document,
+                    id: Date.now(),
+                    mode: 'preview',
+                  })
+                  setActiveTab('reader')
+                }}
+                onOpenDocumentReader={document => {
+                  setReaderImport({
+                    document,
+                    id: Date.now(),
+                    mode: 'reader',
+                  })
+                  setActiveTab('reader')
+                }}
+                voicePhase={voicePhase}
+                voiceRecordingAvailable={voiceRecordingAvailable}
+              />
+            </section>
+          )}
+
           <section
             className={`app-view control-view ${
               activeTab === 'control' ? 'active' : ''
@@ -2525,13 +2617,19 @@ export function App() {
           )}
         </div>
 
-        <nav className="bottom-nav" aria-label="Primary">
+        <nav
+          className={`bottom-nav ${supportOpsAvailable ? 'support-enabled' : ''}`}
+          aria-label="Primary"
+        >
           {(
             [
               ['chat', 'Chat'],
               ['sessions', 'Sessions'],
               ['reader', 'Reader'],
               ['files', 'Files'],
+              ...(supportOpsAvailable
+                ? ([['support', 'Support']] as Array<[AppTab, string]>)
+                : []),
               ['control', 'Control'],
             ] as Array<[AppTab, string]>
           ).map(([tab, label]) => (
