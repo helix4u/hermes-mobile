@@ -3,7 +3,9 @@ import {
   createAsyncTaskLimiter,
   createPreparedSpeechInput,
   createPreparedSpeechStream,
+  createSpeechCompletionGuard,
   normalizeSpeechSynthesisConcurrency,
+  streamedDeltaSuffix,
   streamedCompletionSuffix,
   type PreparedSpeechStream,
 } from './incremental-speech'
@@ -811,6 +813,7 @@ export function useVoice({
   const latestSpeechPreparationRef = useRef(0)
   const speechTaskQueueRef = useRef<SerialSpeechTaskQueue | null>(null)
   const incrementalSpeechRef = useRef<IncrementalSpeechSession | null>(null)
+  const speechCompletionGuardRef = useRef(createSpeechCompletionGuard())
   const incrementalSpeechBuffersRef = useRef(
     new Set<PreparedSpeechStream<SynthesizedSpeech>>(),
   )
@@ -1181,6 +1184,18 @@ export function useVoice({
     ],
   )
 
+  const incrementalSpeechKey = useCallback(
+    (speechId: string) => `${connectionId}\u0000${speechId}`,
+    [connectionId],
+  )
+
+  const beginIncrementalSpeechTurn = useCallback(
+    (speechId = 'auto-response') => {
+      speechCompletionGuardRef.current.begin(incrementalSpeechKey(speechId))
+    },
+    [incrementalSpeechKey],
+  )
+
   const appendIncrementalSpeech = useCallback(
     (
       delta: string,
@@ -1195,6 +1210,20 @@ export function useVoice({
         incrementalSpeechRef.current = null
         session = null
       }
+      const completionKey = incrementalSpeechKey(speechId)
+      let speechDelta = session
+        ? streamedDeltaSuffix(session.streamedText, delta)
+        : delta
+      if (!session) {
+        const completedText =
+          speechCompletionGuardRef.current.previous(completionKey)
+        if (completedText) {
+          speechDelta = streamedDeltaSuffix(completedText, speechDelta)
+          if (!speechDelta) return
+        }
+        speechCompletionGuardRef.current.begin(completionKey)
+      }
+      if (!speechDelta) return
       if (!session) {
         const transport = getTransport()
         if (!transport) return
@@ -1269,13 +1298,14 @@ export function useVoice({
         }
         incrementalSpeechRef.current = session
       }
-      session.streamedText += delta
-      session.buffer.append(delta)
+      session.streamedText += speechDelta
+      session.buffer.append(speechDelta)
     },
     [
       connectionId,
       getDefaultTtsConfig,
       getTransport,
+      incrementalSpeechKey,
       queueIncrementalSpeechPlayback,
     ],
   )
@@ -1288,8 +1318,21 @@ export function useVoice({
       beforePlayback?: Promise<void>,
     ) => {
       let session = incrementalSpeechRef.current
+      const completionKey = incrementalSpeechKey(speechId)
+      const completionFingerprint = (
+        completedText ||
+        (session?.id === speechId ? session.streamedText : '')
+      ).trim()
+      if (
+        completionFingerprint &&
+        speechCompletionGuardRef.current.previous(completionKey) ===
+          completionFingerprint
+      ) {
+        return
+      }
       if (!session || session.id !== speechId) {
         if (!completedText) return
+        speechCompletionGuardRef.current.begin(completionKey)
         appendIncrementalSpeech(completedText, speechId, ttsConfig)
         session = incrementalSpeechRef.current
       } else {
@@ -1304,11 +1347,19 @@ export function useVoice({
       }
       session?.buffer.finish()
       if (session) queueIncrementalSpeechPlayback(session, beforePlayback)
+      speechCompletionGuardRef.current.accept(
+        completionKey,
+        completionFingerprint,
+      )
       if (incrementalSpeechRef.current === session) {
         incrementalSpeechRef.current = null
       }
     },
-    [appendIncrementalSpeech, queueIncrementalSpeechPlayback],
+    [
+      appendIncrementalSpeech,
+      incrementalSpeechKey,
+      queueIncrementalSpeechPlayback,
+    ],
   )
 
   const speakSequence = useCallback(
@@ -1847,6 +1898,7 @@ export function useVoice({
   return {
     activeSpeechId,
     appendIncrementalSpeech,
+    beginIncrementalSpeechTurn,
     finishIncrementalSpeech,
     pausePlayback,
     phase,
