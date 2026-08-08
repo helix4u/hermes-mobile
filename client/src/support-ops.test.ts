@@ -5,10 +5,15 @@ import {
   normalizeSupportMarkdown,
   plainSupportTitle,
   probeSupportOps,
+  supportHandoffFilename,
+  supportHandoffMarkdown,
+  supportInvestigationPrompt,
   supportOpsTargetedSyncAvailable,
 } from './support-ops'
 
-function transportWith(requestJson: HermesTransport['requestJson']): HermesTransport {
+function transportWith(
+  requestJson: HermesTransport['requestJson'],
+): HermesTransport {
   return { requestJson } as HermesTransport
 }
 
@@ -16,10 +21,14 @@ describe('Support Ops host capability', () => {
   it('requires the host to explicitly advertise targeted sync', () => {
     expect(supportOpsTargetedSyncAvailable(undefined)).toBe(false)
     expect(
-      supportOpsTargetedSyncAvailable({ capabilities: { targeted_sync: false } }),
+      supportOpsTargetedSyncAvailable({
+        capabilities: { targeted_sync: false },
+      }),
     ).toBe(false)
     expect(
-      supportOpsTargetedSyncAvailable({ capabilities: { targeted_sync: true } }),
+      supportOpsTargetedSyncAvailable({
+        capabilities: { targeted_sync: true },
+      }),
     ).toBe(true)
   })
 
@@ -81,5 +90,50 @@ describe('Support Ops presentation helpers', () => {
         { '1402802685408837722': 'gille' },
       ),
     ).toBe('> Replying to **@gille**\nHello **@gille**')
+  })
+
+  it('builds a downloadable operator handoff with investigation and transcript', () => {
+    const detail = {
+      thread_id: '1533242742740750436',
+      title: '**Windows install failed**',
+      discord_url: 'https://discord.com/channels/a/b',
+      message_count: 1,
+      workspace: { investigation: '## Finding\nSQLite writer pressure.' },
+      ticket: { status: 'needs-investigation' },
+      messages: [
+        {
+          author: 'gille',
+          timestamp: '2026-08-01T15:00:00Z',
+          body: 'Please send logs.',
+        },
+      ],
+      attachments: [
+        { filename: 'gateway.log', remote_url: 'https://dpaste.test/log' },
+      ],
+    }
+    const handoff = supportHandoffMarkdown(detail)
+    expect(handoff).toContain('# Windows install failed')
+    expect(handoff).toContain('## Workspace investigation')
+    expect(handoff).toContain('## Discord transcript')
+    expect(handoff).toContain('Please send logs.')
+    expect(handoff).toContain('gateway.log: https://dpaste.test/log')
+    expect(supportHandoffFilename(detail)).toBe(
+      'windows-install-failed-1533242742740750436.md',
+    )
+  })
+
+  it('starts a normal session with an explicit no-posting authority boundary', () => {
+    const prompt = supportInvestigationPrompt({
+      thread_id: '123',
+      title: 'Gateway issue',
+      workspace: { investigation: 'The socket closes after focus loss.' },
+      messages: [
+        { author: 'reporter', body: 'It fails after switching apps.' },
+      ],
+    })
+    expect(prompt).toContain('Continue the support investigation')
+    expect(prompt).toContain('The socket closes after focus loss.')
+    expect(prompt).toContain('It fails after switching apps.')
+    expect(prompt).toContain('Do not post to Discord')
   })
 })

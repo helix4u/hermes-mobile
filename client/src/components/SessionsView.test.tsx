@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import type { ProjectTree, SessionSummary } from '../protocol/types'
-import { SessionsView } from './SessionsView'
+import type { LiveSessionSummary, ProjectTree, SessionSummary } from '../protocol/types'
+import { relativeSessionTime, SessionsView } from './SessionsView'
 
 const session: SessionSummary = {
   id: 'session-1',
@@ -37,9 +37,10 @@ const project: ProjectTree = {
   ],
 }
 
-function renderSessions(activeProjectId = '') {
+function renderSessions(activeProjectId = '', activeSessions: LiveSessionSummary[] = []) {
   return renderToStaticMarkup(
     <SessionsView
+      activeSessions={activeSessions}
       activeProjectId={activeProjectId}
       connected
       profile="default"
@@ -49,6 +50,7 @@ function renderSessions(activeProjectId = '') {
       selectedSessionId=""
       sessions={[session]}
       onNewSession={vi.fn()}
+      onActiveSession={vi.fn().mockResolvedValue(undefined)}
       onProject={vi.fn().mockResolvedValue(undefined)}
       onRefresh={vi.fn().mockResolvedValue(undefined)}
       onSession={vi.fn().mockResolvedValue(undefined)}
@@ -75,5 +77,29 @@ describe('SessionsView', () => {
     expect(html).toContain('Worktree')
     expect(html).toContain('F:\\work\\hermes-mobile')
     expect(html).toContain('aria-expanded="false"')
+  })
+
+  it('renders in-progress sessions with activity state and a resume action', () => {
+    const html = renderSessions('', [
+      {
+        id: 'runtime-1',
+        session_key: 'session-1',
+        title: 'Still running',
+        status: 'working',
+        last_active: Date.now() / 1_000,
+        message_count: 8,
+      },
+    ])
+    expect(html).toContain('In progress')
+    expect(html).toContain('Working')
+    expect(html).toContain('Resume')
+    expect(html).toContain('status-working')
+  })
+
+  it('uses human recency labels before falling back to a calendar date', () => {
+    const now = Date.UTC(2026, 7, 7, 12, 0, 0)
+    expect(relativeSessionTime((now - 5_000) / 1_000, now)).toBe('just now')
+    expect(relativeSessionTime((now - 12 * 60_000) / 1_000, now)).toBe('12m ago')
+    expect(relativeSessionTime((now - 3 * 3_600_000) / 1_000, now)).toBe('3h ago')
   })
 })

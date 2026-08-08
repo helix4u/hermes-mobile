@@ -43,16 +43,64 @@ type PetGestureInput = 'pointer' | 'touch'
 
 const PET_SIZE = 72
 const DRAG_SLOP = 4
-export const MIN_PET_ROAM_SPEED = 40
+export const MIN_PET_ROAM_SPEED = 64
+export const MAX_PET_ROAM_SPEED = 128
 export const PET_ROAM_BORDER_INSET = 18
 const PET_ROAM_EDGE_TURN_ZONE = 64
 const PET_ROAM_EDGE_ARRIVAL_GAP = 10
 const MIN_PET_ROAM_LEG = 48
+export const MAX_PET_JUMP_HORIZONTAL = 110
+export const MAX_PET_JUMP_VERTICAL = 96
+export const MAX_PET_JUMP_DURATION_MS = 720
+const MIN_PET_JUMP_VERTICAL = 14
 const BUBBLE_GAP = 8
 const BUBBLE_MARGIN = 12
 const BUBBLE_MAX_WIDTH = 224
 const positionKey = (connectionId: string) =>
   `hermes-mobile.pet-position.v1.${connectionId || 'default'}`
+
+export interface PetPerch {
+  left: number
+  right: number
+  top: number
+}
+
+export type PetRoamMotion = 'walk' | 'jump'
+
+export function petWalkSpeed(loopMs = 600): number {
+  const cadence = (PET_SIZE * 0.8) / (Math.max(240, loopMs) / 1_000)
+  return Math.max(MIN_PET_ROAM_SPEED, Math.min(MAX_PET_ROAM_SPEED, cadence))
+}
+
+export function petPerchesFromRects(
+  rects: Array<{ left: number; right: number; top: number; bottom: number; width: number }>,
+  viewport: PetViewport,
+): PetPerch[] {
+  return rects
+    .filter(
+      rect =>
+        rect.width >= PET_SIZE * 1.25 &&
+        rect.right > viewport.left &&
+        rect.left < viewport.left + viewport.width &&
+        rect.top > viewport.top + PET_SIZE &&
+        rect.top < viewport.top + viewport.height - 12,
+    )
+    .map(rect => ({
+      left: Math.max(0, rect.left - viewport.left),
+      right: Math.min(viewport.width, rect.right - viewport.left),
+      top: rect.top - viewport.top,
+    }))
+}
+
+function snapshotPetPerches(viewport: PetViewport): PetPerch[] {
+  if (typeof document === 'undefined') return []
+  return petPerchesFromRects(
+    [...document.querySelectorAll<HTMLElement>('[data-pet-perch]')]
+      .filter(element => element.offsetParent !== null)
+      .map(element => element.getBoundingClientRect()),
+    viewport,
+  )
+}
 
 export function resolvePetViewport({
   documentHeight,
@@ -159,6 +207,8 @@ export function nextPetRoamStep(
   current: Point,
   bounds: { width: number; height: number },
   random = Math.random,
+  perches: PetPerch[] = [],
+  speedPxS = MIN_PET_ROAM_SPEED,
 ) {
   const rawMaxX = Math.max(0, bounds.width - PET_SIZE)
   const rawMaxY = Math.max(0, bounds.height - PET_SIZE)
@@ -216,35 +266,63 @@ export function nextPetRoamStep(
     return Math.max(min, Math.min(max, origin + travel * sign))
   }
 
-  const x = destinationOnAxis(
+  let x = destinationOnAxis(
     current.x,
     minX,
     maxX,
     xSpan,
     random() > 0.5 ? 1 : -1,
   )
-  const y = destinationOnAxis(
+  let y = destinationOnAxis(
     current.y,
     minY,
     maxY,
     ySpan,
     random() > 0.5 ? 1 : -1,
   )
+  const reachablePerches = perches.filter(perch => {
+    const perchY = perch.top - PET_SIZE
+    return perch.right - perch.left >= PET_SIZE && perchY >= minY && perchY <= maxY
+  })
+  const nearbyPerches = reachablePerches.filter(perch => {
+    const perchMinX = Math.max(minX, perch.left + 8)
+    const perchMaxX = Math.min(maxX, perch.right - PET_SIZE - 8)
+    if (perchMaxX < perchMinX) return false
+    const nearestLandingX = Math.max(perchMinX, Math.min(perchMaxX, current.x))
+    const horizontalTravel = Math.abs(nearestLandingX - current.x)
+    const verticalTravel = Math.abs(perch.top - PET_SIZE - current.y)
+    return (
+      verticalTravel > MIN_PET_JUMP_VERTICAL &&
+      verticalTravel <= MAX_PET_JUMP_VERTICAL &&
+      horizontalTravel <= MAX_PET_JUMP_HORIZONTAL
+    )
+  })
+  let motion: PetRoamMotion = 'walk'
+  if (nearbyPerches.length && random() > 0.46) {
+    const perch =
+      nearbyPerches[
+        Math.min(nearbyPerches.length - 1, Math.floor(random() * nearbyPerches.length))
+      ]
+    const perchMinX = Math.max(minX, perch.left + 8)
+    const perchMaxX = Math.min(maxX, perch.right - PET_SIZE - 8)
+    if (perchMaxX >= perchMinX) {
+      const jumpMinX = Math.max(perchMinX, current.x - MAX_PET_JUMP_HORIZONTAL)
+      const jumpMaxX = Math.min(perchMaxX, current.x + MAX_PET_JUMP_HORIZONTAL)
+      x = jumpMinX + random() * (jumpMaxX - jumpMinX)
+      y = Math.max(minY, Math.min(maxY, perch.top - PET_SIZE))
+      motion = 'jump'
+    }
+  }
   const distance = Math.hypot(x - current.x, y - current.y)
-  const plannedDuration =
-    (longWalk ? 9_000 : 4_500) + random() * (longWalk ? 5_000 : 4_500)
+  const travelMs = Math.round(
+    Math.max(250, (distance / Math.max(MIN_PET_ROAM_SPEED, speedPxS)) * 1_000),
+  )
   return {
     destination: { x, y },
-    durationMs: Math.round(
-      Math.max(
-        250,
-        Math.min(
-          plannedDuration,
-          (distance / MIN_PET_ROAM_SPEED) * 1_000,
-        ),
-      ),
-    ),
-    restMs: Math.round(4_000 + random() * 11_000),
+    durationMs:
+      motion === 'jump' ? Math.min(MAX_PET_JUMP_DURATION_MS, travelMs) : travelMs,
+    motion,
+    restMs: Math.round(1_200 + random() * 3_600),
   }
 }
 
@@ -427,6 +505,7 @@ export function MobilePet({
   } | null>(null)
   const [direction, setDirection] = useState<'left' | 'right'>('right')
   const [walking, setWalking] = useState(false)
+  const [jumping, setJumping] = useState(false)
   const [roamRevision, setRoamRevision] = useState(0)
   const [sidechatVisible, setSidechatVisible] = useState(false)
   const [viewport, setViewport] = useState(viewportRef.current)
@@ -492,6 +571,7 @@ export function MobilePet({
         .filter(animation => animation.playState === 'finished')
         .forEach(animation => animation.cancel())
       setWalking(false)
+      setJumping(false)
       return
     }
     const animationTime = Number(active.animation.currentTime)
@@ -510,6 +590,7 @@ export function MobilePet({
     animationRef.current = null
     setPoint(rendered)
     setWalking(false)
+    setJumping(false)
   }, [setPoint])
 
   const finishDrag = useCallback(
@@ -677,10 +758,19 @@ export function MobilePet({
       setRoamRevision(current => current + 1)
     }
     window.addEventListener('resize', reconcileViewport)
+    window.addEventListener('orientationchange', reconcileViewport)
     window.visualViewport?.addEventListener('resize', reconcileViewport)
+    window.visualViewport?.addEventListener('scroll', reconcileViewport)
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(reconcileViewport)
+    observer?.observe(document.documentElement)
     return () => {
       window.removeEventListener('resize', reconcileViewport)
+      window.removeEventListener('orientationchange', reconcileViewport)
       window.visualViewport?.removeEventListener('resize', reconcileViewport)
+      window.visualViewport?.removeEventListener('scroll', reconcileViewport)
+      observer?.disconnect()
     }
   }, [freezeAtRenderedPosition, setPoint])
 
@@ -702,9 +792,16 @@ export function MobilePet({
     const schedule = (delay: number) => {
       timerRef.current = setTimeout(() => {
         if (stopped || !movingAllowed || dragRef.current) return
-        const step = nextPetRoamStep(pointRef.current, bounds())
+        const step = nextPetRoamStep(
+          pointRef.current,
+          bounds(),
+          Math.random,
+          snapshotPetPerches(viewportRef.current),
+          petWalkSpeed(info.loopMs),
+        )
         setDirection(step.destination.x >= pointRef.current.x ? 'right' : 'left')
         setWalking(true)
+        setJumping(step.motion === 'jump')
         const from = pointRef.current
         const pet = petRef.current
         if (!pet) return
@@ -729,6 +826,7 @@ export function MobilePet({
           animationRef.current = null
           settlePetRoamAnimation(animation, step.destination, setPoint)
           setWalking(false)
+          setJumping(false)
           if (!stopped) schedule(step.restMs)
         }
       }, delay)
@@ -739,7 +837,7 @@ export function MobilePet({
       stopped = true
       clear()
     }
-  }, [bounds, freezeAtRenderedPosition, movingAllowed, roamRevision, setPoint])
+  }, [bounds, freezeAtRenderedPosition, info.loopMs, movingAllowed, roamRevision, setPoint])
 
   useEffect(() => {
     const cancelActiveDrag = () => {
@@ -832,7 +930,7 @@ export function MobilePet({
         } as CSSProperties}
         tabIndex={0}
       >
-        <PetCanvas direction={direction} info={info} state={walking ? 'run' : state} />
+        <PetCanvas direction={direction} info={info} state={walking ? (jumping ? 'jump' : 'run') : state} />
         {sidechatAvailable && sidechatVisible && (
           <button
             aria-label={`Open ${info.displayName || 'pet'} sidechat`}

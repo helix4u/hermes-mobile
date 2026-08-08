@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+def mobileSigningProperties = new Properties()
+def mobileSigningPropertiesFile = rootProject.file('signing.properties')
+def hasMobileSigningProperties = mobileSigningPropertiesFile.exists()
+if (hasMobileSigningProperties) {
+    mobileSigningPropertiesFile.withInputStream {
+        mobileSigningProperties.load(it)
+    }
+}
+
 android {
     namespace = "dev.hermes.mobile"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,7 +25,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasMobileSigningProperties) {
+            mobileDebug {
+                storeFile file(mobileSigningProperties['storeFile'])
+                storePassword mobileSigningProperties['storePassword']
+                keyAlias mobileSigningProperties['keyAlias']
+                keyPassword mobileSigningProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (hasMobileSigningProperties) {
+                signingConfig signingConfigs.mobileDebug
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
