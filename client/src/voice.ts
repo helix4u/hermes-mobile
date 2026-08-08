@@ -105,6 +105,7 @@ export interface SerialSpeechTaskQueue {
     priority?: number,
   ) => Promise<void>
   releaseActive: (key: string) => boolean
+  yieldToPriority: (minimumPriority: number) => Promise<boolean>
 }
 
 interface CapturedAudio {
@@ -235,6 +236,43 @@ export function createSerialSpeechTaskQueue(): SerialSpeechTaskQueue {
       if (!active || active.key !== key) return false
       active = null
       return true
+    },
+    async yieldToPriority(minimumPriority) {
+      const suspended = active
+      if (!suspended || suspended.epoch !== epoch) return false
+      const threshold = Number.isFinite(minimumPriority)
+        ? minimumPriority
+        : 0
+      let yielded = false
+
+      for (;;) {
+        const next = pending[0]
+        if (!next || next.priority < threshold) break
+        pending.shift()
+        if (next.epoch !== epoch) {
+          next.resolve()
+          continue
+        }
+
+        yielded = true
+        active = next
+        try {
+          await next.task()
+          next.resolve()
+        } catch (error) {
+          next.reject(error)
+        } finally {
+          if (epoch !== suspended.epoch) {
+            if (active === next) active = null
+            return yielded
+          }
+          if (active === next) active = suspended
+        }
+
+        if (active !== suspended) return yielded
+      }
+
+      return yielded
     },
   }
 }
@@ -1131,6 +1169,13 @@ export function useVoice({
                   if (!prepared || generation !== speechGenerationRef.current) {
                     break
                   }
+                  // A streamed reply owns the serial lane for its complete
+                  // prepared stream. Give high-priority pet commentary a
+                  // cooperative handoff before each natural audio segment so
+                  // it can speak during a long turn without interrupting a
+                  // sentence that is already playing.
+                  await speechTaskQueueRef.current!.yieldToPriority(20)
+                  if (generation !== speechGenerationRef.current) break
                   await playAudio(
                     prepared.value.dataUrl,
                     generation,
