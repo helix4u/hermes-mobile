@@ -400,6 +400,51 @@ describe('voice helpers', () => {
     expect(starts).toEqual(['active', 'pet', 'final reply'])
   })
 
+  test('lets an active streamed response yield between segments to pet speech', async () => {
+    let reachBoundary!: () => void
+    const boundary = new Promise<void>(resolve => {
+      reachBoundary = resolve
+    })
+    const starts: string[] = []
+    const queue = createSerialSpeechTaskQueue()
+
+    const response = queue.enqueue(
+      async () => {
+        starts.push('response segment 1')
+        await boundary
+        await queue.yieldToPriority(20)
+        starts.push('response segment 2')
+      },
+      'auto-response',
+      -10,
+    )
+    await Promise.resolve()
+
+    const ordinary = queue.enqueue(
+      async () => {
+        starts.push('ordinary')
+      },
+      'ordinary',
+      0,
+    )
+    const pet = queue.enqueue(
+      async () => {
+        starts.push('pet')
+      },
+      'pet-generated',
+      20,
+    )
+
+    reachBoundary()
+    await Promise.all([response, ordinary, pet])
+    expect(starts).toEqual([
+      'response segment 1',
+      'pet',
+      'response segment 2',
+      'ordinary',
+    ])
+  })
+
   test('keeps only the newest pending task in a replaceable speech lane', async () => {
     let releaseReply!: () => void
     const replyFinished = new Promise<void>(resolve => {

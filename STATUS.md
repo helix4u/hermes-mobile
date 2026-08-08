@@ -1,10 +1,46 @@
 # Hermes Mobile Current Status
 
-Last updated: 2026-08-02
+Last updated: 2026-08-08
 
-Current milestone: Host plugin surfaces and pet-sidechat voice control
+Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
 ## Current result
+
+- Android recovery now uses a dedicated ignored key under
+  `%LOCALAPPDATA%\hermes-mobile-signing` and a serial-guarded, hashed,
+  restore-rehearsed migration that excludes dead credential ciphertext. It
+  completed on authorized Samsung SM-S918U test device: APK SHA-256
+  `7AFF8D871807068EE5C8FA4770C7F500D409684E2EFB3D5864A33839112EDEBA`,
+  certificate `707D72C0D6F58BB05FEEAB282AA670584E726F7D845CFD99B5AD1EB9BD03AAFE`,
+  update `2026-08-08 00:39:20`. Local state is restored, MainActivity is live,
+  no fatal/ANR was found, and bearer tokens intentionally require re-entry.
+
+- Mobile now distinguishes durable history from live gateway sessions. The
+  Sessions page polls only the cheap live-session authority while open, shows
+  working/starting/waiting/idle activity, human recency labels, and attaches an
+  in-progress runtime with `session.activate` instead of cold-resuming it.
+- Pet roaming now derives a bounded normal walk speed from the active sprite's
+  cadence with a 64 px/s floor, shorter natural rests, element-top perches,
+  visual-viewport reconciliation, and resize/orientation correction. Ordinary
+  vertical travel keeps the walk animation. Only a ledge within 110 px
+  horizontally and 96 px vertically can trigger a jump, capped at 720 ms, so
+  distant perch changes cannot become long loops of airborne frames.
+- Pet settings now contain a local-first Petdex gallery with thumbnails,
+  search, adopt/select, enable/disable, rename, export, remove, provider-aware
+  draft generation, reference images, streamed progress, egg incubation,
+  hatch preview, adopt, and discard. Arbitrary selected host sprites now render
+  in Mobile rather than being replaced by Alien Child.
+- Support Ops now has the same queue/overview split and core historical metrics
+  as Desktop: totals, 14-day flow, topic buckets, artifact health, issue
+  clusters, and independent-snapshot warnings. A thread can download a Markdown
+  handoff or start a normal Hermes investigation session without granting any
+  Discord posting authority.
+- Mobile pet commentary has no warmup-turn threshold. Settled tool/progress
+  evidence schedules observation after 900 ms and the configured delay remains
+  a fallback. The observed silence was a shared Hermes auxiliary-client
+  regression: the public callback argument was not forwarded into the internal
+  implementation, causing every auxiliary request to raise `NameError` before
+  returning text. The callback is now threaded through that boundary.
 
 - Support Ops is now exposed as a selected-host capability. Mobile performs an
   authenticated health probe through its existing connection transport and
@@ -142,6 +178,11 @@ Current milestone: Host plugin surfaces and pet-sidechat voice control
   not multiply while pet generation or playback is pending, accepted in-flight
   commentary may finish after the final event, and final-response auto-speech
   waits for pending pet work. Existing audio is never interrupted.
+- The shared speech lane now supports a cooperative priority handoff. A long
+  streamed reply checks for waiting pet speech before each natural audio
+  segment, lets priority-20 commentary play after the current segment, then
+  resumes the response without admitting ordinary lower-priority tasks or
+  interrupting active audio.
 - The roaming bubble is playback-owned. It appears on actual audio start,
   pulses only while a segment is playing, remains positioned during bounded
   inter-segment preparation, and clears after the complete pet sequence.
@@ -182,54 +223,6 @@ Current milestone: Host plugin surfaces and pet-sidechat voice control
   the pet-sidechat popout at 120 but below the deliberate full-screen media
   viewer at 220. The pet therefore remains visible and draggable over sidechat.
 
-## Recent changes retained here
-
-### 1. Mobile personality catalog and editor
-
-The app owns a safe offline catalog containing Alien Child, Dr. House, Fight
-Club Narrator, Gremlin, Noir Build Detective, Ponytail Principal, Shipbreaker
-QA, and thirteen adapted Hermes defaults. Host-only definitions merge after
-capability discovery. Structured connection-scoped edits never overwrite a
-host or bundled file.
-
-### 2. Explicit Windows host lifecycle
-
-The Mobile host exposes start, stop, restart, status, and uninstall. Startup is
-selectable as Desktop-bound, persistent, or manual. Desktop-bound mode retires
-the backend, proxy, and supervisor when the packaged Desktop exits. A
-plugin-owned one-minute task trigger restores all three after Desktop reopens,
-including recovery when the prior supervisor was externally killed.
-
-### 3. Forced connected-server plugin update
-
-Control can force-replace an active `hermes-mobile` plugin even when the
-hardcoded semantic version is unchanged. The target comes from the authenticated
-plugin registry and remains guarded by path, size, upload, enablement, and
-restart checks.
-
-### 4. Mobile voice and wake path
-
-Mobile has connection-scoped provider/voice selection, adaptive buffered TTS,
-openWakeWord capture with review/auto-send modes, explicit capture cues, and
-host transcription. Long-output and device-power acceptance continues during
-ordinary use.
-
-### 5. Pet companion and streamed speech reliability
-
-Pet movement is full-viewport and border-aware, with two-axis destinations,
-faster minimum travel, and resize reconciliation. Direct drag remains
-user-owned. Automatic commentary has turn-scoped cancellation so Stop and
-terminal turn events clear pending generation and queued speech. Poke speech
-has its own prepared-audio replacement path so slow TTS cannot create stale
-tap queues or silence the current poke while the replacement still renders;
-other speech keeps its existing serial ordering.
-Mobile starts preparing final-response audio before the final event arrives,
-without speaking partial words or replaying the completion payload. A shared
-natural segmenter grows the runway after the first sentence and cuts pathological
-run-on text at a nearby word boundary. Synthesis may overlap conservatively;
-playback never does. Desktop uses its native streaming endpoint when available
-and the same prepared-segment fallback for non-streaming providers.
-
 ## Known constraints
 
 - Vanilla Cloud hosts can lack Mobile plugin routes and local custom providers;
@@ -244,51 +237,36 @@ and the same prepared-segment fallback for non-streaming providers.
 
 ## Validation state
 
-- Desktop speech/Reader slice: 3 focused files and 20 tests passed; the broader
-  UI run passed 54 files and 409 tests before the final queue-ID tightening.
-  Desktop ESLint/Prettier checks, TypeScript typecheck, production build, and
-  unpacked Windows packaging passed after that tightening.
-- The prior Mobile pet/voice slice passed 75 focused tests and its full client
-  suite passed 54 files and 271 tests. That revision also passed TypeScript,
-  production build, Capacitor sync, Android assembly, replacement installation,
-  and cold-launch smoke before the media/Reader follow-up below.
-- The follow-up prepared-input regression slice passes 3 files and 32 tests,
-  including the early-consumer/final-close case; TypeScript typecheck also
-  passes after the fix.
-- The short-opening/overlay follow-up passes 3 focused files and 44 tests,
-  including the two-sentence startup rule; TypeScript typecheck, production
-  build, Capacitor sync, and Android debug assembly pass.
-- The media/Reader follow-up passes 3 focused files and 8 tests; the complete
-  Mobile client suite passed 54 files and 272 tests. The subsequent speech-
-  deduplication slice passes 2 files and 33 tests, and the complete client suite
-  now passes 54 files and 275 tests. TypeScript typecheck, production build,
-  Capacitor sync, and Android debug assembly pass.
-- Desktop commentary ordering passes 3 focused files and 17 tests. Desktop
-  TypeScript typecheck, changed-file ESLint with zero errors, Python module
-  compilation, production build, and unpacked Windows packaging pass. The
-  backend-focused Python regression was added but not executed under the local
-  no-Python-tests safety rule.
-- Python prompt guidance compiled and an import smoke check confirmed both the
-  Desktop and `hermes-mobile` Reader handoff hints.
-- Scoped `git diff --check` and unmerged-entry checks pass in both repositories.
-- Earlier verified pet/voice Mobile debug APK:
-  `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,129,674 bytes, SHA-256
-  `FE23BB8D991B12C4146978EAB7A36488B04E678841D9A70FFF68ADBA319EA051`).
-- Current Desktop test executable:
-  `..\hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe`
-  (214,281,216 bytes, SHA-256
-  `5C82EB0954B6BA9ED5D342393A2AE4E1AB3AA26B3779C46D7AF722DCA1A7E016`).
-- The same verified Desktop build now occupies the normal stable
-  `apps\desktop\release\win-unpacked\Hermes.exe` target used by the Desktop,
-  Start-menu, and taskbar shortcuts. Launching the Desktop shortcut produced a
-  visible responding window, a fresh `HERMES_BACKEND_READY`, and `ok` dashboard
-  and storage status.
-- The current speech-deduplication APK is replacement-installed on the intended Samsung SM-S918U at
-  version name 1.0/version code 1 and package update time
-  `2026-08-01 14:00:40`. A cold launch completed in 1.003 seconds, left the app
-  process running in the foreground, and its captured process-log tail
-  contained no error-priority record, fatal exception, or ANR signature.
+- The auxiliary callback regression has a focused public-boundary regression
+  test and passes through the canonical one-file test runner (1 selected test,
+  4-worker cap). A bounded live probe against the configured
+  `xai-oauth / grok-4.5` pet assignment returned `ready`, the actual
+  `pet.commentary.generate` dispatcher returned commentary text, and the pet's
+  configured OpenAI TTS path produced a 40,320-byte MP3. The managed Mobile host
+  was restarted and reports healthy compatible loopback listeners on 9129/9130
+  with desktop-bound lifecycle and Tailscale Serve intact. Physical audible
+  playback on Android remains the user acceptance step.
+
+- The cooperative pet-speech handoff passes the focused 23-test voice suite and
+  the complete 57-file/296-test client suite. TypeScript typecheck, Vite
+  production build, Capacitor sync, stable signing, and Android debug assembly
+  pass. APK SHA-256 is
+  `D0BC8F57E6C195980E6CE23A450801C8A9EF9B69AF4A92CC605B9382E3D585BF`
+  (127,192,674 bytes). It was replacement-installed with preserved data on
+  authorized Samsung SM-S918U test device; Android reports update time `2026-08-08
+  14:17:46`.
+
+- The nearby-jump follow-up passes 19 focused MobilePet tests, TypeScript
+  typecheck, Vite production build, Capacitor sync, and Android debug assembly.
+  The stable-signed APK is
+  `client\android\app\build\outputs\apk\debug\app-debug.apk` (126,927,247
+  bytes, SHA-256
+  `EC0D3C4F4B8C29471ED143C227A38B8B1DC6041F2EE2098A7C59B833F6FE7890`).
+  It was replacement-installed on the authorized Samsung SM-S918U test device at `2026-08-08
+  00:47:57`; its 760 ms cold launch left the process running with no fatal or
+  ANR signature. The earlier complete client suite remains 57 files and 293
+  tests and was not rerun for this two-file follow-up.
+
 - The Support Ops Mobile slice passes 6 focused tests, the complete client suite
   passes 56 files and 282 tests, TypeScript typecheck and the Vite production
   build pass, and Android debug assembly completes successfully. The live
@@ -338,6 +316,12 @@ and the same prepared-segment fallback for non-streaming providers.
   fatal-exception or ANR signature.
 
 ## Next action
+
+Exercise one long auto-spoken tool turn on the installed handoff build against
+the restarted host. Verify the first settled tool evidence produces audible pet
+commentary without waiting for another turn, the pet takes the lane only between
+response segments, and playback returns to the response with no overlap, replay,
+or dropped text.
 
 On the replacement-installed responsive Support Ops APK, physically rotate
 Chat, Support, Reader, and a connection sheet and verify the fixed left rail,

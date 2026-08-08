@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-08-02
+Last updated: 2026-08-08
 
 Project root: current repository checkout
 
@@ -73,9 +73,30 @@ index in the same work session.
 - Milestones 6-8 remain the longer-term profiles/projects, same-origin PWA, and
   production-hardening program.
 
-## Current work: Host plugin surfaces and pet-sidechat voice control
+## Current work: Live sessions, platform roaming, Petdex, and Support parity
 
 Acceptance contract:
+
+- Android debug builds use one dedicated, ignored signing identity outside the
+  repository. A guarded signing-key-loss migration verifies a full private-data
+  backup and an on-device restore rehearsal before uninstall, restores ordinary
+  connection/UI state under the new app UID, and explicitly resets rather than
+  falsely preserving undecryptable Keystore-backed credentials.
+
+- Sessions separate durable history from live runtimes. In-progress rows expose
+  backend activity state and human recency, refresh cheaply while visible, and
+  attach through `session.activate` without restarting the turn.
+- Roaming uses a normal sprite-cadence speed with a hard floor, re-clamps after
+  viewport changes, and treats explicitly marked app surfaces as walkable
+  perches. Ordinary vertical roaming stays in the walk state; only a nearby
+  ledge can trigger one short, distance-bounded jump.
+- Mobile exposes the existing generic Petdex and generation RPCs without a new
+  core branch: local-first gallery, thumbnails, adoption, rename, export,
+  removal, generation providers, references, drafts, hatch progress, incubation,
+  preview, adoption, and discard.
+- Support exposes both queue and generated-history overview, can open a normal
+  investigation session with a no-posting authority boundary, and downloads a
+  complete Markdown handoff through the Android save surface.
 
 - Support Ops is a connection-scoped host capability, not a hardcoded Mobile
   feature. Mobile probes the selected host's authenticated
@@ -222,6 +243,14 @@ Acceptance contract:
   observation is generated while pet work is pending, accepted end-of-turn
   commentary finishes instead of being discarded, and pending pet audio plays
   before final-response auto-speech without interrupting active audio.
+- The shared Hermes auxiliary call boundary must forward optional content-delta
+  callbacks into the validated request implementation. Observer commentary and
+  title generation must never fail before provider dispatch because a callback
+  was accepted by the public API but omitted from the internal call signature.
+- A streamed auto-response cooperatively yields its shared audio lane between
+  completed natural segments when priority pet speech is waiting. The current
+  sentence is never interrupted, lower-priority speech stays queued, and the
+  response resumes at the next unplayed segment after the pet finishes.
 - The roaming bubble appears when pet audio actually begins, animates only
   while a segment is playing, and clears with the completed sequence.
 - The acoustic wake detector remains the real bundled `Hey Hermes` model.
@@ -286,6 +315,24 @@ without compromising behavior; that seam does not exist today.
 - Never install to or inspect a physical phone unless the user explicitly asks.
 
 ## Next action
+
+On the installed cooperative-handoff build and restarted compatible host, run
+a long auto-spoken turn that produces tool commentary. Confirm commentary is
+generated on the first settled tool evidence without a warmup-turn requirement,
+the current response sentence completes, the pet speaks before the next
+response segment, and the response resumes without overlap, duplication, or a
+skipped segment.
+
+Install the verified debug APK when the user supplies an explicit device target,
+then test on a capable host: start a long turn, leave Chat, attach it from the
+live Sessions section, and confirm activity/recency updates without restarting
+the turn. Exercise Petdex local-first loading, select an installed pet, export
+it, generate drafts, hatch one pet, adopt it, and verify distant surfaces are
+approached by normal walking while only a nearby ledge produces one brief jump.
+In Support, compare Overview with Desktop metrics, start a new Chat session from
+an existing investigation, and save/open the Markdown handoff on Android.
+
+Previous physical-device acceptance remains applicable after those checks:
 
 On the replacement-installed responsive Support build, rotate the physical
 device while Chat, Support, Reader, and a connection sheet are open. Confirm

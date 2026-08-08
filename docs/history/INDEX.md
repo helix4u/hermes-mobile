@@ -37,6 +37,18 @@ Verbatim former `STATUS.md` (2,202 lines, 146,292 bytes).
 - Backend lifecycle and replacement builds: lines 2149-2177.
 - Forced connected-server plugin update: lines 2178-2202.
 
+## `STATUS-2026-08-02-companion-voice-lifecycle.md`
+
+- Mobile personalities/editor, Windows host lifecycle, forced plugin update,
+  wake/voice, pet movement, and streamed speech recap: lines 1-47; keywords
+  `personality`, `Desktop-bound`, `force-replace`, `openWakeWord`, `pet`, `TTS`.
+
+## `STATUS-2026-08-08-pre-jump-validation.md`
+
+- Prior Desktop, speech, Reader, Mobile artifact, and replacement-install
+  validation: lines 1-51; keywords `Desktop`, `speech`, `Reader`, `APK`,
+  `deduplication`, `cold launch`.
+
 ## Adding history
 
 Archive the oldest active summary before either current file exceeds 24,000
