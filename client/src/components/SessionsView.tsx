@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type {
+  LiveSessionSummary,
   ProjectTree,
   SessionSummary,
 } from '../protocol/types'
@@ -15,6 +16,7 @@ interface SessionsViewProps {
   connected: boolean
   profile: string
   sessions: SessionSummary[]
+  activeSessions: LiveSessionSummary[]
   projects: ProjectTree[]
   activeProjectId: string
   projectDetail: ProjectTree | null
@@ -24,11 +26,21 @@ interface SessionsViewProps {
   onProject: (projectId: string) => Promise<void>
   onRefresh: () => Promise<void>
   onSession: (session: SessionSummary) => Promise<void>
+  onActiveSession: (session: LiveSessionSummary) => Promise<void>
 }
 
-function timeLabel(value: number | undefined): string {
+export function relativeSessionTime(
+  value: number | undefined,
+  now = Date.now(),
+): string {
   if (!value) return ''
   const milliseconds = value > 10_000_000_000 ? value : value * 1000
+  const elapsed = Math.max(0, now - milliseconds)
+  if (elapsed < 15_000) return 'just now'
+  if (elapsed < 60_000) return `${Math.floor(elapsed / 1_000)}s ago`
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`
+  if (elapsed < 604_800_000) return `${Math.floor(elapsed / 86_400_000)}d ago`
   return new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',
@@ -41,10 +53,52 @@ function metadata(session: SessionSummary): string {
     session.source,
     session.model,
     `${session.message_count} messages`,
-    timeLabel(session.last_active || session.started_at),
+    relativeSessionTime(session.last_active || session.started_at),
   ]
     .filter(Boolean)
     .join(' · ')
+}
+
+function liveStatusLabel(status: string): string {
+  if (status === 'working') return 'Working'
+  if (status === 'starting') return 'Starting'
+  if (status === 'waiting') return 'Needs input'
+  return 'Live and idle'
+}
+
+function LiveSessionRow({
+  session,
+  selected,
+  onActiveSession,
+}: {
+  session: LiveSessionSummary
+  selected: boolean
+  onActiveSession: SessionsViewProps['onActiveSession']
+}) {
+  return (
+    <button
+      className={`session-row live-session-row status-${session.status} ${selected ? 'selected' : ''}`}
+      onClick={() => void onActiveSession(session)}
+      type="button"
+    >
+      <span className="session-live-indicator" aria-hidden="true" />
+      <span className="session-copy">
+        <strong>{session.title || 'Live conversation'}</strong>
+        <small>{session.preview || liveStatusLabel(session.status)}</small>
+        <span className="session-metadata">
+          {[
+            liveStatusLabel(session.status),
+            session.model,
+            `${session.message_count ?? 0} messages`,
+            relativeSessionTime(session.last_active || session.started_at),
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+      </span>
+      <span className="session-live-action">Resume</span>
+    </button>
+  )
 }
 
 function SessionRow({
@@ -73,9 +127,11 @@ function SessionRow({
 }
 
 export function SessionsView({
+  activeSessions,
   activeProjectId,
   connected,
   onNewSession,
+  onActiveSession,
   onProject,
   onRefresh,
   onSession,
@@ -217,6 +273,31 @@ export function SessionsView({
           Show {compactedCount} compacted segment
           {compactedCount === 1 ? '' : 's'}
         </label>
+      )}
+
+      {activeSessions.length > 0 && (
+        <section className="live-sessions-panel" aria-label="Sessions in progress">
+          <div className="live-sessions-heading">
+            <span>
+              <strong>In progress</strong>
+              <small>Attach without restarting the turn</small>
+            </span>
+            <span>{activeSessions.length}</span>
+          </div>
+          <div className="session-list">
+            {activeSessions.map(session => (
+              <LiveSessionRow
+                key={session.id}
+                onActiveSession={onActiveSession}
+                selected={
+                  session.id === selectedSessionId ||
+                  Boolean(session.session_key && session.session_key === selectedSessionId)
+                }
+                session={session}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       <nav className="session-project-browser" aria-label="Session projects">

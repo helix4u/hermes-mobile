@@ -121,6 +121,7 @@ export function usePetCompanion({
     [basePersonality, personalityOverrides],
   )
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
+  const [petRevision, setPetRevision] = useState(0)
   const [hostCapabilities, setHostCapabilities] =
     useState<PetHostCapabilities>(VISUAL_ONLY_PET_HOST_CAPABILITIES)
   const [error, setError] = useState('')
@@ -528,10 +529,11 @@ export function usePetCompanion({
           personalities[0]
         setInfo(
           nextInfo.enabled &&
-            nextInfo.slug === 'alien-child' &&
-            Boolean(nextInfo.spritesheetBase64)
+            Boolean(nextInfo.spritesheetBase64 || nextInfo.spritesheetUrl)
             ? nextInfo
-            : BUILTIN_ALIEN_CHILD_INFO,
+            : infoResult.status === 'fulfilled'
+              ? { ...BUILTIN_ALIEN_CHILD_INFO, enabled: nextInfo.enabled }
+              : BUILTIN_ALIEN_CHILD_INFO,
         )
         setCatalog(personalities)
         setHostCapabilities(
@@ -572,6 +574,7 @@ export function usePetCompanion({
     connected,
     gateway,
     preferences.personalitySlug,
+    petRevision,
     profile,
     updatePreferences,
   ])
@@ -738,6 +741,17 @@ export function usePetCompanion({
     transcript,
     beginPendingPetWork,
   ])
+
+  const refreshInfo = useCallback(() => {
+    setPetRevision(current => current + 1)
+  }, [])
+
+  useEffect(() => {
+    if (!gateway) return
+    return gateway.onEvent(event => {
+      if (event.type === 'pet.changed') refreshInfo()
+    })
+  }, [gateway, refreshInfo])
 
   useEffect(() => {
     generateCommentaryRef.current = generateCommentary
@@ -1115,6 +1129,7 @@ export function usePetCompanion({
     ),
     preferences,
     previewVoice,
+    refreshInfo,
     refreshDesktopSpeech,
     speech,
     sidechat: {

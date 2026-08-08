@@ -45,6 +45,25 @@ export interface SessionListResult {
   sessions: SessionSummary[]
 }
 
+export type LiveSessionStatus = 'waiting' | 'starting' | 'working' | 'idle'
+
+export interface LiveSessionSummary {
+  id: string
+  session_key?: string | null
+  title?: string | null
+  preview?: string | null
+  started_at?: number
+  last_active?: number
+  message_count?: number
+  model?: string | null
+  status: LiveSessionStatus | string
+  current?: boolean
+}
+
+export interface ActiveSessionListResult {
+  sessions: LiveSessionSummary[]
+}
+
 export interface SessionProjectGroup {
   id: string
   label: string
@@ -98,6 +117,16 @@ export interface SessionCreateResult {
 }
 
 export interface SessionResumeResult extends SessionCreateResult {}
+
+export interface SessionActivateResult {
+  session_id: string
+  session_key?: string | null
+  message_count: number
+  messages: unknown[]
+  running?: boolean
+  status?: string
+  info?: SessionCreateResult['info']
+}
 
 export interface GatewayEvent<T = Record<string, unknown>> {
   type: string

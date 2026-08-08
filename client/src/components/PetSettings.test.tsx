@@ -29,6 +29,7 @@ function renderPetSettings(
       onPreferences: () => undefined,
       onPersonalityChange: () => undefined,
       onPersonalityReset: () => undefined,
+      onPetChanged: () => undefined,
       onPreviewVoice: () => undefined,
       onRefreshDesktopSpeech: () => undefined,
       onTest: () => undefined,

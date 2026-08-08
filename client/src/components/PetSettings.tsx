@@ -15,6 +15,7 @@ import type { HermesTransport } from '../transport/hermes-transport'
 import { DEFAULT_XAI_TTS_SELECTION } from '../reader'
 import { useVoiceCatalog } from './useVoiceCatalog'
 import { XaiTtsControls } from './XaiTtsControls'
+import { PetDexPanel } from './PetDexPanel'
 
 interface ModelProvider {
   slug: string
@@ -54,6 +55,7 @@ interface PetSettingsProps {
   onPersonalityChange: (patch: Partial<PetPersonalityOverride>) => void
   onPersonalityReset: () => void
   onPreviewVoice: () => void
+  onPetChanged: () => void | Promise<void>
   onRefreshDesktopSpeech: () => void | Promise<void>
   onTest: () => void | Promise<void>
 }
@@ -75,6 +77,7 @@ export function PetSettings({
   onPreferences,
   onPersonalityChange,
   onPersonalityReset,
+  onPetChanged,
   onPreviewVoice,
   onRefreshDesktopSpeech,
   onTest,
@@ -279,6 +282,7 @@ export function PetSettings({
           />
           <span>Let the pet walk around</span>
         </label>
+        <PetDexPanel gateway={gateway} profile={profile} onChanged={onPetChanged} />
         {hostCapabilities.commentary && (
           <label className="toggle-row">
             <input

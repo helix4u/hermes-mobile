@@ -4,12 +4,15 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
   clampPetBubbleLeft,
+  MAX_PET_JUMP_DURATION_MS,
   MIN_PET_ROAM_SPEED,
   MobilePet,
   nextPetRoamStep,
   PET_ROAM_BORDER_INSET,
   petPositionAtAnimationTime,
   petPositionFromPointer,
+  petPerchesFromRects,
+  petWalkSpeed,
   resolvePetViewport,
   settlePetRoamAnimation,
 } from './MobilePet'
@@ -45,10 +48,10 @@ describe('mobile pet roaming', () => {
     expect((longDistance / long.durationMs) * 1_000).toBeGreaterThanOrEqual(
       MIN_PET_ROAM_SPEED - 0.01,
     )
-    expect(short.restMs).toBeGreaterThanOrEqual(4_000)
-    expect(short.restMs).toBeLessThanOrEqual(15_000)
-    expect(long.restMs).toBeGreaterThanOrEqual(4_000)
-    expect(long.restMs).toBeLessThanOrEqual(15_000)
+    expect(short.restMs).toBeGreaterThanOrEqual(1_200)
+    expect(short.restMs).toBeLessThanOrEqual(4_800)
+    expect(long.restMs).toBeGreaterThanOrEqual(1_200)
+    expect(long.restMs).toBeLessThanOrEqual(4_800)
     expect(longDistance).toBeGreaterThan(shortDistance)
   })
 
@@ -236,6 +239,67 @@ describe('mobile pet roaming', () => {
         { x: 22, y: 28 },
       ),
     ).toEqual({ x: 244, y: 256 })
+  })
+
+  it('paces every walk to the sprite cadence while retaining a normal speed floor', () => {
+    expect(petWalkSpeed(2_000)).toBe(MIN_PET_ROAM_SPEED)
+    expect(petWalkSpeed(600)).toBeCloseTo(96)
+    expect(petWalkSpeed(100)).toBe(128)
+  })
+
+  it('discovers visible element tops as walkable perches', () => {
+    expect(
+      petPerchesFromRects(
+        [
+          { left: 20, right: 340, top: 520, bottom: 600, width: 320 },
+          { left: 10, right: 50, top: 400, bottom: 440, width: 40 },
+          { left: 20, right: 340, top: 30, bottom: 90, width: 320 },
+        ],
+        { height: 700, left: 0, top: 0, width: 360 },
+      ),
+    ).toEqual([{ left: 20, right: 340, top: 520 }])
+  })
+
+  it('can land flush on a discovered UI perch', () => {
+    const values = [0.2, 0.4, 0.8, 0.6, 0.8, 0.5, 0.5]
+    const step = nextPetRoamStep(
+      { x: 80, y: 400 },
+      { height: 700, width: 360 },
+      () => values.shift() ?? 0.8,
+      [{ left: 40, right: 320, top: 540 }],
+      80,
+    )
+    expect(step.destination.y).toBe(540 - 72)
+    expect(step.destination.x).toBeGreaterThanOrEqual(48)
+    expect(step.destination.x).toBeLessThanOrEqual(190)
+    expect(step.motion).toBe('jump')
+    expect(step.durationMs).toBeLessThanOrEqual(MAX_PET_JUMP_DURATION_MS)
+  })
+
+  it('walks ordinary vertical roaming instead of looping the jump sprite', () => {
+    const values = [0.9, 0.8, 0.9, 0.7, 0.1, 0.5]
+    const step = nextPetRoamStep(
+      { x: 140, y: 700 },
+      { height: 800, width: 360 },
+      () => values.shift() ?? 0.5,
+    )
+
+    expect(Math.abs(step.destination.y - 700)).toBeGreaterThan(250)
+    expect(step.motion).toBe('walk')
+  })
+
+  it('ignores a distant perch until normal roaming brings the pet near it', () => {
+    const values = [0.2, 0.4, 0.8, 0.6, 0.8, 0.5, 0.5]
+    const step = nextPetRoamStep(
+      { x: 40, y: 180 },
+      { height: 700, width: 360 },
+      () => values.shift() ?? 0.8,
+      [{ left: 40, right: 320, top: 540 }],
+      80,
+    )
+
+    expect(step.destination.y).not.toBe(540 - 72)
+    expect(step.motion).toBe('walk')
   })
 
   it('uses the visual viewport as the pet coordinate authority', () => {

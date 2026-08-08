@@ -88,6 +88,7 @@ interface ControlPanelProps {
     onPersonalityChange: (patch: Partial<PetPersonalityOverride>) => void
     onPersonalityReset: () => void
     onPreviewVoice: () => void
+    onPetChanged: () => void | Promise<void>
     onRefreshDesktopSpeech: () => void | Promise<void>
     onTest: () => void | Promise<void>
   }
@@ -576,6 +577,7 @@ export function ControlPanel({
           onPersonalityChange={pet.onPersonalityChange}
           onPersonalityReset={pet.onPersonalityReset}
           onPreviewVoice={pet.onPreviewVoice}
+          onPetChanged={pet.onPetChanged}
           onRefreshDesktopSpeech={pet.onRefreshDesktopSpeech}
           onTest={pet.onTest}
         />
@@ -742,6 +744,7 @@ export function ControlPanel({
         onPersonalityChange={pet.onPersonalityChange}
         onPersonalityReset={pet.onPersonalityReset}
         onPreviewVoice={pet.onPreviewVoice}
+        onPetChanged={pet.onPetChanged}
         onRefreshDesktopSpeech={pet.onRefreshDesktopSpeech}
         onTest={pet.onTest}
       />

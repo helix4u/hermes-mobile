@@ -22,13 +22,16 @@ import { SupportOpsView } from './components/SupportOpsView'
 import { WorkspaceSheet } from './components/WorkspaceSheet'
 import { Transcript, type ToolDetailMode } from './components/Transcript'
 import type {
+  ActiveSessionListResult,
   GatewayConnectionState,
   GatewayEvent,
+  LiveSessionSummary,
   MobileCapabilities,
   ProjectSessionsResult,
   ProjectsTreeResult,
   ProjectTree,
   SessionCreateResult,
+  SessionActivateResult,
   SessionListResult,
   SessionSummary,
 } from './protocol/types'
@@ -126,10 +129,7 @@ import {
 } from './wake-word'
 import { markdownToSpeechText } from './markdown'
 import { petSidechatTranscriptPrompt, petTurnActiveAfterEvent } from './pet'
-import {
-  probeSupportOps,
-  type SupportOpsAvailability,
-} from './support-ops'
+import { probeSupportOps, type SupportOpsAvailability } from './support-ops'
 import {
   pinTranscriptToBottom,
   shouldFollowTranscriptAfterScroll,
@@ -244,6 +244,7 @@ export function App() {
   const [supportOpsAvailability, setSupportOpsAvailability] =
     useState<SupportOpsAvailability>('unknown')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [activeSessions, setActiveSessions] = useState<LiveSessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectTree[]>([])
   const [activeProjectId, setActiveProjectId] = useState('')
   const [projectDetail, setProjectDetail] = useState<ProjectTree | null>(null)
@@ -286,7 +287,9 @@ export function App() {
   const [petSidechatOpen, setPetSidechatOpen] = useState(false)
   const petSidechatTranscriptRef = useRef<((text: string) => void) | null>(null)
   const supportOpsTranscriptRef = useRef<((text: string) => void) | null>(null)
-  const petSidechatIntentRouterRef = useRef<(text: string) => boolean>(() => false)
+  const petSidechatIntentRouterRef = useRef<(text: string) => boolean>(
+    () => false,
+  )
   const [commandCatalog, setCommandCatalog] = useState<Array<[string, string]>>(
     [],
   )
@@ -361,9 +364,9 @@ export function App() {
 
   const activeSession = useMemo(
     () =>
-      sessions.find(session => session.id === selectedStoredId) ??
+      sessions.find((session) => session.id === selectedStoredId) ??
       projectSessionRows(projectDetail).find(
-        row => row.session.id === selectedStoredId,
+        (row) => row.session.id === selectedStoredId,
       )?.session ??
       null,
     [projectDetail, selectedStoredId, sessions],
@@ -372,7 +375,7 @@ export function App() {
     () =>
       [...transcript]
         .reverse()
-        .find(item => item.kind === 'assistant' && item.text?.trim())
+        .find((item) => item.kind === 'assistant' && item.text?.trim())
         ?.text?.trim() ?? '',
     [transcript],
   )
@@ -428,7 +431,7 @@ export function App() {
       petSidechatTranscriptRef.current(text)
       return
     }
-    setDraft(current => {
+    setDraft((current) => {
       const existing = current.trimEnd()
       return existing ? `${existing} ${text}` : text
     })
@@ -461,38 +464,36 @@ export function App() {
     activeSpeechId,
     playbackPaused,
   )
-  const {
-    cancelCapture: cancelWakeCapture,
-    status: wakeWordStatus,
-  } = useWakeWord({
-    appActive: appIsActive,
-    // Wake capture is useful during a live turn: pet-prefixed transcripts route
-    // to sidechat first, while ordinary requests use the per-connection active
-    // turn preference below.
-    available: !wakeReviewPending,
-    connected,
-    connectionId: connection.id,
-    enabled: wakeWordMode !== 'off',
-    getTransport,
-    nativeClient,
-    onDetected: () => {
-      setNotice('Hey Hermes heard. Say your request, then pause.')
-    },
-    onError: setError,
-    onNotice: setNotice,
-    onTranscript: text => {
-      if (petSidechatIntentRouterRef.current(text)) return
-      setActiveTab('chat')
-      if (wakeWordModeRef.current === 'send') {
-        void sendWakeTranscript(text)
-        return
-      }
-      setDraft(text)
-      setWakeReviewPending(true)
-      setNotice('Request transcribed. Review it or send it to Hermes.')
-    },
-    voicePhase,
-  })
+  const { cancelCapture: cancelWakeCapture, status: wakeWordStatus } =
+    useWakeWord({
+      appActive: appIsActive,
+      // Wake capture is useful during a live turn: pet-prefixed transcripts route
+      // to sidechat first, while ordinary requests use the per-connection active
+      // turn preference below.
+      available: !wakeReviewPending,
+      connected,
+      connectionId: connection.id,
+      enabled: wakeWordMode !== 'off',
+      getTransport,
+      nativeClient,
+      onDetected: () => {
+        setNotice('Hey Hermes heard. Say your request, then pause.')
+      },
+      onError: setError,
+      onNotice: setNotice,
+      onTranscript: (text) => {
+        if (petSidechatIntentRouterRef.current(text)) return
+        setActiveTab('chat')
+        if (wakeWordModeRef.current === 'send') {
+          void sendWakeTranscript(text)
+          return
+        }
+        setDraft(text)
+        setWakeReviewPending(true)
+        setNotice('Request transcribed. Review it or send it to Hermes.')
+      },
+      voicePhase,
+    })
   const pet = usePetCompanion({
     connected,
     connectionId: connection.id,
@@ -506,7 +507,7 @@ export function App() {
     transport: transportRef.current,
     turnActive,
   })
-  petSidechatIntentRouterRef.current = text => {
+  petSidechatIntentRouterRef.current = (text) => {
     const displayName =
       pet.personality?.displayName || pet.info.displayName || 'Pet'
     const routed = petSidechatTranscriptPrompt(
@@ -524,7 +525,7 @@ export function App() {
       setNotice(`${displayName} sidechat is ready. What do you want to ask?`)
       return true
     }
-    void pet.sidechat.send(routed.prompt).then(sent => {
+    void pet.sidechat.send(routed.prompt).then((sent) => {
       if (!sent) return
       setNotice(`Sent to ${displayName} sidechat.`)
     })
@@ -539,9 +540,7 @@ export function App() {
       if (event.type === 'message.complete') {
         pet.finishTurnCommentary()
       }
-      setTurnActive(current =>
-        petTurnActiveAfterEvent(current, event.type),
-      )
+      setTurnActive((current) => petTurnActiveAfterEvent(current, event.type))
       if (event.type === 'gateway.ready') {
         const payload =
           event.payload && typeof event.payload === 'object'
@@ -565,15 +564,11 @@ export function App() {
           }
         }
       }
-      setTranscript(current => reduceGatewayEvent(current, event))
+      setTranscript((current) => reduceGatewayEvent(current, event))
       if (!autoSpeakRef.current) return
       const delta = assistantDeltaText(event)
       if (delta) {
-        appendIncrementalSpeech(
-          delta,
-          'auto-response',
-          getDefaultTtsConfig(),
-        )
+        appendIncrementalSpeech(delta, 'auto-response', getDefaultTtsConfig())
         return
       }
       const text = completedAssistantText(event)
@@ -641,7 +636,7 @@ export function App() {
     if (!connected || preferredWorkspace || !transportRef.current) return
     void transportRef.current
       .requestJson<{ cwd?: string }>('/api/fs/default-cwd')
-      .then(result => {
+      .then((result) => {
         const cwd = String(result.cwd || '').trim()
         if (!cwd) return
         setPreferredWorkspace(cwd)
@@ -662,16 +657,16 @@ export function App() {
   useEffect(() => {
     if (!nativeClient) return
     void Promise.allSettled([
-      HermesNative.cloudStatus().then(status =>
+      HermesNative.cloudStatus().then((status) =>
         setCloudSignedIn(status.signedIn),
       ),
       HermesNative.listCredentialIds().then(({ connectionIds }) => {
-        const known = new Set(loadConnections().map(row => row.id))
+        const known = new Set(loadConnections().map((row) => row.id))
         setOrphanCredentialIds(
-          (connectionIds ?? []).filter(id => !known.has(id)),
+          (connectionIds ?? []).filter((id) => !known.has(id)),
         )
       }),
-    ]).then(results => {
+    ]).then((results) => {
       if (results[0].status === 'rejected') setCloudSignedIn(false)
     })
   }, [nativeClient])
@@ -685,7 +680,7 @@ export function App() {
       setPendingShare(share)
     }
     void HermesNative.addListener('shareReceived', receiveShare).then(
-      handle => {
+      (handle) => {
         if (disposed) {
           void handle.remove()
           return
@@ -694,7 +689,7 @@ export function App() {
       },
     )
     void HermesNative.getPendingShare()
-      .then(result => {
+      .then((result) => {
         if (result.share) receiveShare(result.share)
       })
       .catch(() => undefined)
@@ -736,7 +731,7 @@ export function App() {
       setAppIsActive(true)
       void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
         onActive(isActive)
-      }).then(handle => {
+      }).then((handle) => {
         if (disposed) {
           void handle.remove()
           return
@@ -851,8 +846,7 @@ export function App() {
   const handleTranscriptScroll = useCallback(() => {
     const node = transcriptRef.current
     if (!node) return
-    const manualScroll =
-      Date.now() <= transcriptManualScrollUntilRef.current
+    const manualScroll = Date.now() <= transcriptManualScrollUntilRef.current
     transcriptFollowRef.current = shouldFollowTranscriptAfterScroll({
       clientHeight: node.clientHeight,
       manualScroll,
@@ -900,13 +894,13 @@ export function App() {
           items?: Array<{ text?: string; display?: string; meta?: string }>
           replace_from?: number
         }>('complete.slash', { text })
-        .then(result => {
+        .then((result) => {
           if (cancelled) return
           const replaceFrom =
             typeof result.replace_from === 'number' ? result.replace_from : 1
           const prefix = replaceFrom > 1 ? text.slice(0, replaceFrom) : ''
           setLiveSuggestions(
-            (result.items ?? []).map(item => {
+            (result.items ?? []).map((item) => {
               const raw = String(item.text ?? '')
               const completion = replaceFrom > 1 ? `${prefix}${raw}` : raw
               const normalized = completion.startsWith('/')
@@ -992,7 +986,7 @@ export function App() {
         runtimeSessionIdRef.current = result.resumed.session_id
         setSelectedStoredId(storedId)
         setRuntimeSessionId(result.resumed.session_id)
-        setTranscript(current =>
+        setTranscript((current) =>
           mergeResumedTranscript(current, result.messages ?? []),
         )
       }
@@ -1002,7 +996,7 @@ export function App() {
           refreshSessions(transport, activeConnection.profile),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
-          probeSupportOps(transport).then(result => {
+          probeSupportOps(transport).then((result) => {
             if (result !== 'unknown') setSupportOpsAvailability(result)
           }),
         ])
@@ -1115,16 +1109,16 @@ export function App() {
         clearReconnectTimer()
         reconnectAttemptRef.current = 0
         if (transport.kind === 'native' && activeTarget.token) {
-          setConnection(current => ({ ...current, token: '' }))
+          setConnection((current) => ({ ...current, token: '' }))
         }
-        setOrphanCredentialIds(current =>
-          current.filter(id => id !== activeTarget.id),
+        setOrphanCredentialIds((current) =>
+          current.filter((id) => id !== activeTarget.id),
         )
         await Promise.all([
           refreshSessions(transport, activeTarget.profile),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
-          probeSupportOps(transport).then(result => {
+          probeSupportOps(transport).then((result) => {
             if (result !== 'unknown') setSupportOpsAvailability(result)
           }),
         ])
@@ -1152,15 +1146,20 @@ export function App() {
     profile = connection.profile,
   ): Promise<void> {
     if (!transport) return
-    const result = await transport.gateway.request<SessionListResult>(
-      'session.list',
-      {
+    const [result, liveResult] = await Promise.all([
+      transport.gateway.request<SessionListResult>('session.list', {
         profile: profile === 'default' ? '' : profile,
         limit: 100,
-      },
-    )
+      }),
+      transport.gateway
+        .request<ActiveSessionListResult>('session.active_list', {
+          current_session_id: runtimeSessionIdRef.current,
+        })
+        .catch(() => null),
+    ])
     if (transportRef.current !== transport) return
     setSessions(result.sessions ?? [])
+    if (liveResult) setActiveSessions(liveResult.sessions ?? [])
     if (profile !== 'default') {
       setProjects([])
       setActiveProjectId('')
@@ -1174,7 +1173,7 @@ export function App() {
         preview_limit: 0,
         session_limit: 2000,
       })
-      .then(projectResult => {
+      .then((projectResult) => {
         if (transportRef.current !== transport) return
         setProjects(projectResult.projects ?? [])
         if (projectId) void selectProject(projectId, transport)
@@ -1394,6 +1393,7 @@ export function App() {
     setWorkspaceOpen(false)
     setTranscript([])
     setSessions([])
+    setActiveSessions([])
     setProjects([])
     setActiveProjectId('')
     setProjectDetail(null)
@@ -1477,8 +1477,8 @@ export function App() {
     }
     if (nativeClient) {
       await HermesNative.removeCredential({ connectionId: saved.id })
-      setOrphanCredentialIds(current =>
-        current.filter(connectionId => connectionId !== saved.id),
+      setOrphanCredentialIds((current) =>
+        current.filter((connectionId) => connectionId !== saved.id),
       )
     }
     const remaining = removeConnection(saved.id)
@@ -1559,7 +1559,7 @@ export function App() {
           connection.id,
           session.id,
         )
-      setTranscript(current => {
+      setTranscript((current) => {
         if (cached) return mergeResumedTranscript(cached, messages)
         return previousStoredId && previousStoredId === storedId
           ? mergeResumedTranscript(current, messages)
@@ -1603,11 +1603,9 @@ export function App() {
       selectedStoredIdRef.current = storedId
       setRuntimeSessionId(resumed.session_id)
       setSelectedStoredId(storedId)
-      setSessionCwd(
-        resumed.info?.cwd || preferredWorkspace,
-      )
+      setSessionCwd(resumed.info?.cwd || preferredWorkspace)
       if (resumed.messages?.length) {
-        setTranscript(current =>
+        setTranscript((current) =>
           mergeResumedTranscript(current, resumed.messages ?? []),
         )
       }
@@ -1631,7 +1629,7 @@ export function App() {
 
   function appendSystem(text: string) {
     if (!text.trim()) return
-    setTranscript(current => [
+    setTranscript((current) => [
       ...current,
       {
         id: `system-${Date.now()}-${current.length}`,
@@ -1784,7 +1782,7 @@ export function App() {
         await runSlash(text)
       } else {
         const sessionId = await ensureSession(text)
-        setTranscript(current => [
+        setTranscript((current) => [
           ...current,
           {
             id: `user-${Date.now()}-${current.length}`,
@@ -1863,7 +1861,9 @@ export function App() {
           [key]: value,
         })
       }
-      setTranscript(current => markRequestAnswered(current, request.requestId))
+      setTranscript((current) =>
+        markRequestAnswered(current, request.requestId),
+      )
     } catch (responseError) {
       setError(
         responseError instanceof Error
@@ -1908,6 +1908,87 @@ export function App() {
     }
   }
 
+  async function refreshActiveSessions(
+    transport = transportRef.current,
+  ): Promise<void> {
+    if (!transport) return
+    try {
+      const result = await transport.gateway.request<ActiveSessionListResult>(
+        'session.active_list',
+        {
+          current_session_id: runtimeSessionIdRef.current,
+        },
+      )
+      if (transportRef.current !== transport) return
+      setActiveSessions(result.sessions ?? [])
+    } catch {
+      // Preserve the last authoritative snapshot across a transient reconnect.
+    }
+  }
+
+  async function selectActiveSession(
+    session: LiveSessionSummary,
+  ): Promise<string> {
+    const transport = transportRef.current
+    if (!transport) throw new Error('Connect to Hermes first')
+    const selectionEpoch = ++sessionSelectionEpochRef.current
+    const connectionId = connectionRef.current.id
+    const previousRuntimeId = runtimeSessionIdRef.current
+    const selectionIsCurrent = () =>
+      sessionSelectionEpochRef.current === selectionEpoch &&
+      transportRef.current === transport &&
+      connectionRef.current.id === connectionId
+    setBusy(true)
+    setError('')
+    transcriptFollowRef.current = true
+    try {
+      const activated = await transport.gateway.request<SessionActivateResult>(
+        'session.activate',
+        { session_id: session.id, cols: 100 },
+      )
+      if (!selectionIsCurrent()) return ''
+      const storedId = activated.session_key || session.session_key || ''
+      runtimeSessionIdRef.current = activated.session_id
+      selectedStoredIdRef.current = storedId
+      setRuntimeSessionId(activated.session_id)
+      setSelectedStoredId(storedId)
+      setSessionCwd(activated.info?.cwd || preferredWorkspace)
+      const cached = storedId
+        ? readCachedTranscript(
+            transcriptCacheRef.current,
+            connection.id,
+            storedId,
+          )
+        : null
+      setTranscript((current) =>
+        cached
+          ? mergeResumedTranscript(cached, activated.messages ?? [])
+          : current.length && previousRuntimeId === session.id
+            ? mergeResumedTranscript(current, activated.messages ?? [])
+            : historyToTranscript(activated.messages ?? []),
+      )
+      setTurnActive(
+        Boolean(activated.running) ||
+          ['starting', 'working', 'waiting'].includes(
+            activated.status || session.status,
+          ),
+      )
+      setActiveTab('chat')
+      void refreshSessions(transport)
+      return activated.session_id
+    } catch (activateError) {
+      if (!selectionIsCurrent()) return ''
+      setError(
+        activateError instanceof Error
+          ? activateError.message
+          : String(activateError),
+      )
+      throw activateError
+    } finally {
+      if (selectionIsCurrent()) setBusy(false)
+    }
+  }
+
   function changeActiveTurnInputMode(mode: ActiveTurnInputMode) {
     setActiveTurnInputMode(mode)
     persistActiveTurnInputMode(connection.id, mode)
@@ -1946,8 +2027,8 @@ export function App() {
       })
       resolved = info.cwd || path
       setSessionCwd(resolved)
-      setSessions(current =>
-        current.map(session =>
+      setSessions((current) =>
+        current.map((session) =>
           session.id === selectedStoredIdRef.current
             ? { ...session, cwd: resolved, git_branch: info.branch }
             : session,
@@ -2023,7 +2104,7 @@ export function App() {
         setSessionCwd(created.info?.cwd || destination.cwd)
         setTranscript(historyToTranscript(created.messages ?? []))
       } else {
-        const session = sessions.find(row => row.id === destination.sessionId)
+        const session = sessions.find((row) => row.id === destination.sessionId)
         if (!session) {
           throw new Error('The selected session is no longer available')
         }
@@ -2060,7 +2141,7 @@ export function App() {
               .filter(Boolean)
               .join('\n\n')
           : promptText
-      setTranscript(current => [
+      setTranscript((current) => [
         ...current,
         {
           id: `user-${Date.now()}-${current.length}`,
@@ -2104,6 +2185,18 @@ export function App() {
     if (activeTab === 'support' && !supportOpsAvailable) setActiveTab('chat')
   }, [activeTab, supportOpsAvailable])
 
+  useEffect(() => {
+    if (!connected || activeTab !== 'sessions') return
+    const transport = transportRef.current
+    if (!transport) return
+    void refreshActiveSessions(transport)
+    const timer = window.setInterval(
+      () => void refreshActiveSessions(transport),
+      5_000,
+    )
+    return () => window.clearInterval(timer)
+  }, [activeTab, connected, connection.id])
+
   return (
     <EmbedPreferencesProvider connectionId={connection.id}>
       <main className="app-shell">
@@ -2126,9 +2219,7 @@ export function App() {
             onClick={() => setConnectionOpen(true)}
           >
             <span className="host-dot" />
-            <span>
-              {hostConnection.label}
-            </span>
+            <span>{hostConnection.label}</span>
             <span className="host-chevron">⌄</span>
           </button>
         </header>
@@ -2198,7 +2289,7 @@ export function App() {
                   aria-label="Wake word behavior"
                   disabled={!nativeClient}
                   value={wakeWordMode}
-                  onChange={event =>
+                  onChange={(event) =>
                     changeWakeWordMode(event.target.value as WakeWordMode)
                   }
                 >
@@ -2212,7 +2303,7 @@ export function App() {
                 <select
                   aria-label="Automatic reply playback"
                   value={autoSpeak ? 'auto' : 'manual'}
-                  onChange={event =>
+                  onChange={(event) =>
                     changeAutoSpeak(event.target.value === 'auto')
                   }
                 >
@@ -2225,7 +2316,7 @@ export function App() {
                 <select
                   aria-label="Active turn input behavior"
                   value={activeTurnInputMode}
-                  onChange={event =>
+                  onChange={(event) =>
                     changeActiveTurnInputMode(
                       event.target.value as ActiveTurnInputMode,
                     )
@@ -2253,7 +2344,7 @@ export function App() {
                 toolDetailMode={toolDetailMode}
                 transport={transportRef.current}
                 voicePhase={voicePhase}
-                onOpenDocumentPreviewer={document => {
+                onOpenDocumentPreviewer={(document) => {
                   setReaderImport({
                     document,
                     id: Date.now(),
@@ -2261,7 +2352,7 @@ export function App() {
                   })
                   setActiveTab('reader')
                 }}
-                onOpenDocumentReader={document => {
+                onOpenDocumentReader={(document) => {
                   setReaderImport({
                     document,
                     id: Date.now(),
@@ -2289,7 +2380,11 @@ export function App() {
               />
             </div>
 
-            <form className="composer" onSubmit={event => void submit(event)}>
+            <form
+              className="composer"
+              data-pet-perch
+              onSubmit={(event) => void submit(event)}
+            >
               {wakeReviewPending && (
                 <div className="wake-review" role="status">
                   <div>
@@ -2320,7 +2415,7 @@ export function App() {
               )}
               {commandSuggestions.length > 0 && (
                 <div className="command-suggestions">
-                  {commandSuggestions.map(suggestion => (
+                  {commandSuggestions.map((suggestion) => (
                     <button
                       key={`${suggestion.text}-${suggestion.display}`}
                       type="button"
@@ -2338,8 +2433,8 @@ export function App() {
                     wakeCaptureActive
                       ? 'Cancel wake request recording'
                       : voicePhase === 'recording'
-                      ? 'Stop recording and transcribe'
-                      : 'Record a voice message'
+                        ? 'Stop recording and transcribe'
+                        : 'Record a voice message'
                   }
                   className={`voice-button ${
                     wakeCaptureActive || voicePhase === 'recording'
@@ -2370,8 +2465,8 @@ export function App() {
                   }
                   rows={1}
                   value={draft}
-                  onChange={event => setDraft(event.target.value)}
-                  onKeyDown={event => {
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
                     if (
                       event.key === 'Enter' &&
                       !event.shiftKey &&
@@ -2397,19 +2492,19 @@ export function App() {
                     ? 'Listening for your request, pause when finished'
                     : wakeTranscribing
                       ? 'Hermes is transcribing your wake request'
-                    : voicePhase === 'recording'
-                    ? 'Recording, tap stop to transcribe'
-                    : voicePhase === 'transcribing'
-                      ? 'Hermes is transcribing'
-                      : playbackPaused && activeSpeechId === 'reader'
-                        ? 'Reader paused, microphone remains available'
-                      : voicePhase === 'synthesizing'
-                        ? 'Hermes is preparing reply audio'
-                        : voicePhase === 'speaking'
-                          ? 'Playing reply audio'
-                          : runtimeSessionId
-                            ? 'Session attached'
-                            : 'Creates on send'}
+                      : voicePhase === 'recording'
+                        ? 'Recording, tap stop to transcribe'
+                        : voicePhase === 'transcribing'
+                          ? 'Hermes is transcribing'
+                          : playbackPaused && activeSpeechId === 'reader'
+                            ? 'Reader paused, microphone remains available'
+                            : voicePhase === 'synthesizing'
+                              ? 'Hermes is preparing reply audio'
+                              : voicePhase === 'speaking'
+                                ? 'Playing reply audio'
+                                : runtimeSessionId
+                                  ? 'Session attached'
+                                  : 'Creates on send'}
                 </span>
                 {voicePhase === 'speaking' || voicePhase === 'synthesizing' ? (
                   <button
@@ -2432,6 +2527,7 @@ export function App() {
             }`}
           >
             <SessionsView
+              activeSessions={activeSessions}
               activeProjectId={activeProjectId}
               connected={connected}
               profile={connection.profile}
@@ -2441,9 +2537,12 @@ export function App() {
               selectedSessionId={selectedStoredId}
               sessions={sessions}
               onNewSession={startDraft}
+              onActiveSession={async (session) => {
+                await selectActiveSession(session)
+              }}
               onProject={selectProject}
               onRefresh={() => refreshSessions()}
-              onSession={async session => {
+              onSession={async (session) => {
                 await selectSession(session)
               }}
             />
@@ -2490,7 +2589,7 @@ export function App() {
                 preferredWorkspace
               }
               transport={transportRef.current}
-              onOpenInPreviewer={document => {
+              onOpenInPreviewer={(document) => {
                 setReaderImport({
                   document,
                   id: Date.now(),
@@ -2498,7 +2597,7 @@ export function App() {
                 })
                 setActiveTab('reader')
               }}
-              onOpenInReader={document => {
+              onOpenInReader={(document) => {
                 setReaderImport({
                   document,
                   id: Date.now(),
@@ -2506,7 +2605,7 @@ export function App() {
                 })
                 setActiveTab('reader')
               }}
-              onUseAsWorkspace={path => applySessionWorkspace(path)}
+              onUseAsWorkspace={(path) => applySessionWorkspace(path)}
             />
           </section>
 
@@ -2524,11 +2623,17 @@ export function App() {
                 transport={transportRef.current}
                 onError={setError}
                 onNotice={setNotice}
-                onVoiceInput={target => {
+                onStartSession={async (prompt) => {
+                  startDraft()
+                  const sent = await sendTextToHermes(prompt)
+                  if (!sent)
+                    throw new Error('Could not start the investigation session')
+                }}
+                onVoiceInput={(target) => {
                   supportOpsTranscriptRef.current = target
                   toggleRecording()
                 }}
-                onOpenDocumentPreviewer={document => {
+                onOpenDocumentPreviewer={(document) => {
                   setReaderImport({
                     document,
                     id: Date.now(),
@@ -2536,7 +2641,7 @@ export function App() {
                   })
                   setActiveTab('reader')
                 }}
-                onOpenDocumentReader={document => {
+                onOpenDocumentReader={(document) => {
                   setReaderImport({
                     document,
                     id: Date.now(),
@@ -2586,6 +2691,7 @@ export function App() {
                 onPreferences: pet.updatePreferences,
                 onPersonalityChange: pet.updatePersonality,
                 onPersonalityReset: pet.resetPersonality,
+                onPetChanged: pet.refreshInfo,
                 onPreviewVoice: pet.previewVoice,
                 onRefreshDesktopSpeech: pet.refreshDesktopSpeech,
                 onTest: pet.generateCommentary,
@@ -2618,6 +2724,7 @@ export function App() {
         </div>
 
         <nav
+          data-pet-perch
           className={`bottom-nav ${supportOpsAvailable ? 'support-enabled' : ''}`}
           aria-label="Primary"
         >
@@ -2637,7 +2744,7 @@ export function App() {
               className={activeTab === tab ? 'active' : ''}
               key={tab}
               onClick={() => {
-                if (tab === 'control') setControlVisit(value => value + 1)
+                if (tab === 'control') setControlVisit((value) => value + 1)
                 setActiveTab(tab)
               }}
             >
@@ -2683,7 +2790,7 @@ export function App() {
           stacked
           title="Choose new-session workspace"
           transport={transportRef.current}
-          onApply={async path => {
+          onApply={async (path) => {
             setShareWorkspace(path)
           }}
           onClose={() => setShareWorkspaceOpen(false)}
@@ -2714,7 +2821,7 @@ export function App() {
           onEditConnection={editSavedConnection}
           onNewDirect={newDirectConnection}
           onSaveConnection={saveEditedConnection}
-          onSavedConnection={async saved => {
+          onSavedConnection={async (saved) => {
             await switchSavedConnection(saved)
           }}
         />
@@ -2729,9 +2836,9 @@ export function App() {
         onLoad={pet.sidechat.load}
         onReset={pet.sidechat.reset}
         onSend={pet.sidechat.send}
-        onSendToHermes={text => setDraft(text)}
+        onSendToHermes={(text) => setDraft(text)}
         onToggleRecording={toggleRecording}
-        onTranscriptTarget={target => {
+        onTranscriptTarget={(target) => {
           petSidechatTranscriptRef.current = target
         }}
         voicePhase={voicePhase}

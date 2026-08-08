@@ -176,10 +176,20 @@ Synchronize Capacitor and build the debug APK:
 
 ```text
 npm run android:sync --workspace @hermes-mobile/client
+pwsh -File scripts/ensure-android-signing.ps1
 cd client\android
 set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr
 gradlew.bat assembleDebug
 ```
+
+`ensure-android-signing.ps1` gives local debug builds one dedicated signing
+identity under `%LOCALAPPDATA%\hermes-mobile-signing` and writes an ignored
+`client\android\signing.properties` file. The initial key is copied from the
+current user's normal Android debug key, then retained independently so a later
+Android SDK or user-profile change does not make the next APK incompatible.
+The signing directory is current-user-only and includes an initial local backup.
+Back up that directory outside the workstation as part of normal developer-key
+recovery planning. Never commit the keystore or `signing.properties`.
 
 The APK is written to:
 
@@ -196,6 +206,36 @@ adb -s <device-serial> install -r client\android\app\build\outputs\apk\debug\app
 
 `-r` preserves the app's stored connection registry and Android Keystore
 credentials.
+
+### Migrate an installation with a lost signing key
+
+If Android rejects `install -r` with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, do
+not uninstall the existing package before preserving its state. A full Android
+uninstall removes the non-exportable Keystore key that protects saved bearer
+tokens. The guarded migration script backs up ordinary app state, rehearses the
+filtered restore under the current app UID, pulls the installed APK for code
+rollback, and only then replaces the package:
+
+```text
+pwsh -File scripts/migrate-android-install.ps1 \
+  -Device <adb-endpoint-or-serial> \
+  -ExpectedSerial <physical-device-serial> \
+  -BackupOnly
+
+pwsh -File scripts/migrate-android-install.ps1 \
+  -Device <adb-endpoint-or-serial> \
+  -ExpectedSerial <physical-device-serial> \
+  -AllowCredentialReset \
+  -Confirm:$false
+```
+
+Backups are written beneath `%LOCALAPPDATA%\hermes-mobile-backups` with a
+current-user-only ACL. They include WebView local storage, cookies, ordinary
+files, and non-secret native preferences. The restore archive deliberately
+excludes `hermes_mobile_secure_v1.xml`; copied credential ciphertext cannot be
+decrypted after Android removes the old Keystore identity. Connection
+definitions and UI settings return, but bearer tokens must be entered again and
+cookie-backed accounts may require sign-in. The script never prints a token.
 
 ## Reconnect a paired Wireless debugging device
 

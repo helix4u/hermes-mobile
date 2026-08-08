@@ -39,6 +39,42 @@ export interface SupportQueuePayload {
   threads?: SupportQueueThread[]
 }
 
+export interface SupportStatsDay {
+  date?: string
+  opened?: number
+  closed?: number
+  net?: number
+}
+
+export interface SupportStatsBucket {
+  bucket?: string
+  label?: string
+  open_now?: number
+  total_threads?: number
+  open?: number
+  total?: number
+}
+
+export interface SupportStatsPayload {
+  generated_at?: string
+  totals?: {
+    all_threads?: number
+    open_now?: number
+    closed?: number
+    opened_last_7_days?: number
+    closed_last_7_days?: number
+  }
+  daily?: SupportStatsDay[]
+  buckets?: SupportStatsBucket[]
+  topic_buckets?: SupportStatsBucket[]
+  classification_health?: {
+    unclassified?: number
+    general_support?: number
+    archive_integrity?: { archive_gap?: number }
+  }
+  issue_clusters?: { cluster_count?: number }
+}
+
 export interface SupportMessage {
   message_id?: string
   author?: string
@@ -146,9 +182,13 @@ export async function probeSupportOps(
   transport: HermesTransport,
 ): Promise<SupportOpsAvailability> {
   try {
-    await transport.requestJson<SupportOpsHealth>(supportOpsPath('/health'), undefined, {
-      timeoutMs: 8_000,
-    })
+    await transport.requestJson<SupportOpsHealth>(
+      supportOpsPath('/health'),
+      undefined,
+      {
+        timeoutMs: 8_000,
+      },
+    )
     return 'available'
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -178,7 +218,7 @@ export function filterSupportThreads(
 ): SupportQueueThread[] {
   const needle = query.trim().toLowerCase()
   return rows
-    .filter(row => {
+    .filter((row) => {
       const matchesQuery =
         !needle ||
         [
@@ -186,7 +226,11 @@ export function filterSupportThreads(
           row.thread_id,
           row.topic_label,
           ...(row.participants ?? []),
-        ].some(value => String(value ?? '').toLowerCase().includes(needle))
+        ].some((value) =>
+          String(value ?? '')
+            .toLowerCase()
+            .includes(needle),
+        )
       if (!matchesQuery) return false
       if (filter === 'waiting_operator') return Boolean(row.waiting_on_operator)
       if (filter === 'waiting_support') return Boolean(row.waiting_on_support)
@@ -224,7 +268,8 @@ export function normalizeSupportMarkdown(
     .replace(/\r\n?/g, '\n')
     .replace(
       /^\[reply to\s+([^\]\s]+)\s+msg=(\d{17,20})\]\s*$/gim,
-      (_match, author) => `> Replying to **@${escapeMarkdownLabel(author, 'user')}**`,
+      (_match, author) =>
+        `> Replying to **@${escapeMarkdownLabel(author, 'user')}**`,
     )
     .replace(/<@&(\d{17,20})>/g, '**@role**')
     .replace(/<@!?(\d{17,20})>/g, (_match, userId) => {
@@ -245,4 +290,101 @@ export function plainSupportTitle(value: unknown): string {
     .replace(/__([^_]+)__/g, '$1')
     .replace(/[`*_~]/g, '')
     .trim()
+}
+
+function markdownSection(title: string, value: unknown): string {
+  const body = normalizeSupportMarkdown(value)
+  return body ? `## ${title}\n\n${body}` : ''
+}
+
+function supportTranscriptMarkdown(detail: SupportThreadDetail): string {
+  return (detail.messages ?? [])
+    .map((message) => {
+      const author = String(message.author || 'Unknown')
+      const timestamp = message.timestamp ? ` (${message.timestamp})` : ''
+      const body = normalizeSupportMarkdown(message.body, detail.mention_names)
+      return body ? `### ${author}${timestamp}\n\n${body}` : ''
+    })
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function supportAttachmentsMarkdown(detail: SupportThreadDetail): string {
+  return (detail.attachments ?? [])
+    .map((attachment) => {
+      const name = String(attachment.filename || 'attachment')
+      const location = String(
+        attachment.remote_url ||
+          attachment.media_path ||
+          attachment.local_path ||
+          '',
+      )
+      const status = attachment.download_error
+        ? `download error: ${attachment.download_error}`
+        : attachment.downloaded === false
+          ? 'not archived locally'
+          : ''
+      return `- ${name}${location ? `: ${location}` : ''}${status ? ` (${status})` : ''}`
+    })
+    .join('\n')
+}
+
+export function supportInvestigationPrompt(
+  detail: SupportThreadDetail,
+): string {
+  const workspace = detail.workspace ?? {}
+  const investigation = normalizeSupportMarkdown(workspace.investigation)
+  const operatorNotes = normalizeSupportMarkdown(workspace.operator_notes)
+  const ticket = normalizeSupportMarkdown(detail.ticket)
+  const transcript = supportTranscriptMarkdown(detail)
+  const attachments = supportAttachmentsMarkdown(detail)
+  return [
+    `Continue the support investigation for "${plainSupportTitle(detail.title) || detail.thread_id || 'this support thread'}" in a normal Hermes session.`,
+    `Thread ID: ${detail.thread_id || 'unknown'}`,
+    detail.discord_url ? `Discord reference: ${detail.discord_url}` : '',
+    'This is an operator workspace. Do not post to Discord or mutate external support state unless I explicitly ask in this session.',
+    investigation ? `\n## Existing investigation\n\n${investigation}` : '',
+    operatorNotes ? `\n## Operator notes\n\n${operatorNotes}` : '',
+    ticket ? `\n## Current ticket\n\n${ticket}` : '',
+    transcript ? `\n## Discord transcript\n\n${transcript}` : '',
+    attachments ? `\n## Attachments\n\n${attachments}` : '',
+    '\nReview the existing evidence, identify the next defensible action, and continue from there.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+export function supportHandoffMarkdown(detail: SupportThreadDetail): string {
+  const title =
+    plainSupportTitle(detail.title) || detail.thread_id || 'Support handoff'
+  const workspace = detail.workspace ?? {}
+  const transcript = supportTranscriptMarkdown(detail)
+  const attachments = supportAttachmentsMarkdown(detail)
+  return [
+    `# ${title}`,
+    `- Thread ID: ${detail.thread_id || 'unknown'}`,
+    detail.discord_url ? `- Discord: ${detail.discord_url}` : '',
+    `- Messages: ${detail.message_count ?? detail.messages?.length ?? 0}`,
+    `- Exported: ${new Date().toISOString()}`,
+    markdownSection('Workspace investigation', workspace.investigation),
+    markdownSection('Operator notes', workspace.operator_notes),
+    markdownSection('Suggested response', workspace.suggested_response),
+    markdownSection('Ticket', detail.ticket),
+    attachments ? `## Attachments\n\n${attachments}` : '',
+    transcript ? `## Discord transcript\n\n${transcript}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
+}
+
+export function supportHandoffFilename(detail: SupportThreadDetail): string {
+  const title =
+    plainSupportTitle(detail.title) || detail.thread_id || 'support-handoff'
+  const stem = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+  return `${stem || 'support-handoff'}-${detail.thread_id || 'thread'}.md`
 }

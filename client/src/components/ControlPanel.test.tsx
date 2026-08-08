@@ -61,6 +61,7 @@ describe('mobile Control settings disclosures', () => {
             onPreferences: () => {},
             onPersonalityChange: () => {},
             onPersonalityReset: () => {},
+            onPetChanged: () => {},
             onPreviewVoice: () => {},
             onRefreshDesktopSpeech: () => {},
             onTest: () => {},

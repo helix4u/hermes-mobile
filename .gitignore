@@ -4,6 +4,7 @@ client/dist/
 client/android/.gradle/
 client/android/app/build/
 client/android/local.properties
+client/android/signing.properties
 client/android/.idea/
 *.jks
 *.keystore
