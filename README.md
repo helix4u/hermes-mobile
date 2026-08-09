@@ -145,7 +145,8 @@ The APK is written to:
 client\android\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Native connections require HTTPS/WSS. A credential entered during connection
+Native remote connections require HTTPS/WSS. Same-phone loopback may use
+HTTP/WS only for `localhost`, `127.0.0.1`, or IPv6 loopback. A credential entered during connection
 setup is encrypted with an Android Keystore-backed AES-GCM key. Native HTTP and
 WebSocket traffic reads the credential inside Android code, exchanges it for a
 short-lived one-use WebSocket ticket, and does not retrieve it back into

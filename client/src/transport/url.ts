@@ -6,6 +6,20 @@ export interface ParsedHermesUrl {
   wsProtocol: 'ws:' | 'wss:'
 }
 
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', '[::1]', 'localhost'])
+
+export function isLoopbackHermesHost(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(hostname.toLowerCase())
+}
+
+function isBareLoopback(value: string): boolean {
+  try {
+    return isLoopbackHermesHost(new URL(`http://${value}`).hostname)
+  } catch {
+    return false
+  }
+}
+
 export function parseHermesUrl(value: string): ParsedHermesUrl {
   const trimmed = value.trim()
   if (!trimmed) {
@@ -14,11 +28,19 @@ export function parseHermesUrl(value: string): ParsedHermesUrl {
 
   const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)
     ? trimmed
-    : `https://${trimmed}`
+    : `${isBareLoopback(trimmed) ? 'http' : 'https'}://${trimmed}`
   const url = new URL(withProtocol)
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('Connection URL must use HTTP or HTTPS')
+  }
+  if (
+    url.protocol === 'http:' &&
+    !isLoopbackHermesHost(url.hostname)
+  ) {
+    throw new Error(
+      'HTTP is allowed only for a same-device loopback Hermes server',
+    )
   }
 
   url.username = ''

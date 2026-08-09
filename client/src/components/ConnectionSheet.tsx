@@ -250,8 +250,8 @@ export function ConnectionSheet(props: ConnectionSheetProps) {
               <div>
                 <h3>Connect a host</h3>
                 <p>
-                  Paste a Nous Cloud agent URL, or use an HTTPS address for a
-                  workstation or server.
+                  Use HTTPS for remote hosts. A Hermes server running in
+                  Termux on this phone can use HTTP loopback.
                 </p>
               </div>
             </div>
@@ -276,7 +276,7 @@ export function ConnectionSheet(props: ConnectionSheetProps) {
                     })
                   }
                 >
-                  <option value="direct">Direct HTTPS</option>
+                  <option value="direct">Direct or same-device</option>
                   <option value="tailnet">Tailnet HTTPS</option>
                 </select>
               </label>
@@ -308,6 +308,10 @@ export function ConnectionSheet(props: ConnectionSheetProps) {
                   })
                 }
               />
+              <small>
+                Same-phone Termux: http://127.0.0.1:PORT. Other hosts require
+                HTTPS.
+              </small>
             </label>
             <label>
               <span>Profile</span>

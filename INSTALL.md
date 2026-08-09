@@ -237,6 +237,27 @@ decrypted after Android removes the old Keystore identity. Connection
 definitions and UI settings return, but bearer tokens must be entered again and
 cookie-backed accounts may require sign-in. The script never prints a token.
 
+If a package was already uninstalled and a differently signed APK was opened
+before the dedicated build could be restored, the new package may have no
+credential envelope at all. After identifying a prior verified backup for the
+same physical device, adopt that blank install and restore the earlier ordinary
+state explicitly:
+
+```text
+pwsh -File scripts/migrate-android-install.ps1 \
+  -Device <adb-endpoint-or-serial> \
+  -ExpectedSerial <physical-device-serial> \
+  -RestoreFromBackup <verified-backup-directory> \
+  -AllowCredentialReset \
+  -AllowMissingCredentialEnvelope \
+  -Confirm:$false
+```
+
+The selected backup's device serial, manifest hash, filtered archive, local
+storage, and credential exclusion are revalidated before Android is changed.
+This switch is not a general guard bypass and is rejected without explicit
+credential-reset consent.
+
 ## Reconnect a paired Wireless debugging device
 
 Android owns the Wireless debugging switch and rotates its ADB TLS port. A
@@ -304,7 +325,8 @@ It must not print or return the session token. The user performs the explicit
 
 ## Current limits
 
-- Native mobile connections require HTTPS/WSS.
+- Native remote connections require HTTPS/WSS. Same-phone loopback may use
+  HTTP/WS only for `localhost`, `127.0.0.1`, or IPv6 loopback.
 - Tailscale Serve setup is tailnet-only, not public internet hosting.
 - The repository is an alpha side project and currently has no public release
   channel.

@@ -86,6 +86,42 @@ describe('connection registry', () => {
     )
   })
 
+  it('persists same-device Termux HTTP but rejects remote cleartext hosts', () => {
+    const storage = new MemoryStorage()
+    persistConnection(
+      {
+        id: 'termux',
+        name: 'This phone',
+        baseUrl: 'http://127.0.0.1:9129/',
+        profile: 'default',
+        token: 'keystore-only',
+        authMode: 'token',
+        connectionType: 'direct',
+      },
+      storage,
+    )
+
+    expect(loadConnection(storage)).toMatchObject({
+      id: 'termux',
+      baseUrl: 'http://127.0.0.1:9129',
+      token: '',
+    })
+    expect(() =>
+      persistConnection(
+        {
+          id: 'lan',
+          name: 'Unsafe LAN host',
+          baseUrl: 'http://192.168.1.50:9129',
+          profile: 'default',
+          token: '',
+          authMode: 'token',
+          connectionType: 'direct',
+        },
+        storage,
+      ),
+    ).toThrow('loopback HTTP URL')
+  })
+
   it('removes one host, its draft, and selects a remaining host', () => {
     const storage = new MemoryStorage()
     persistConnection(

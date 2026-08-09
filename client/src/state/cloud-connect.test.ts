@@ -14,7 +14,7 @@ const targetAgent: CloudAgent = {
   id: 'agent-mid-tier',
   name: 'Mr Mid Tier',
   status: 'running',
-  dashboardUrl: 'https://mr-mid-tier-2828.agents.nousresearch.com/',
+  dashboardUrl: 'https://example-agent-1234.agents.nousresearch.com/',
   dashboardGatewayState: 'available',
 }
 
@@ -45,25 +45,25 @@ describe('automatic Nous Cloud URL onboarding', () => {
   it('recognizes only HTTPS subdomains of the Nous agent domain', () => {
     expect(
       nousCloudAgentHostname(
-        'https://mr-mid-tier-2828.agents.nousresearch.com/',
+        'https://example-agent-1234.agents.nousresearch.com/',
       ),
-    ).toBe('mr-mid-tier-2828.agents.nousresearch.com')
+    ).toBe('example-agent-1234.agents.nousresearch.com')
     expect(
-      isNousCloudAgentUrl('mr-mid-tier-2828.agents.nousresearch.com'),
+      isNousCloudAgentUrl('example-agent-1234.agents.nousresearch.com'),
     ).toBe(true)
     expect(
       isNousCloudAgentUrl(
-        'https://mr-mid-tier-2828.agents.nousresearch.com.evil.example',
+        'https://example-agent-1234.agents.nousresearch.com.evil.example',
       ),
     ).toBe(false)
     expect(
       isNousCloudAgentUrl(
-        'http://mr-mid-tier-2828.agents.nousresearch.com',
+        'http://example-agent-1234.agents.nousresearch.com',
       ),
     ).toBe(false)
     expect(
       isNousCloudAgentUrl(
-        'https://user:password@mr-mid-tier-2828.agents.nousresearch.com',
+        'https://user:password@example-agent-1234.agents.nousresearch.com',
       ),
     ).toBe(false)
   })
@@ -72,7 +72,7 @@ describe('automatic Nous Cloud URL onboarding', () => {
     const native = bridge()
 
     const result = await resolveNousCloudAgent(
-      'https://mr-mid-tier-2828.agents.nousresearch.com/',
+      'https://example-agent-1234.agents.nousresearch.com/',
       native,
     )
 

@@ -991,7 +991,7 @@ public class HermesNativePlugin extends Plugin {
         }
 
         final String credential = credentialOrNull(connectionId);
-        final String httpUrl = url.replaceFirst("^wss:", "https:");
+        final String httpUrl = HermesConnectionUrlPolicy.websocketToHttp(url);
         if (credential == null && cookiesFor(httpUrl).isEmpty()) {
             call.reject("No usable authentication is stored for this connection");
             return;
@@ -1966,23 +1966,10 @@ public class HermesNativePlugin extends Plugin {
         boolean websocket
     ) {
         try {
-            URI uri = URI.create(value);
-            String expected = websocket ? "wss" : "https";
-            if (
-                !expected.equalsIgnoreCase(uri.getScheme()) ||
-                uri.getHost() == null ||
-                uri.getHost().isBlank() ||
-                uri.getUserInfo() != null
-            ) {
-                call.reject(
-                    "Native Hermes connections must use " +
-                    expected.toUpperCase()
-                );
-                return false;
-            }
+            HermesConnectionUrlPolicy.requireAllowed(value, websocket);
             return true;
         } catch (IllegalArgumentException error) {
-            call.reject("The Hermes connection URL is invalid");
+            call.reject(error.getMessage());
             return false;
         }
     }
@@ -2338,7 +2325,9 @@ public class HermesNativePlugin extends Plugin {
         String websocketUrl,
         String credential
     ) throws Exception {
-        String httpUrl = websocketUrl.replaceFirst("^wss:", "https:");
+        String httpUrl = HermesConnectionUrlPolicy.websocketToHttp(
+            websocketUrl
+        );
         HttpUrl gatewayUrl = HttpUrl.get(httpUrl);
         String path = gatewayUrl.encodedPath();
         int marker = path.indexOf(GATEWAY_PATH);
@@ -2400,13 +2389,15 @@ public class HermesNativePlugin extends Plugin {
     }
 
     private String withTicket(String websocketUrl, Ticket ticket) {
-        String httpUrl = websocketUrl.replaceFirst("^wss:", "https:");
+        String httpUrl = HermesConnectionUrlPolicy.websocketToHttp(
+            websocketUrl
+        );
         String ticketed = HttpUrl.get(httpUrl).newBuilder()
             .query(null)
             .addQueryParameter(ticket.name, ticket.value)
             .build()
             .toString();
-        return ticketed.replaceFirst("^https:", "wss:");
+        return HermesConnectionUrlPolicy.httpToWebsocket(ticketed);
     }
 
     private String responseBody(ResponseBody body)

@@ -6,14 +6,19 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
 ## Current result
 
-- Android recovery now uses a dedicated ignored key under
-  `%LOCALAPPDATA%\hermes-mobile-signing` and a serial-guarded, hashed,
-  restore-rehearsed migration that excludes dead credential ciphertext. It
-  completed on authorized Samsung SM-S918U test device: APK SHA-256
-  `7AFF8D871807068EE5C8FA4770C7F500D409684E2EFB3D5864A33839112EDEBA`,
-  certificate `707D72C0D6F58BB05FEEAB282AA670584E726F7D845CFD99B5AD1EB9BD03AAFE`,
-  update `2026-08-08 00:39:20`. Local state is restored, MainActivity is live,
-  no fatal/ANR was found, and bearer tokens intentionally require re-entry.
+- Same-device Termux connections now accept HTTP/WS only for `localhost`,
+  `127.0.0.1`, and IPv6 loopback. Android keeps cleartext denied globally;
+  native URL policy and WebSocket ticket conversion independently reject
+  remote HTTP while the connection sheet explains the local exception.
+
+- Android recovery uses a dedicated ignored signing key plus a serial-guarded,
+  hashed, restore-rehearsed migration that excludes dead credential ciphertext.
+  It now also adopts a blank differently signed reinstall from an earlier
+  verified same-device backup with explicit consent. On the physical Android
+  test device, the loopback APK
+  `966DAFCEA50921BB33E94F064870FBF11B688B73C1D31682AED605992D4D94A4`
+  restored the `20260808-003847` ordinary-state archive at `18:40:08`.
+  MainActivity is live with no fatal/ANR signature; tokens require re-entry.
 
 - Mobile now distinguishes durable history from live gateway sessions. The
   Sessions page polls only the cheap live-session authority while open, shows
@@ -237,6 +242,12 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
 ## Validation state
 
+- The Termux loopback fix passes 16 focused client tests and the focused Android
+  JVM policy test. Typecheck, Vite build, Capacitor sync, and debug assembly
+  pass. APK SHA-256 is
+  `966DAFCEA50921BB33E94F064870FBF11B688B73C1D31682AED605992D4D94A4`
+  (127,217,135 bytes), signed by the established Mobile certificate.
+
 - The auxiliary callback regression has a focused public-boundary regression
   test and passes through the canonical one-file test runner (1 selected test,
   4-worker cap). A bounded live probe against the configured
@@ -253,7 +264,7 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
   pass. APK SHA-256 is
   `D0BC8F57E6C195980E6CE23A450801C8A9EF9B69AF4A92CC605B9382E3D585BF`
   (127,192,674 bytes). It was replacement-installed with preserved data on
-  authorized Samsung SM-S918U test device; Android reports update time `2026-08-08
+  the physical Android test device; Android reports update time `2026-08-08
   14:17:46`.
 
 - The nearby-jump follow-up passes 19 focused MobilePet tests, TypeScript
@@ -262,7 +273,7 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
   `client\android\app\build\outputs\apk\debug\app-debug.apk` (126,927,247
   bytes, SHA-256
   `EC0D3C4F4B8C29471ED143C227A38B8B1DC6041F2EE2098A7C59B833F6FE7890`).
-  It was replacement-installed on the authorized Samsung SM-S918U test device at `2026-08-08
+  It was replacement-installed on the physical Android test device at `2026-08-08
   00:47:57`; its 760 ms cold launch left the process running with no fatal or
   ANR signature. The earlier complete client suite remains 57 files and 293
   tests and was not rerun for this two-file follow-up.

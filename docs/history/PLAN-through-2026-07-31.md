@@ -4,9 +4,9 @@ Status: active
 
 Last updated: 2026-07-31
 
-Project root: `current repository checkout`
+Project root: `<mobile-checkout>`
 
-Hermes reference checkout: `adjacent hermes-agent checkout`
+Hermes reference checkout: `<hermes-checkout>`
 
 Initial Hermes reference revision: `3be565fbdee3115ab5b9338551768b8e5e655c56`
 
@@ -1146,7 +1146,7 @@ Acceptance:
 - [x] Keep entered API credentials only in ephemeral component memory. Never
       persist provider secrets, OAuth codes, or account tokens in Mobile
       storage.
-- [x] Add a connection-scoped, off-by-default Listen for “Hey Hermes” toggle
+- [x] Add a connection-scoped, off-by-default Listen for "Hey Hermes" toggle
       to Mobile Voice settings.
 - [x] Initially prove the foreground, connection, and voice-idle lifecycle with
       Android's on-device recognizer, then remove that recognizer completely
@@ -1342,7 +1342,7 @@ integration tests, not by optimistic version ranges.
 ## Current Next Action
 
 Validate the installed cue-enabled hands-free openWakeWord build on the physical
-phone. Set Chat's Wake selector to Review, say “Hey Hermes” followed
+phone. Set Chat's Wake selector to Review, say "Hey Hermes" followed
 immediately by a request, then pause. Confirm the full request survives the
 detector handoff, capture ends after sustained silence, the leading wake phrase
 is removed from the transcript, and the review card can edit, Send, or Cancel
@@ -1379,7 +1379,7 @@ SHA-256:
 `E1EDF8F3021D1CBFFB2ABB4C8FD1942B3DAEA1ACA13DABA212BD2F7EE8A01C5F`
 
 The cue-enabled APK installed successfully with `adb install -r` on the
-explicitly selected authorized Android test device through `<authorized-wireless-adb-endpoint>`. Android
+explicitly selected physical Android test device through `<wireless-adb-endpoint>`. Android
 reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
 `lastUpdateTime=2026-07-31 02:41:36`. Saved connections, application data, and
 Android Keystore state were preserved. No phone screen or application content
@@ -1405,7 +1405,7 @@ SHA-256:
 `50EC6A2E1A67EBF4CD4DF2FAFDF730A96C8B066FE91734C8BD49C834623C5090`
 
 The replacement installed successfully with `adb install -r` on the explicitly
-selected authorized Android test device through `<authorized-wireless-adb-endpoint>`. Android reports
+selected physical Android test device through `<wireless-adb-endpoint>`. Android reports
 package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
 `lastUpdateTime=2026-07-31 03:20:24`. Saved connections, application data, and
 Android Keystore state were preserved. No phone screen or application content
@@ -1483,7 +1483,7 @@ SHA-256:
 `73B82D162F00F419FF1362CBFE59652C36222280A4F5EB86B0C1ECC941C7C066`
 
 This adaptive-TTS-runway replacement APK is installed in place on the explicitly
-selected authorized Android test device through `<authorized-wireless-adb-endpoint>`. Android reports
+selected physical Android test device through `<wireless-adb-endpoint>`. Android reports
 package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
 `lastUpdateTime=2026-07-30 23:51:47`. The installation used `adb install -r`,
 so saved connections, app data, and Android Keystore state were preserved. No
@@ -1501,7 +1501,7 @@ host API credentials and supported OAuth account flows. Entered secrets remain
 ephemeral in the WebView and are written only through the active authenticated,
 profile-scoped Hermes API.
 
-Voice now has an off-by-default, connection-scoped Listen for “Hey Hermes”
+Voice now has an off-by-default, connection-scoped Listen for "Hey Hermes"
 toggle. Android uses only its on-device speech recognizer, listens only while
 the app is foregrounded, connected, and voice-idle, and releases the recognizer
 before starting normal microphone capture. Backgrounding, disconnecting,
@@ -1521,7 +1521,7 @@ Size: `6,095,938` bytes
 SHA-256:
 `EC927587B497CD6E638F368CF4C857A7A5F1D37DDB8C5DFA0FE751C662D91B2E`
 
-Physical acceptance should enable Listen for “Hey Hermes” on one connected
+Physical acceptance should enable Listen for "Hey Hermes" on one connected
 host, say the phrase while Chat is idle, and confirm Mobile enters ordinary
 microphone recording once. Confirm listening pauses during reply audio,
 recording, app backgrounding, and disconnection, then resumes when the same
@@ -1545,7 +1545,7 @@ selection.
 The complete Mobile suite passed 46 files and 203 tests. TypeScript typecheck,
 Vite production build, Capacitor sync, and forced Android debug assembly with
 Android Studio JDK 21 passed. The replacement APK was installed in place on the
-authorized authorized Android test device through `<authorized-wireless-adb-endpoint>`; Android reports
+authorized physical Android test device through `<wireless-adb-endpoint>`; Android reports
 `lastUpdateTime=2026-07-30 21:17:07`. `adb install -r` preserved app data,
 saved connections, and Android Keystore state. No phone screen or application
 content was opened or inspected.
@@ -1584,8 +1584,8 @@ the separately managed messaging gateway is stopped.
 The forced Mobile rebuild passed the complete 45-file, 197-test client suite,
 TypeScript typecheck, Vite production build, Capacitor sync, and Android
 `assembleDebug --rerun-tasks` with Android Studio JDK 21. The replacement APK
-was installed in place on the authorized authorized Android test device through
-`<authorized-wireless-adb-endpoint>`; Android reports
+was installed in place on the authorized physical Android test device through
+`<wireless-adb-endpoint>`; Android reports
 `lastUpdateTime=2026-07-30 18:50:54`. `adb install -r` preserved saved
 connections, app data, and Android Keystore state. No phone screen or
 application content was opened or inspected.
@@ -1613,7 +1613,7 @@ Mobile pet, Reader, media, connection, and background-lifecycle acceptance
 items during normal use.
 
 The nested-scroll replacement APK is installed in place on the authorized
-authorized Android test device. Android reports
+physical Android test device. Android reports
 `lastUpdateTime=2026-07-30 17:13:47`. The installation used `adb install -r`,
 so saved connections, app data, and Android Keystore state were preserved. No
 phone screen or application content was opened or inspected.
@@ -1637,7 +1637,7 @@ requiring a narrow touch target outside the preview. Repeat with one expanded
 long tool call and Reader File Preview.
 
 The inline-document-attachment replacement APK is installed in place on the
-authorized authorized Android test device with saved connections, app data, and Android
+authorized physical Android test device with saved connections, app data, and Android
 Keystore state preserved. Android reports
 `lastUpdateTime=2026-07-30 16:47:29`.
 
@@ -1664,7 +1664,7 @@ to native ripgrep. Start a new Hermes session to exercise the rebuilt system
 prompt because an existing session keeps its cache-stable original prompt.
 
 The active-plugin-state replacement APK is installed in place on the authorized
-authorized Android test device. Android reports `lastUpdateTime=2026-07-30 14:12:09`;
+physical Android test device. Android reports `lastUpdateTime=2026-07-30 14:12:09`;
 `adb install -r` preserved the existing application data and Android Keystore
 state. Open Control, Mobile server plugin and tap Check host on Workstation.
 The card should report Mobile plugin 0.1.0 active and compatible without the
@@ -1681,7 +1681,7 @@ SHA-256:
 `40CD687F2E57707828BC03EA31B7D61E47B1A7960D9B6A66A619E1397252061F`
 
 Milestone 5L physical acceptance is complete. The replacement APK was installed
-in place on the authorized authorized Android test device with app data and Keystore state
+in place on the authorized physical Android test device with app data and Keystore state
 preserved. Mobile companion reported Android 16/API 36, battery and wireless
 charging state, validated VPN connectivity, and interactive screen state. Its
 button opened Samsung's `DevelopmentSettingsActivity`; no setting was changed,
@@ -1704,7 +1704,7 @@ SHA-256:
 `C2921DBC54D6305079FC981EBC2134B58ECF1F79AC5681604673755D500631FA`
 
 The latest tool-evidence replacement APK is installed in place on the physical
-authorized Android test device with app data and Android Keystore state preserved. Run a turn
+physical Android test device with app data and Android Keystore state preserved. Run a turn
 containing `terminal` and at least one other tool with Tool evidence selected.
 Confirm Alien Child waits for completed or failed evidence, then comments from
 the bounded, redacted command arguments and useful result instead of describing
@@ -1733,7 +1733,7 @@ Android reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1,
 and `lastUpdateTime=2026-07-30 12:28:30` after the successful in-place install.
 
 The newest pet-capability and cross-tab drag APK is installed in place on the
-physical authorized Android test device with saved connection and Keystore state preserved.
+physical physical Android test device with saved connection and Keystore state preserved.
 On `mr mid tier`, open Control, Pet companion and confirm it reports Alien Child
 as visual-only on that host, does not show commentary, sidechat, host
 personality, or auxiliary-model controls, and does not emit unknown-method
@@ -1777,7 +1777,7 @@ of `core-gateway`. Reader, speech, or filesystem endpoints that still return
 standalone plugin does not pretend to replace those core routes.
 
 The latest TTS-capability fallback APK is installed in place on the physical
-authorized Android test device with app data preserved. On the older `mr mid tier` Cloud
+physical Android test device with app data preserved. On the older `mr mid tier` Cloud
 host, confirm Voice and Reader show Host default without a catalog 404, Reader
 playback and Render & save use the host's configured speech provider, and
 Smart assign is unavailable instead of silently doing nothing. Switch back to

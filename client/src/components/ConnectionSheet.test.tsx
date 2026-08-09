@@ -55,7 +55,7 @@ describe('ConnectionSheet automatic Cloud routing', () => {
   it('explains automatic Nous setup and does not ask for a session token', () => {
     const html = renderConnectionSheet(
       connection({
-        baseUrl: 'https://mr-mid-tier-2828.agents.nousresearch.com/',
+        baseUrl: 'https://example-agent-1234.agents.nousresearch.com/',
       }),
     )
 
@@ -72,6 +72,8 @@ describe('ConnectionSheet automatic Cloud routing', () => {
     expect(html).toContain('Session token')
     expect(html).toContain('type="password"')
     expect(html).not.toContain('Nous Cloud agent detected')
+    expect(html).toContain('http://127.0.0.1:PORT')
+    expect(html).toContain('Other hosts require')
   })
 
   it('shows explicit edit and delete actions for saved hosts', () => {

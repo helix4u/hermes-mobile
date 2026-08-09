@@ -77,11 +77,18 @@ index in the same work session.
 
 Acceptance contract:
 
+- A same-phone Termux host may use `http://127.0.0.1:<port>`, `localhost`, or
+  IPv6 loopback. URL validation, Android native transport, WebSocket ticketing,
+  and network security all permit cleartext only for loopback; LAN, Tailnet,
+  public, and Cloud hosts continue to require HTTPS/WSS.
+
 - Android debug builds use one dedicated, ignored signing identity outside the
   repository. A guarded signing-key-loss migration verifies a full private-data
   backup and an on-device restore rehearsal before uninstall, restores ordinary
   connection/UI state under the new app UID, and explicitly resets rather than
-  falsely preserving undecryptable Keystore-backed credentials.
+  falsely preserving undecryptable Keystore-backed credentials. A blank
+  differently signed reinstall can adopt a prior same-device verified backup
+  only with explicit missing-envelope and credential-reset consent.
 
 - Sessions separate durable history from live runtimes. In-progress rows expose
   backend activity state and human recency, refresh cheaply while visible, and
@@ -315,6 +322,10 @@ without compromising behavior; that seam does not exist today.
 - Never install to or inspect a physical phone unless the user explicitly asks.
 
 ## Next action
+
+On the restored loopback build, connect a direct host to the Termux listener at
+`http://127.0.0.1:<port>`. Confirm capability discovery, authenticated HTTP,
+and ticketed `ws://` gateway use without weakening a remote HTTP URL.
 
 On the installed cooperative-handoff build and restarted compatible host, run
 a long auto-spoken turn that produces tool commentary. Confirm commentary is
