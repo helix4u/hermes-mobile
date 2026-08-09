@@ -14,9 +14,13 @@ param(
 
     [string]$BackupRoot = (Join-Path $env:LOCALAPPDATA 'hermes-mobile-backups'),
 
+    [string]$RestoreFromBackup,
+
     [switch]$BackupOnly,
 
-    [switch]$AllowCredentialReset
+    [switch]$AllowCredentialReset,
+
+    [switch]$AllowMissingCredentialEnvelope
 )
 
 $ErrorActionPreference = 'Stop'
@@ -175,6 +179,10 @@ be entered again. Ordinary Mobile state is backed up and restored.
 '@
 }
 
+if ($AllowMissingCredentialEnvelope -and -not $AllowCredentialReset) {
+    throw '-AllowMissingCredentialEnvelope requires -AllowCredentialReset.'
+}
+
 if ($Device.Contains(':')) {
     [void](Invoke-AdbText -Arguments @('connect', $Device) -AllowFailure)
 }
@@ -233,7 +241,10 @@ $archiveEntries = Invoke-LocalTar -Arguments @('-tf', $privateDataTar)
 if (-not ($archiveEntries | Where-Object { $_ -like 'app_webview/Default/Local Storage/*' })) {
     throw 'The backup does not contain the Mobile WebView local-storage database.'
 }
-if (-not ($archiveEntries -contains 'shared_prefs/hermes_mobile_secure_v1.xml')) {
+if (
+    -not ($archiveEntries -contains 'shared_prefs/hermes_mobile_secure_v1.xml') -and
+    -not $AllowMissingCredentialEnvelope
+) {
     throw 'The backup did not capture the existing encrypted credential envelope.'
 }
 
@@ -260,6 +271,37 @@ try {
 $restoreEntries = Invoke-LocalTar -Arguments @('-tf', $restoreTar)
 if ($restoreEntries -contains 'shared_prefs/hermes_mobile_secure_v1.xml') {
     throw 'The restore archive unexpectedly contains encrypted credentials.'
+}
+
+$postInstallRestoreTar = $restoreTar
+$restoredFromBackup = $null
+if ($RestoreFromBackup) {
+    $sourceBackup = (Resolve-Path -LiteralPath $RestoreFromBackup).Path
+    $sourceManifestPath = Join-Path $sourceBackup 'migration-manifest.json'
+    if (-not (Test-Path -LiteralPath $sourceManifestPath -PathType Leaf)) {
+        throw "The selected restore backup has no migration manifest: $sourceBackup"
+    }
+    $sourceManifest = Get-Content -Raw -LiteralPath $sourceManifestPath | ConvertFrom-Json
+    if ($sourceManifest.device_serial -ne $actualSerial) {
+        throw "The selected restore backup belongs to device $($sourceManifest.device_serial), not $actualSerial."
+    }
+    $sourceRestoreTar = Join-Path $sourceBackup 'private-data-restore.tar'
+    if (-not (Test-Path -LiteralPath $sourceRestoreTar -PathType Leaf)) {
+        throw "The selected restore backup has no filtered restore archive: $sourceBackup"
+    }
+    $sourceRestoreHash = (Get-FileHash -LiteralPath $sourceRestoreTar -Algorithm SHA256).Hash
+    if ($sourceRestoreHash -ne $sourceManifest.restore_sha256) {
+        throw "The selected restore archive hash does not match its manifest: $sourceBackup"
+    }
+    $sourceRestoreEntries = Invoke-LocalTar -Arguments @('-tf', $sourceRestoreTar)
+    if ($sourceRestoreEntries -contains 'shared_prefs/hermes_mobile_secure_v1.xml') {
+        throw 'The selected restore archive contains excluded encrypted credentials.'
+    }
+    if (-not ($sourceRestoreEntries | Where-Object { $_ -like 'app_webview/Default/Local Storage/*' })) {
+        throw 'The selected restore archive has no Mobile WebView local-storage database.'
+    }
+    $postInstallRestoreTar = $sourceRestoreTar
+    $restoredFromBackup = $sourceBackup
 }
 
 [void](Invoke-AdbText -Arguments @('-s', $Device, 'push', $restoreTar, $remoteRestoreTar))
@@ -343,6 +385,9 @@ $manifest = [ordered]@{
     private_data_sha256 = (Get-FileHash -LiteralPath $privateDataTar -Algorithm SHA256).Hash
     restore_archive = $restoreTar
     restore_sha256 = (Get-FileHash -LiteralPath $restoreTar -Algorithm SHA256).Hash
+    post_install_restore_archive = $postInstallRestoreTar
+    post_install_restore_sha256 = (Get-FileHash -LiteralPath $postInstallRestoreTar -Algorithm SHA256).Hash
+    restored_from_backup = $restoredFromBackup
     credential_preference_restored = $false
     installed_apks = @(
         $installedApks | ForEach-Object {
@@ -425,7 +470,7 @@ if ($install.ExitCode -ne 0 -or $install.Text -notmatch 'Success') {
     throw "Replacement install failed. The prior APK was offered for rollback: $($install.Text)"
 }
 
-[void](Invoke-AdbText -Arguments @('-s', $Device, 'push', $restoreTar, $remoteRestoreTar))
+[void](Invoke-AdbText -Arguments @('-s', $Device, 'push', $postInstallRestoreTar, $remoteRestoreTar))
 [void](Invoke-AdbText -Arguments @('-s', $Device, 'shell', 'chmod', '0644', $remoteRestoreTar))
 try {
     [void](Invoke-AdbText -Arguments @(

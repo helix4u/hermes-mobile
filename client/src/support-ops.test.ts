@@ -61,7 +61,7 @@ describe('Support Ops host capability', () => {
 describe('Support Ops presentation helpers', () => {
   const rows = [
     {
-      thread_id: '1533242742740750436',
+      thread_id: '111111111111111111',
       title: '**Windows install failed**',
       waiting_on_operator: true,
       last_message_at: '2026-08-01T15:00:00Z',
@@ -86,15 +86,15 @@ describe('Support Ops presentation helpers', () => {
   it('normalizes Discord reply and mention syntax before Markdown rendering', () => {
     expect(
       normalizeSupportMarkdown(
-        '[reply to gille msg=1533242742740750436]\nHello <@1402802685408837722>',
-        { '1402802685408837722': 'gille' },
+        '[reply to operator msg=111111111111111111]\nHello <@222222222222222222>',
+        { '222222222222222222': 'operator' },
       ),
-    ).toBe('> Replying to **@gille**\nHello **@gille**')
+    ).toBe('> Replying to **@operator**\nHello **@operator**')
   })
 
   it('builds a downloadable operator handoff with investigation and transcript', () => {
     const detail = {
-      thread_id: '1533242742740750436',
+      thread_id: '111111111111111111',
       title: '**Windows install failed**',
       discord_url: 'https://discord.com/channels/a/b',
       message_count: 1,
@@ -102,7 +102,7 @@ describe('Support Ops presentation helpers', () => {
       ticket: { status: 'needs-investigation' },
       messages: [
         {
-          author: 'gille',
+          author: 'operator',
           timestamp: '2026-08-01T15:00:00Z',
           body: 'Please send logs.',
         },
@@ -118,7 +118,7 @@ describe('Support Ops presentation helpers', () => {
     expect(handoff).toContain('Please send logs.')
     expect(handoff).toContain('gateway.log: https://dpaste.test/log')
     expect(supportHandoffFilename(detail)).toBe(
-      'windows-install-failed-1533242742740750436.md',
+      'windows-install-failed-111111111111111111.md',
     )
   })
 

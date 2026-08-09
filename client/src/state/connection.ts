@@ -139,7 +139,11 @@ export function persistConnection(
 ): void {
   if (!storage) return
   const safe = normalizePersisted(connection)
-  if (!safe) throw new Error('Enter a valid HTTPS Hermes URL')
+  if (!safe) {
+    throw new Error(
+      'Enter an HTTPS Hermes URL, or a loopback HTTP URL for same-device Termux',
+    )
+  }
   const existing = readStoredConnections(storage)
   const index = existing.findIndex(row => row.id === safe.id)
   const next =

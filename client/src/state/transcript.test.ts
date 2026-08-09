@@ -676,14 +676,14 @@ describe('transcript projection', () => {
       payload: {
         tool_call_id: 'generated-1',
         tool: 'terminal',
-        output: 'gille',
+        output: 'operator',
       },
     })
 
     expect(complete[0].tool).toMatchObject({
       args: { command: 'whoami' },
       progress: 'Preparing command',
-      result: 'gille',
+      result: 'operator',
       status: 'complete',
     })
   })
