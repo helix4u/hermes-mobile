@@ -67,6 +67,18 @@ export interface PetPerch {
 
 export type PetRoamMotion = 'walk' | 'jump'
 
+/** Activity can say the turn is running while the roaming loop is resting.
+ * Never let that backend activity state select a locomotion row unless the pet
+ * is physically moving; use the review/idle pose for stationary work instead. */
+export function stationaryPetVisualState(
+  state: MobilePetState,
+  walking: boolean,
+  jumping: boolean,
+): MobilePetState {
+  if (walking) return jumping ? 'jump' : 'run'
+  return state === 'run' ? 'review' : state
+}
+
 export function petWalkSpeed(loopMs = 600): number {
   const cadence = (PET_SIZE * 0.8) / (Math.max(240, loopMs) / 1_000)
   return Math.max(MIN_PET_ROAM_SPEED, Math.min(MAX_PET_ROAM_SPEED, cadence))
@@ -930,7 +942,11 @@ export function MobilePet({
         } as CSSProperties}
         tabIndex={0}
       >
-        <PetCanvas direction={direction} info={info} state={walking ? (jumping ? 'jump' : 'run') : state} />
+        <PetCanvas
+          direction={direction}
+          info={info}
+          state={stationaryPetVisualState(state, walking, jumping)}
+        />
         {sidechatAvailable && sidechatVisible && (
           <button
             aria-label={`Open ${info.displayName || 'pet'} sidechat`}

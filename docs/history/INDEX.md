@@ -49,6 +49,12 @@ Verbatim former `STATUS.md` (2,202 lines, 146,292 bytes).
   validation: lines 1-51; keywords `Desktop`, `speech`, `Reader`, `APK`,
   `deduplication`, `cold launch`.
 
+## `STATUS-2026-08-10-pre-support-setup-parity.md`
+
+- Prior Android artifacts and focused/full validation evidence moved out of
+  bounded current status: lines 1-55; keywords `APK`, `Support`, `voice`,
+  `landscape`, `authority`, `cold launch`.
+
 ## Adding history
 
 Archive the oldest active summary before either current file exceeds 24,000

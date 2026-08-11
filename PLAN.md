@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-08-08
+Last updated: 2026-08-10
 
 Project root: current repository checkout
 
@@ -96,7 +96,9 @@ Acceptance contract:
 - Roaming uses a normal sprite-cadence speed with a hard floor, re-clamps after
   viewport changes, and treats explicitly marked app surfaces as walkable
   perches. Ordinary vertical roaming stays in the walk state; only a nearby
-  ledge can trigger one short, distance-bounded jump.
+  ledge can trigger one short, distance-bounded jump. During a roaming rest,
+  activity-derived run state resolves to a stationary review pose instead of
+  cycling walk frames in place.
 - Mobile exposes the existing generic Petdex and generation RPCs without a new
   core branch: local-first gallery, thumbnails, adoption, rename, export,
   removal, generation providers, references, drafts, hatch progress, incubation,
@@ -118,6 +120,22 @@ Acceptance contract:
   attachments, durable ticket/workspace/draft views, workflow actions, job
   state, private agent sidechat, and thread/default run settings. It preserves
   the backend invariant that no action posts automatically to Discord.
+- Mobile mirrors the current plugin's portable operator surface: display name,
+  support/developer aliases, categories, participant voice presets, catalog-
+  backed read-aloud voice and speed, host backup directory, portable JSON
+  export/import, and explicit host backup. Older hosts without those routes keep
+  the established queue/thread surface instead of losing Support entirely.
+- Overview can start real host statistics regeneration. Queue tools can start
+  targeted sync for the explicit current filter (bounded to 100 thread IDs) and
+  can create durable tickets for the host's unticketed queue after explicit
+  confirmation. Neither path grants Discord posting authority.
+- Queue/detail surfaces expose backend-derived support and developer owners,
+  render real participants while omitting the Argus wait-room bot, and use the
+  configured operator name only where a specific person is meant.
+- Support prose has catalog-backed Listen controls. Whole-thread playback keeps
+  transcript order and allows a distinct voice per participant through the
+  shared adaptive Mobile speech queue. Thread handoff can open a normal or
+  microphone-started Hermes investigation session.
 - Thread/default run settings expose analysis-only, support-investigation,
   coding-workspace, full-access/YOLO, and custom authority presets. Hermes
   toolsets are individually selectable; Codex exposes its sandbox and explicit
@@ -323,58 +341,17 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-On the restored loopback build, connect a direct host to the Termux listener at
-`http://127.0.0.1:<port>`. Confirm capability discovery, authenticated HTTP,
-and ticketed `ws://` gateway use without weakening a remote HTTP URL.
+The current Support-parity APK is replacement-installed on the intended
+Samsung SM-S918U with its prior app identity and stored state retained.
+Exercise the native Support tab against a host running the current Support Ops
+plugin. Verify setup save/export/import/backup, real statistics regeneration,
+filtered targeted sync, bulk unticketed ticket creation, named support/developer
+ownership, participant filtering, per-message Listen, participant-assigned
+whole-thread playback, and Open/Voice session handoff. Confirm every mutation
+remains local or job-oriented and no action posts to Discord automatically.
 
-On the installed cooperative-handoff build and restarted compatible host, run
-a long auto-spoken turn that produces tool commentary. Confirm commentary is
-generated on the first settled tool evidence without a warmup-turn requirement,
-the current response sentence completes, the pet speaks before the next
-response segment, and the response resumes without overlap, duplication, or a
-skipped segment.
-
-Install the verified debug APK when the user supplies an explicit device target,
-then test on a capable host: start a long turn, leave Chat, attach it from the
-live Sessions section, and confirm activity/recency updates without restarting
-the turn. Exercise Petdex local-first loading, select an installed pet, export
-it, generate drafts, hatch one pet, adopt it, and verify distant surfaces are
-approached by normal walking while only a nearby ledge produces one brief jump.
-In Support, compare Overview with Desktop metrics, start a new Chat session from
-an existing investigation, and save/open the Markdown handoff on Android.
-
-Previous physical-device acceptance remains applicable after those checks:
-
-On the replacement-installed responsive Support build, rotate the physical
-device while Chat, Support, Reader, and a connection sheet are open. Confirm
-the left rail remains fixed, the active center surface scrolls normally, Chat's
-voice/composer lane remains usable, and no content creates horizontal overflow.
-Connect to the workstation host and verify that archived screenshots render
-inline, cached content remains visible across a brief reconnect, and Support
-appears only there (and not on a vanilla Cloud host). Exercise queue filtering,
-open a thread, render its Discord/ticket Markdown, and verify Sync is enabled on
-the migrated workstation connector but disabled with an explanatory capability
-notice on a host without targeted sync. Start only a safe operator-owned sync or
-agent job while confirming no external Discord post is possible. Dictate into
-each Support prose field and confirm the transcript
-appends only to the selected field, including a microphone-permission failure
-followed by ordinary Chat voice input. Verify Support
-investigation gives Hermes the advertised toolsets in the configured repo,
-Codex honors read-only/workspace-write/YOLO selection, and Investigate + redo
-ticket updates the linked ticket without creating a duplicate. Then verify that long auto-spoken replies
-never replay a completed segment or terminal response. Then verify that MP4 and representative local
-audio attachments play inline in Chat, and that Reader's compact transport
-keeps Play/Pause/Stop/Follow reachable while manual scrolling disables Follow
-until explicitly re-enabled. Also verify that a completed
-inline image or document does not flash back to Loading or refetch repeatedly
-during later transcript updates, and that it remains visible through a brief
-connection interruption. Verify the host pill shows Degraded for a connected
-core-gateway fallback and Reconnecting during automatic recovery. Then verify both
-`Hey Hermes, <request>` and the observed STT normalization
-`Okay Hermes, <request>` submit only the request, and that a trailing
-`Pet, ...` reaches private sidechat. Confirm that the pet begins playing its
-first prepared sidechat segment, joins a tiny opening sentence to sentence two,
-and returns to idle after the last segment rather than remaining on
-`preparing reply audio`. Confirm the pet and bubble render above the open
-sidechat. Then continue the independent pet voice/speed, Interrupt/Steer, and
-xAI-control device acceptance already described above.
+After that focused acceptance, continue the outstanding physical-device checks
+for live-session attachment, Support reconnect caching and landscape
+containment, full-viewport pet motion, cooperative pet/reply audio handoff,
+Reader Follow, wake routing, and inline media. Install only when the user
+supplies an explicit device target.

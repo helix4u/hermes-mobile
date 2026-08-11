@@ -15,9 +15,15 @@ import {
   petWalkSpeed,
   resolvePetViewport,
   settlePetRoamAnimation,
+  stationaryPetVisualState,
 } from './MobilePet'
 
 describe('mobile pet roaming', () => {
+  it('never uses a locomotion pose while the pet is stationary during a turn', () => {
+    expect(stationaryPetVisualState('run', false, false)).toBe('review')
+    expect(stationaryPetVisualState('run', true, false)).toBe('run')
+    expect(stationaryPetVisualState('run', true, true)).toBe('jump')
+  })
   it('mixes distinct short and long walks at the configured speed floor', () => {
     const shortValues = [0.2, 0.2, 0.4, 0.9, 0.5, 0.25]
     const longValues = [0.9, 0.9, 0.7, 0.5, 0.5, 0.5]

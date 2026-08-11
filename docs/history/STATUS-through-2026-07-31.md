@@ -45,7 +45,7 @@ Current state:
   bytes. SHA-256:
   `50EC6A2E1A67EBF4CD4DF2FAFDF730A96C8B066FE91734C8BD49C834623C5090`.
 - The combined replacement installed successfully with `adb install -r` on the
-  explicitly selected physical Android test device through `<wireless-adb-endpoint>`. Android
+  explicitly selected Samsung SM-S918U through `<wireless-adb-endpoint>`. Android
   reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-31 03:20:24`. Saved connections, application data,
   and Android Keystore state were preserved. No phone screen or application
@@ -95,7 +95,7 @@ Current state:
   are single capture-boundary signals, not the prior OEM recognizer's repeated
   start/stop lifecycle beeps.
 - The connected Hermes host transcribes the completed utterance. Mobile strips
-  a leading "Hey Hermes" or "Hermes" before presenting or sending the command.
+  a leading “Hey Hermes” or “Hermes” before presenting or sending the command.
 - Wake mode is connection-scoped and now supports Off, Review, and Auto-send.
   Review fills an editable composer card with Send and Cancel; Auto-send starts
   the ordinary Hermes turn without another tap.
@@ -112,7 +112,7 @@ Current state:
 - Cue-enabled hands-free openWakeWord APK size: 126,879,231 bytes. SHA-256:
   `E1EDF8F3021D1CBFFB2ABB4C8FD1942B3DAEA1ACA13DABA212BD2F7EE8A01C5F`.
 - The cue-enabled replacement installed successfully with `adb install -r` on
-  the explicitly selected physical Android test device through
+  the explicitly selected Samsung SM-S918U through
   `<wireless-adb-endpoint>`. Android reports package `dev.hermes.mobile`,
   versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-31 02:41:36`. Saved connections, app data, and
@@ -136,7 +136,7 @@ Current state:
 - Latest adaptive-TTS-runway APK size: 6,099,446 bytes. SHA-256:
   `73B82D162F00F419FF1362CBFE59652C36222280A4F5EB86B0C1ECC941C7C066`.
 - The replacement APK installed successfully in place on the explicitly
-  selected physical Android test device through `<wireless-adb-endpoint>`. Android reports
+  selected Samsung SM-S918U through `<wireless-adb-endpoint>`. Android reports
   package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 23:51:47`. The installation used
   `adb install -r`, so saved connections, app data, and Android Keystore state
@@ -184,7 +184,7 @@ Current state:
 - Latest transcript-follow replacement APK size: 6,099,230 bytes. SHA-256:
   `AB9AF893E2E7352F1CD04881EE4ECAEB01600D396B835CE666030EA5B15FD9DC`.
 - The replacement APK installed successfully in place on the explicitly
-  selected physical Android test device through `<wireless-adb-endpoint>`. Android reports
+  selected Samsung SM-S918U through `<wireless-adb-endpoint>`. Android reports
   package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 23:33:59`. The installation used
   `adb install -r`, so saved connections, app data, and Android Keystore state
@@ -228,7 +228,7 @@ Current state:
 - State-continuity APK size: 6,096,726 bytes. SHA-256:
   `1C9842BC611F23C2938CD5A466801DA02CB28B81284F8ECFBB9BE61DBB878D9B`.
 - The replacement APK installed successfully in place on the explicitly
-  selected physical Android test device through `<wireless-adb-endpoint>`. Android reports
+  selected Samsung SM-S918U through `<wireless-adb-endpoint>`. Android reports
   package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 22:40:56`. `adb install -r` preserved saved
   connections, app data, and Android Keystore state. No phone screen or
@@ -244,7 +244,7 @@ Current state:
 - Provider credentials and returned OAuth codes remain only in ephemeral React
   state. Mobile persists no API key, OAuth token, authorization code, or
   provider account secret.
-- Voice now has an explicit Listen for "Hey Hermes" toggle. It is off by
+- Voice now has an explicit Listen for “Hey Hermes” toggle. It is off by
   default and saved separately for every connection.
 - Android wake-word listening uses `createOnDeviceSpeechRecognizer` and is
   active only while Mobile is foregrounded, connected, enabled, and otherwise
@@ -286,7 +286,7 @@ Current state:
 - Adaptive-TTS APK size: 6,087,042 bytes. SHA-256:
   `F0920B089B50A206081A18CA147B5701DD3054C58A4EBB4893B3968F116D13F5`.
 - The replacement APK installed successfully with `adb install -r` on the
-  explicitly authorized physical Android test device at `<wireless-adb-endpoint>`. Android
+  explicitly authorized Samsung SM-S918U at `<wireless-adb-endpoint>`. Android
   reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 21:17:07`. Existing app data and Android Keystore
   state were preserved; no phone screen or application content was opened or
@@ -300,7 +300,7 @@ Current state:
   `backup/final-latest-nous-validated-20260730-184222` commit
   `093cb6ca4b50c9c55f2d7a2c327d1ee7cadf6463`. A binary recovery patch from
   the pinned upstream commit is stored at
-  `<local-recovery-worktree>`.
+  `%LOCALAPPDATA%\hermes\worktrees\recovery-20260730-180905\latest-nous-validated-093cb6ca4.patch`.
 - Changed Python source compiled through the Windows/AppData venv. Direct
   SessionDB, prompt, pet, and TTS smokes passed without running Hermes pytest.
   Desktop TypeScript typecheck passed for renderer, Electron, and E2E
@@ -313,7 +313,7 @@ Current state:
   remains green.
 - Desktop packaging passed from the repository's resolved `F:` path after an
   initial AppData-alias attempt hit Vite 8's mixed junction-path rejection.
-  The normal `<Hermes Desktop shortcut>` target was replaced and
+  The normal `%USERPROFILE%\Desktop\Hermes.lnk` target was replaced and
   launched with a visible main window.
 - Reconciled Desktop executable size: 214,281,216 bytes. SHA-256:
   `ACAEC726C93A038999045191DE752A2684EEEC55C6FB38172B4010610C2DC7FB`.
@@ -333,7 +333,7 @@ Current state:
 - Reconciled Mobile APK size: 6,085,414 bytes. SHA-256:
   `7D0431EFFAA00272FB8536AEB1D1B71F33A1DAF7B218265DCD5CEBEFFEC98C6F`.
 - The reconciled APK installed successfully with `adb install -r` on the
-  explicitly authorized physical Android test device at `<wireless-adb-endpoint>`. Android
+  explicitly authorized Samsung SM-S918U at `<wireless-adb-endpoint>`. Android
   reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 18:50:54`. Saved connections, app data, and
   Android Keystore state were preserved. No phone screen or application
@@ -353,7 +353,7 @@ Current state:
 - Nested-scroll replacement APK size: 6,260,215 bytes. SHA-256:
   `13565E348FDBF774E5A6D3232A6D03819D17E3215906F3B5948FE2726A73A0BC`.
 - The replacement installed successfully with `adb install -r` on the
-  explicitly authorized physical Android test device at
+  explicitly authorized Samsung SM-S918U at
   `<wireless-adb-endpoint>`. Android reports package
   `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 17:13:47`. Existing app data and Android
@@ -380,8 +380,8 @@ Current state:
   is the portable spelling across Hermes tools and native programs, `/c/...`
   is Bash's displayed drive spelling, `/mnt/c/...` is WSL-only, and file-tool
   path fields take raw paths without shell quoting.
-- Live Git Bash proof on this workstation showed both `cd C:/Users/operator` and
-  `cd /c/Users/operator` returning `/c/Users/operator` from `pwd -P`.
+- Live Git Bash proof on this workstation showed both `cd %USERPROFILE%` and
+  `cd /c/Users/<user>` returning `/c/Users/<user>` from `pwd -P`.
 - AppData logs exposed the sibling runtime leak behind many failures:
   `search_files` correctly resolved an MSYS drive path for safety checks but
   passed the original `/c/...` string to native `rg.exe`. The current
@@ -416,7 +416,7 @@ Current state:
 - Rest-window drag replacement APK size: 6,259,777 bytes. SHA-256:
   `84CB5CE18C434F443C54CC7E99E02C7A8B9556269811F77F6E5263EE96B8B9FE`.
 - The replacement APK installed successfully with `adb install -r` on the
-  explicitly selected physical Android test device at `<wireless-adb-endpoint>`; existing app
+  explicitly selected Samsung SM-S918U at `<wireless-adb-endpoint>`; existing app
   data and Android Keystore state were preserved. Android reports
   `lastUpdateTime=2026-07-30 15:25:02`.
 - A live Android input test waited until the rebuilt pet had no active Web
@@ -436,7 +436,7 @@ Current state:
 - Active-plugin-state replacement APK size: 6,259,697 bytes. SHA-256:
   `40CD687F2E57707828BC03EA31B7D61E47B1A7960D9B6A66A619E1397252061F`.
 - The replacement installed successfully with `adb install -r` on the
-  explicitly selected physical Android test device at `<wireless-adb-endpoint>`. Android
+  explicitly selected Samsung SM-S918U at `<wireless-adb-endpoint>`. Android
   reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 14:12:09`; the installation preserved app data
   and Android Keystore state. No application content was opened or inspected.
@@ -464,11 +464,11 @@ Current state:
   presence/gaze phases. Those remain explicit unchecked work instead of being
   silently bundled into the foundation APK.
 - The replacement APK installed successfully with `adb install -r` on the
-  explicitly authorized physical Android test device at `<wireless-adb-endpoint>`. Android
+  explicitly authorized Samsung SM-S918U at `<wireless-adb-endpoint>`. Android
   reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 13:43:20`; existing app data and Android Keystore
   state were preserved.
-- Physical Mobile companion acceptance reported `samsung physical Android test device`, Android
+- Physical Mobile companion acceptance reported `samsung SM-S918U`, Android
   16/API 36, 76 to 77 percent battery while charging wirelessly, validated VPN
   connectivity, and an interactive screen. Refresh completed without an
   in-app error.
@@ -1214,7 +1214,7 @@ Current state:
 Next action:
 
 On the installed build, set Wake to Review on one connected host, say
-"Hey Hermes" followed immediately by a request, and pause. Confirm one ready
+“Hey Hermes” followed immediately by a request, and pause. Confirm one ready
 cue follows wake acceptance, one different done cue follows silence closure,
 the complete request reaches the editable review card, and the prior Samsung
 recognition lifecycle beeps remain gone. Repeat with Auto-send and Replies
@@ -1406,7 +1406,7 @@ Validation completed:
 - Nested-scroll replacement APK SHA-256:
   `13565E348FDBF774E5A6D3232A6D03819D17E3215906F3B5948FE2726A73A0BC`.
 - Nested-scroll APK installed successfully with `adb install -r` on the
-  authorized physical Android test device at `<wireless-adb-endpoint>`; Android reports
+  authorized Samsung SM-S918U at `<wireless-adb-endpoint>`; Android reports
   `lastUpdateTime=2026-07-30 17:13:47`. No phone content was inspected.
 - Inline-document attachment focused and complete Mobile Vitest: 45 files and
   197 tests passed.
@@ -1421,7 +1421,7 @@ Validation completed:
   explicitly supplied Samsung target `<wireless-adb-endpoint>`; Android reports
   `lastUpdateTime=2026-07-30 16:47:29`. No screen or app content was opened.
 - The tool-evidence replacement APK installed successfully with
-  `adb install -r` on the explicitly selected physical Android test device at
+  `adb install -r` on the explicitly selected Samsung SM-S918U at
   `<wireless-adb-endpoint>`. Android reports package `dev.hermes.mobile`,
   versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 12:28:30`. Existing app data and Android Keystore
@@ -1438,7 +1438,7 @@ Validation completed:
   `0B51134548282FF829D8E7004496855CD9343E15F827D89C0448CC49AC93F06F`.
 - The server-swap, stable-motion, and pet-speed replacement APK installed
   successfully with `adb install -r` on the explicitly selected Samsung
-  physical Android test device at `<wireless-adb-endpoint>`. Android reports package
+  SM-S918U at `<wireless-adb-endpoint>`. Android reports package
   `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 12:20:32`. Existing app data and Android Keystore
   state were preserved. No phone screen or application content was inspected.
@@ -1464,7 +1464,7 @@ Validation completed:
 - Native-touch pet drag APK size: 6,257,869 bytes. SHA-256:
   `7DE3818DDB382627B455E6279C818106907A5112141481AC9ED57ECB2EFCF16C`.
 - The native-touch replacement APK installed successfully with
-  `adb install -r` on the explicitly selected physical Android test device at
+  `adb install -r` on the explicitly selected Samsung SM-S918U at
   `<wireless-adb-endpoint>`. Android reports
   `lastUpdateTime=2026-07-30 11:44:46`; the relaunched app is PID 6474 and
   `HermesConnectionService` is foreground with notification ID 2201. Existing
@@ -1479,7 +1479,7 @@ Validation completed:
 - Pet capability and cross-tab drag APK SHA-256:
   `BB1C582C0B4CAF7974D10A52B8DCB61DB2AB849672C671E818C9B87003D3E1EF`.
 - The replacement APK installed successfully with `adb install -r` on the
-  explicitly selected physical Android test device at `<wireless-adb-endpoint>`. Android
+  explicitly selected Samsung SM-S918U at `<wireless-adb-endpoint>`. Android
   reports package `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 11:28:54`. Existing saved connections and Android
   Keystore credentials were preserved. The app relaunched as PID 14043, and
@@ -1494,7 +1494,7 @@ Validation completed:
 - Reader stale-error cleanup APK SHA-256:
   `38D68F10D1DCCF6EBC5EB7A60C8A831EC8873F8D875A0EAA74E73BF0DB8FE901`.
 - The cleanup APK was installed successfully with `adb install -r` on the
-  explicitly selected physical Android test device at
+  explicitly selected Samsung SM-S918U at
   `<wireless-adb-endpoint>`. Android reports package
   `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 11:08:10`. Existing app data and Android Keystore
@@ -1510,7 +1510,7 @@ Validation completed:
 - TTS-capability fallback APK SHA-256:
   `FB1FB9BD46ED89CCC9A49EA06FE013A62A1F11BDB9E8C8E04AE97B94ED2EF493`.
 - The fallback APK was installed successfully with `adb install -r` on the
-  explicitly selected physical Android test device at
+  explicitly selected Samsung SM-S918U at
   `<wireless-adb-endpoint>`. Android reports package
   `dev.hermes.mobile`, versionName 1.0, versionCode 1, and
   `lastUpdateTime=2026-07-30 10:54:55`. Existing app data and Android Keystore
@@ -1527,7 +1527,7 @@ Validation completed:
 - In-app plugin-installer APK SHA-256:
   `B92FB6DDA333DE85678FC3A34733B4AB24DB1B7F2A9C93327981FA95A772525C`.
 - The final guarded APK installed successfully in place on the authorized
-  physical Android test device at 2026-07-30 03:20:20 with app data and Android Keystore
+  Samsung SM-S918U at 2026-07-30 03:20:20 with app data and Android Keystore
   state preserved. Android reports package `dev.hermes.mobile`, versionName
   1.0, versionCode 1, live PID 29173 after launch, and
   `HermesConnectionService` promoted in the foreground with notification ID
@@ -1550,7 +1550,7 @@ Validation completed:
 - Cloud core-gateway and connection-management APK SHA-256:
   `5694023CD5F416793FC6079904E7F343E271A1A3FA7981B3907D5CAB4F58C264`.
 - The replacement APK installed successfully in place on the authorized
-  physical Android test device at 2026-07-30 02:32:52 with app data and Android Keystore
+  Samsung SM-S918U at 2026-07-30 02:32:52 with app data and Android Keystore
   state preserved. Android reports package `dev.hermes.mobile`, versionName
   1.0, versionCode 1.
 - Physical Cloud acceptance passed immediately after relaunch. The app reused
@@ -1585,7 +1585,7 @@ Validation completed:
 - Compact pet-sidechat popout APK SHA-256:
   `4913A44D35BE23A1B611BCA52F87D5E1051054D52A7110ABD8002AA6C528935C`.
 - The compact-popout replacement APK was installed in place on the explicitly
-  authorized physical Android test device at 2026-07-30 02:03:17 with app data preserved.
+  authorized Samsung SM-S918U at 2026-07-30 02:03:17 with app data preserved.
   Android reported a successful cold launch of `dev.hermes.mobile/.MainActivity`
   as PID 10353. No phone screen or application content was inspected.
 - The isolated in-app browser could not route to the workstation's local Vite
@@ -1656,7 +1656,7 @@ Validation completed:
 - Desktop pet-sidechat/typecheck and focused pet suite: 5 files and 37 tests
   passed.
 - Desktop `npm run pack`: passed.
-- The normal `<Hermes Desktop shortcut>` shortcut launched the exact
+- The normal `%USERPROFILE%\Desktop\Hermes.lnk` shortcut launched the exact
   packaged executable, emitted `HERMES_BACKEND_READY port=61864`, and returned
   HTTP 200 from both `/api/health` and `/api/status`.
 - Pet-sidechat Desktop executable size: 214,281,216 bytes.
@@ -1776,7 +1776,7 @@ Validation completed:
 - Image, audio, video, and embed surfaces remained within the 360-pixel
   document. The image preview rendered at 310 px wide, opened the full-screen
   viewer, both media elements exposed native controls, and YouTube remained
-  behind the default consent fa?ade.
+  behind the default consent façade.
 - `git diff --check`: passed with only existing line-ending warnings.
 - Reader/preview/media debug APK size: 5,496,505 bytes.
 - Reader/preview/media debug APK SHA-256:
@@ -1818,7 +1818,7 @@ Validation completed:
 - Desktop TypeScript typecheck and `npm run pack`: passed.
 - The regular shortcut target is 214,281,216 bytes with SHA-256
   `86646F9CF2D10205547BBE1B9172E7A2F8ACFBDA72345B39F72601268E844917`.
-- Launching `<Hermes Desktop shortcut>` started the exact packaged
+- Launching `%USERPROFILE%\Desktop\Hermes.lnk` started the exact packaged
   AppData executable, emitted `HERMES_BACKEND_READY port=54888`, and returned
   HTTP 200 from `/api/status` and `/api/health`.
 - A real 360 by 800 browser render kept the new Session cwd strip readable,
@@ -1847,7 +1847,7 @@ Validation completed:
 - Desktop `npm run pack` passed and replaced the exact regular shortcut target.
   `Hermes.exe` is 214,281,216 bytes with SHA-256
   `988697015FF83469A9C394B3EBE2FC42D80668593EF4D5741F16FF7F1836925A`.
-- Launching `<Hermes Desktop shortcut>` produced a visible packaged
+- Launching `%USERPROFILE%\Desktop\Hermes.lnk` produced a visible packaged
   process, emitted `HERMES_BACKEND_READY port=63214`, and returned HTTP 200
   from both `/api/status` and `/api/health`. Dashboard and storage are healthy;
   the overall degraded label only reflects the separately stopped messaging
@@ -1941,7 +1941,7 @@ Validation completed:
 - Desktop shortcut and packaged executable SHA-256 matched:
   `C57AF906B4DE6D814103B50B1A09CED868C7E3E5E73867874F4306C685E49C9F`.
 - Shortcut launch resolved to
-  `<packaged Hermes Desktop executable>`
+  `%LOCALAPPDATA%\hermes\hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe`
   and the backend reported ready on loopback.
 - The launched Desktop backend's custom-provider catalog route returned the
   expected unauthenticated 401 rather than a missing-route 404, confirming the
@@ -2187,7 +2187,7 @@ Known constraints:
   verified upload responses, discovery-files-last ordering, separate review,
   enablement-after-upload, and restart requirement remain in force.
 - Live Workstation inspection resolved the registered plugin to
-  `<Hermes home>\plugins\hermes-mobile`. First-install
+  `%LOCALAPPDATA%\hermes\plugins\hermes-mobile`. First-install
   and forced-update eligibility are reported separately, so a compatible
   active plugin remains usable if an older host cannot expose a safe update
   target.
@@ -2199,4 +2199,4 @@ Known constraints:
 - The replacement APK is 126,880,147 bytes with SHA-256
   `AF3787A74F6A11DADBC656805E32163A9AFEAE3CBD17A93A7707A14EBE69B131`.
   It installed successfully in place with app data preserved on the explicitly
-  selected physical Android test device at `<wireless-adb-endpoint>`.
+  selected Samsung SM-S918U at `<wireless-adb-endpoint>`.

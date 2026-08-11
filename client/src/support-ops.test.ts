@@ -2,13 +2,18 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HermesTransport } from './transport/hermes-transport'
 import {
   filterSupportThreads,
+  isOmittedSupportParticipant,
+  normalizeSupportPlaybackSpeed,
   normalizeSupportMarkdown,
+  parseSupportSetupLines,
+  parseSupportVoicePresetLines,
   plainSupportTitle,
   probeSupportOps,
   supportHandoffFilename,
   supportHandoffMarkdown,
   supportInvestigationPrompt,
   supportOpsTargetedSyncAvailable,
+  supportVisibleParticipants,
 } from './support-ops'
 
 function transportWith(
@@ -81,6 +86,42 @@ describe('Support Ops presentation helpers', () => {
       '1533242742740750437',
     )
     expect(plainSupportTitle(rows[0].title)).toBe('Windows install failed')
+  })
+
+  it('keeps real participants while omitting the Argus wait-room bot', () => {
+    expect(isOmittedSupportParticipant('argus panoptes#4141')).toBe(true)
+    expect(
+      supportVisibleParticipants([
+        'casey',
+        'Argus',
+        'support-two',
+        'CASEY',
+        '',
+      ]),
+    ).toEqual(['casey', 'support-two'])
+  })
+
+  it('normalizes portable setup lines and bounded support voice speed', () => {
+    expect(parseSupportSetupLines('casey\nsupport-two\ncasey\n')).toEqual([
+      'casey',
+      'support-two',
+    ])
+    expect(
+      parseSupportVoicePresetLines(
+        'casey | xai | Rex | voice-1\nreporter | openai | cedar |',
+      ),
+    ).toEqual([
+      { label: 'casey', provider: 'xai', voice: 'Rex', model: 'voice-1' },
+      {
+        label: 'reporter',
+        provider: 'openai',
+        voice: 'cedar',
+        model: '',
+      },
+    ])
+    expect(normalizeSupportPlaybackSpeed(9)).toBe(2)
+    expect(normalizeSupportPlaybackSpeed(0)).toBe(0.5)
+    expect(normalizeSupportPlaybackSpeed('nope')).toBe(1)
   })
 
   it('normalizes Discord reply and mention syntax before Markdown rendering', () => {

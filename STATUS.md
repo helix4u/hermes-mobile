@@ -1,6 +1,6 @@
 # Hermes Mobile Current Status
 
-Last updated: 2026-08-08
+Last updated: 2026-08-10
 
 Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
@@ -24,12 +24,10 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
   Sessions page polls only the cheap live-session authority while open, shows
   working/starting/waiting/idle activity, human recency labels, and attaches an
   in-progress runtime with `session.activate` instead of cold-resuming it.
-- Pet roaming now derives a bounded normal walk speed from the active sprite's
-  cadence with a 64 px/s floor, shorter natural rests, element-top perches,
-  visual-viewport reconciliation, and resize/orientation correction. Ordinary
-  vertical travel keeps the walk animation. Only a ledge within 110 px
-  horizontally and 96 px vertically can trigger a jump, capped at 720 ms, so
-  distant perch changes cannot become long loops of airborne frames.
+- Pet roaming derives bounded cadence from the active sprite with a 64 px/s
+  floor, natural rests, UI perches, viewport correction, and only brief nearby
+  jumps. During turn activity, a resting pet now resolves backend `run` state
+  to a stationary review pose, so it no longer walks in place while stopped.
 - Pet settings now contain a local-first Petdex gallery with thumbnails,
   search, adopt/select, enable/disable, rename, export, remove, provider-aware
   draft generation, reference images, streamed progress, egg incubation,
@@ -40,6 +38,22 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
   clusters, and independent-snapshot warnings. A thread can download a Markdown
   handoff or start a normal Hermes investigation session without granting any
   Discord posting authority.
+- Mobile now consumes the current Support Ops operator and portability routes.
+  A collapsed setup panel edits display name, support/developer aliases,
+  categories, participant voice presets, catalog-backed playback voice/speed,
+  and the host backup directory; it also exports/imports credential-free JSON
+  and starts an explicit host backup.
+- Overview's generation control now POSTs to `/stats/regenerate` instead of
+  merely refetching stale output. Queue controls POST an explicit, bounded set
+  of filtered thread IDs to `/sync` and can confirm `/tickets/unticketed`.
+- Queue and detail render backend-derived support/developer owners and real
+  participants while omitting Argus. The configured operator name is used in
+  person-specific waiting labels without renaming generic workflow roles.
+- Individual Discord, ticket, workspace, draft, and sidechat content has a
+  Support-voice Listen path. Whole-thread playback assigns voices per real
+  participant and uses the shared buffered speech queue. A case can open in a
+  normal Hermes investigation session or start the same handoff with microphone
+  capture.
 - Mobile pet commentary has no warmup-turn threshold. Settled tool/progress
   evidence schedules observation after 900 ms and the configured delay remains
   a fallback. The observed silence was a shared Hermes auxiliary-client
@@ -242,120 +256,30 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
 ## Validation state
 
-- The Termux loopback fix passes 16 focused client tests and the focused Android
-  JVM policy test. Typecheck, Vite build, Capacitor sync, and debug assembly
-  pass. APK SHA-256 is
-  `966DAFCEA50921BB33E94F064870FBF11B688B73C1D31682AED605992D4D94A4`
-  (127,217,135 bytes), signed by the established Mobile certificate.
-
-- The auxiliary callback regression has a focused public-boundary regression
-  test and passes through the canonical one-file test runner (1 selected test,
-  4-worker cap). A bounded live probe against the configured
-  `xai-oauth / grok-4.5` pet assignment returned `ready`, the actual
-  `pet.commentary.generate` dispatcher returned commentary text, and the pet's
-  configured OpenAI TTS path produced a 40,320-byte MP3. The managed Mobile host
-  was restarted and reports healthy compatible loopback listeners on 9129/9130
-  with desktop-bound lifecycle and Tailscale Serve intact. Physical audible
-  playback on Android remains the user acceptance step.
-
-- The cooperative pet-speech handoff passes the focused 23-test voice suite and
-  the complete 57-file/296-test client suite. TypeScript typecheck, Vite
-  production build, Capacitor sync, stable signing, and Android debug assembly
-  pass. APK SHA-256 is
-  `D0BC8F57E6C195980E6CE23A450801C8A9EF9B69AF4A92CC605B9382E3D585BF`
-  (127,192,674 bytes). It was replacement-installed with preserved data on
-  the physical Android test device; Android reports update time `2026-08-08
-  14:17:46`.
-
-- The nearby-jump follow-up passes 19 focused MobilePet tests, TypeScript
-  typecheck, Vite production build, Capacitor sync, and Android debug assembly.
-  The stable-signed APK is
-  `client\android\app\build\outputs\apk\debug\app-debug.apk` (126,927,247
+- The Support setup/parity slice passes 13 focused Support tests across two
+  files. The complete Mobile client suite passes 57 files and 303 tests.
+  TypeScript typecheck, the Vite production build, Capacitor sync, and Android
+  debug assembly pass.
+- Current debug APK:
+  `client/android/app/build/outputs/apk/debug/app-debug.apk` (127,217,135
   bytes, SHA-256
-  `EC0D3C4F4B8C29471ED143C227A38B8B1DC6041F2EE2098A7C59B833F6FE7890`).
-  It was replacement-installed on the physical Android test device at `2026-08-08
-  00:47:57`; its 760 ms cold launch left the process running with no fatal or
-  ANR signature. The earlier complete client suite remains 57 files and 293
-  tests and was not rerun for this two-file follow-up.
-
-- The Support Ops Mobile slice passes 6 focused tests, the complete client suite
-  passes 56 files and 282 tests, TypeScript typecheck and the Vite production
-  build pass, and Android debug assembly completes successfully. The live
-  authenticated host reports a healthy 35-thread queue; a known archived
-  thread exposes all three attachments and returns an `image/png` data URL from
-  the new bounded route. The Support Ops module compiles; its focused Python
-  regression was added but not executed under the local no-Python-tests rule.
-- The targeted-sync follow-up passes 2 focused files and 8 tests; the complete
-  client suite passes 56 files and 283 tests. TypeScript typecheck, Vite
-  production build, Capacitor sync, and Android debug assembly pass. The current
-  APK is `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,138,443 bytes, SHA-256
-  `3B7BA6C66795648295BA0CA76A9ABA7DE3B9A059AE2CB0902FA958778E9E193A`).
-- Current Support Ops stability and dictation APK, replacement-installed on the
-  intended Samsung SM-S918U through the refreshed Wireless ADB endpoint:
-  `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,138,237 bytes, SHA-256
-  `E4A9B372670A9BF056604C357C3235688B43910A77082F24676ECB0D2F5F0D30`).
-  Android reports package update time `2026-08-01 22:39:01`. The `-r` install
-  preserved app and Keystore data; a cold launch completed in 925 ms, left the
-  app process running, and produced no fatal exception or ANR. The process tail
-  contains only platform ashmem/Samsung library warnings and Chromium paint-
-  metric diagnostics, not an application crash.
-- Current responsive Support/landscape APK, replacement-installed on the same
-  Samsung SM-S918U:
-  `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,138,235 bytes, SHA-256
-  `0F8D2F4E2038B31A79D79808EF94A88023D13411BDB1AF7430AD06540D03CE28`).
-  Android reports package update time `2026-08-01 23:23:56`. TypeScript
-  typecheck, the complete 56-file/282-test client suite, Vite production build,
-  Capacitor sync, and Android debug assembly pass. Chromium portrait and
-  landscape viewport captures verify the shell transition and right drawer;
-  a real-phone Support capture verifies the formerly overflowing thread fits
-  the portrait viewport. Native compilation also verifies the Android inset
-  bridge. The installed process remains live with no fatal exception or ANR
-  signature in its error-priority log.
-- Current Support authority-controls APK:
-  `client\android\app\build\outputs\apk\debug\app-debug.apk`
-  (127,139,438 bytes, SHA-256
-  `564D9FBA075AE62A323BD333C8AE7086248F21B93B9F4770AB5C94C6E2E9EB31`).
-  The focused Support test, complete 56-file/283-test client suite, TypeScript
-  typecheck, production build, Capacitor sync, and Android debug assembly pass.
-  It was replacement-installed on the intended Samsung SM-S918U through the
-  refreshed Wireless ADB endpoint. Android reports package update time
-  `2026-08-02 01:29:00`; the preserved-data cold launch completed in 771 ms,
-  left the expected process running, and its error-priority process log had no
-  fatal-exception or ANR signature.
+  `8B235934C9E4AF25F16592E89B4BD2580F4D2AEA356BF80B402AE81F0F85BD6A`).
+- The current APK was replacement-installed on the intended Samsung SM-S918U
+  at the explicitly supplied ADB endpoint. The installed base APK hash exactly
+  matches the local artifact, Android retained the original package install
+  time, and no uninstall or application-data reset occurred.
+- The production build emits the existing large-chunk advisory for the 770 kB
+  main bundle; it is non-fatal and no new Support-specific build failure is
+  present.
+- Physical-device feature acceptance remains separate from the successful
+  build, sync, artifact verification, and replacement installation above.
 
 ## Next action
 
-Exercise one long auto-spoken tool turn on the installed handoff build against
-the restarted host. Verify the first settled tool evidence produces audible pet
-commentary without waiting for another turn, the pet takes the lane only between
-response segments, and playback returns to the response with no overlap, replay,
-or dropped text.
-
-On the replacement-installed responsive Support Ops APK, physically rotate
-Chat, Support, Reader, and a connection sheet and verify the fixed left rail,
-center scrolling, bounded right composer lane, and absence of horizontal
-overflow. Then verify capability-driven tab
-visibility against both the workstation and a vanilla Cloud host. Confirm
-archived screenshots render inline and the loaded view remains mounted through
-a brief reconnect. Dictate into each Support prose field and confirm no
-transcript leaks to another field, Chat, or pet sidechat. Then
-exercise queue/thread Markdown, sync/ticket actions, run settings, and private
-agent sidechat without authorizing an external post. Confirm the workstation
-Sync action is enabled, while a host advertising `targeted_sync: false` keeps
-Sync disabled without blocking ticket or agent actions. Verify Support
-investigation gives Hermes the selected toolsets in the configured repository,
-Codex honors read-only/workspace-write/YOLO selection, and Investigate + redo
-ticket updates the linked ticket without creating a duplicate. On
-the replacement-installed speech-deduplication APK, also verify a long auto-spoken response
-does not repeat any prepared segment or replay after completion. Then verify representative MP4 and audio playback in
-Chat plus the compact Follow transport during manual and automatic Reader
-scrolling. Then verify that completed
-inline attachments remain visually stable during transcript updates and brief
-reconnects, and that the host pill exposes degraded/reconnecting state. Then verify that the acoustic
-activation never appears in the submitted prompt, a short first pet sentence
-joins sentence two, the audio state returns to idle after the last segment, and
-the pet remains visible and draggable over the open sidechat. Then continue the
-independent pet voice/speed, Interrupt/Steer, and xAI-control device acceptance.
+Test against a current Support Ops host: save operator/team/category and
+catalog-backed voice settings; export/import them; run a host backup; regenerate
+statistics; filter the queue and refresh that explicit set; ticket unticketed
+rows; verify named owners and Argus omission; read one message and the full
+participant-assigned thread; then open both ordinary and voice investigation
+sessions. Confirm the cached queue remains usable through a brief reconnect and
+that no Support action gains automatic Discord posting authority.
