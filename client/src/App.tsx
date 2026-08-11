@@ -2621,14 +2621,24 @@ export function App() {
                 connectionId={connection.id}
                 key={connection.id}
                 transport={transportRef.current}
+                activeSpeechId={activeSpeechId}
                 onError={setError}
                 onNotice={setNotice}
+                onSpeak={speakSequence}
                 onStartSession={async (prompt) => {
                   startDraft()
                   const sent = await sendTextToHermes(prompt)
                   if (!sent)
                     throw new Error('Could not start the investigation session')
                 }}
+                onStartVoiceSession={async (prompt) => {
+                  startDraft()
+                  const sent = await sendTextToHermes(prompt)
+                  if (!sent)
+                    throw new Error('Could not start the investigation session')
+                  window.setTimeout(() => toggleRecording(), 120)
+                }}
+                onStopSpeech={stopPlayback}
                 onVoiceInput={(target) => {
                   supportOpsTranscriptRef.current = target
                   toggleRecording()

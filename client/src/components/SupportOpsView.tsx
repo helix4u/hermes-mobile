@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { writeClipboardText } from '../clipboard'
+import { markdownToSpeechText } from '../markdown'
 import {
   previewMediaInfo,
   previewName,
@@ -16,15 +17,24 @@ import {
 import { saveBlob, saveDataUrl } from '../save-data'
 import {
   filterSupportThreads,
+  isOmittedSupportParticipant,
+  normalizeSupportPlaybackSpeed,
   normalizeSupportMarkdown,
+  parseSupportSetupLines,
+  parseSupportVoicePresetLines,
   plainSupportTitle,
   supportHandoffFilename,
   supportHandoffMarkdown,
   supportInvestigationPrompt,
   supportOpsPath,
   supportOpsTargetedSyncAvailable,
+  supportSetupLines,
+  supportVisibleParticipants,
+  supportVoicePresetLines,
   type SupportAttachment,
   type SupportJob,
+  type SupportOperatorConfig,
+  type SupportOperatorConfigPayload,
   type SupportOpsHealth,
   type SupportOption,
   type SupportQueueFilter,
@@ -35,9 +45,15 @@ import {
   type SupportStatsPayload,
   type SupportThreadDetail,
 } from '../support-ops'
+import { ttsOverride, type VoiceChoice } from '../reader'
 import type { HermesTransport } from '../transport/hermes-transport'
+import type {
+  SpeechSequenceItem,
+  SpeechSequenceOptions,
+} from '../voice'
 import { ImagePreview } from './ImageViewer'
 import { MarkdownContent } from './MarkdownContent'
+import { useVoiceCatalog } from './useVoiceCatalog'
 
 interface SupportOpsViewProps {
   active: boolean
@@ -49,6 +65,13 @@ interface SupportOpsViewProps {
   onOpenDocumentPreviewer?: (document: PreviewDocument) => void
   onOpenDocumentReader?: (document: PreviewDocument) => void
   onStartSession?: (prompt: string) => Promise<void>
+  onStartVoiceSession?: (prompt: string) => Promise<void>
+  onSpeak?: (
+    items: SpeechSequenceItem[],
+    options?: SpeechSequenceOptions,
+  ) => Promise<void>
+  onStopSpeech?: () => void
+  activeSpeechId?: string
   onVoiceInput?: (target: (text: string) => void) => void
   voicePhase?: string
   voiceRecordingAvailable?: boolean
@@ -70,6 +93,15 @@ function SupportOverview({
     )
   }
   const totals = stats.totals ?? {}
+  const chartRows = (stats.daily ?? []).slice(-30)
+  const chartMaximum = Math.max(
+    1,
+    ...chartRows.flatMap(row => [
+      Number(row.opened ?? 0),
+      Number(row.closed ?? 0),
+      Number(row.cumulative_open ?? 0),
+    ]),
+  )
   const daily = (stats.daily ?? []).slice(-14).reverse()
   const buckets = stats.buckets ?? stats.topic_buckets ?? []
   const health = stats.classification_health ?? {}
@@ -97,6 +129,47 @@ function SupportOverview({
           </article>
         ))}
       </div>
+      {chartRows.length > 0 && (
+        <section className="support-flow-chart">
+          <div className="support-flow-heading">
+            <h2>Daily support flow · last 30 days</h2>
+            <div>
+              <span className="opened">Opened</span>
+              <span className="closed">Closed</span>
+              <span className="total">Open total</span>
+            </div>
+          </div>
+          <div className="support-flow-scroll">
+            <div
+              aria-label="Daily opened, closed, and cumulative open support threads"
+              className="support-flow-bars"
+              role="img"
+            >
+              {chartRows.map(day => {
+                const height = (value: unknown) =>
+                  `${Math.max(Number(value) > 0 ? 3 : 0, Math.round((Number(value ?? 0) / chartMaximum) * 88))}px`
+                return (
+                  <div
+                    className="support-flow-day"
+                    key={day.date}
+                    title={`${day.date}: ${day.opened ?? 0} opened, ${day.closed ?? 0} closed, ${day.cumulative_open ?? 0} open total`}
+                  >
+                    <div>
+                      <i className="opened" style={{ height: height(day.opened) }} />
+                      <i className="closed" style={{ height: height(day.closed) }} />
+                      <i
+                        className="total"
+                        style={{ height: height(day.cumulative_open) }}
+                      />
+                    </div>
+                    <span>{String(day.date ?? '').slice(5)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+      )}
       <div className="support-overview-grid">
         <section>
           <h2>Recent flow</h2>
@@ -290,26 +363,40 @@ function CopyAction({ label, text }: { label: string; text: string }) {
 function SupportSection({
   children,
   copyText = '',
+  headingActions,
   title,
 }: {
   children: ReactNode
   copyText?: string
+  headingActions?: ReactNode
   title: string
 }) {
   return (
     <section className="support-section">
       <div className="support-section-heading">
         <h3>{title}</h3>
-        {copyText && <CopyAction label={`Copy ${title}`} text={copyText} />}
+        {(headingActions || copyText) && (
+          <div className="support-section-actions">
+            {headingActions}
+            {copyText && <CopyAction label={`Copy ${title}`} text={copyText} />}
+          </div>
+        )}
       </div>
       <div className="support-section-body">{children}</div>
     </section>
   )
 }
 
-function SupportTags({ row }: { row: SupportQueueThread }) {
+function SupportTags({
+  operatorName,
+  row,
+}: {
+  operatorName?: string
+  row: SupportQueueThread
+}) {
   const tags: Array<[string, string]> = []
-  if (row.waiting_on_operator) tags.push(['Operator', 'danger'])
+  if (row.waiting_on_operator)
+    tags.push([operatorName?.trim() || 'Operator', 'danger'])
   else if (row.waiting_on_support) tags.push(['Support', 'accent'])
   else tags.push(['Parked', 'muted'])
   if (row.pr_review_pending) tags.push(['PR review', 'accent'])
@@ -324,6 +411,457 @@ function SupportTags({ row }: { row: SupportQueueThread }) {
         </span>
       ))}
     </div>
+  )
+}
+
+function supportSpeechConfig(
+  playbackVoice: SupportOperatorConfig['playback_voice'],
+  choice?: VoiceChoice,
+): Record<string, unknown> | undefined {
+  const provider = choice?.provider ?? playbackVoice?.provider ?? ''
+  const voice = choice?.voice ?? playbackVoice?.voice ?? ''
+  const speed = normalizeSupportPlaybackSpeed(playbackVoice?.speed)
+  return ttsOverride(
+    { provider, voice, speed },
+    { xaiAutoSpeechTags: true },
+  )
+}
+
+function SupportSpeakButton({
+  activeSpeechId,
+  config,
+  id,
+  label = 'Listen',
+  onSpeak,
+  onStop,
+  text,
+}: {
+  activeSpeechId?: string
+  config?: SupportOperatorConfig['playback_voice']
+  id: string
+  label?: string
+  onSpeak?: SupportOpsViewProps['onSpeak']
+  onStop?: () => void
+  text: string
+}) {
+  const spoken = markdownToSpeechText(text)
+  if (!onSpeak || !spoken) return null
+  const active = activeSpeechId === id
+  return (
+    <button
+      aria-label={active ? `Stop ${label.toLowerCase()}` : label}
+      className="support-copy-button"
+      onClick={() => {
+        if (active) {
+          onStop?.()
+          return
+        }
+        void onSpeak(
+          [{ id, text: spoken, ttsConfig: supportSpeechConfig(config) }],
+          { speechId: id },
+        )
+      }}
+      type="button"
+    >
+      {active ? 'Stop' : label}
+    </button>
+  )
+}
+
+interface SupportSetupDraft {
+  operator_name: string
+  support_members: string
+  developer_members: string
+  categories: string
+  voice_presets: string
+  playback_voice: { provider: string; voice: string; speed: number }
+  backup_directory: string
+}
+
+export function supportSetupDraft(
+  config?: SupportOperatorConfig,
+): SupportSetupDraft {
+  return {
+    operator_name: String(config?.operator_name || 'Operator'),
+    support_members: supportSetupLines(config?.support_members),
+    developer_members: supportSetupLines(config?.developer_members),
+    categories: supportSetupLines(config?.categories),
+    voice_presets: supportVoicePresetLines(config?.voice_presets),
+    playback_voice: {
+      provider: String(config?.playback_voice?.provider || ''),
+      voice: String(config?.playback_voice?.voice || ''),
+      speed: normalizeSupportPlaybackSpeed(config?.playback_voice?.speed),
+    },
+    backup_directory: String(config?.backup_directory || ''),
+  }
+}
+
+export function supportSetupPayload(
+  draft: SupportSetupDraft,
+): SupportOperatorConfig {
+  const supportMembers = parseSupportSetupLines(draft.support_members)
+  const developerMembers = parseSupportSetupLines(draft.developer_members)
+  return {
+    operator_name: draft.operator_name.trim(),
+    team_members: [...new Set([...supportMembers, ...developerMembers])],
+    support_members: supportMembers,
+    developer_members: developerMembers,
+    categories: parseSupportSetupLines(draft.categories),
+    voice_presets: parseSupportVoicePresetLines(draft.voice_presets),
+    playback_voice: {
+      provider: draft.playback_voice.provider.trim(),
+      voice: draft.playback_voice.voice.trim(),
+      speed: normalizeSupportPlaybackSpeed(draft.playback_voice.speed),
+    },
+    backup_directory: draft.backup_directory.trim(),
+  }
+}
+
+function SupportVoiceFields({
+  choices,
+  value,
+  onChange,
+}: {
+  choices: VoiceChoice[]
+  value: SupportSetupDraft['playback_voice']
+  onChange: (value: SupportSetupDraft['playback_voice']) => void
+}) {
+  const providers = [...new Set(choices.map(choice => choice.provider))]
+  const voices = choices.filter(choice => choice.provider === value.provider)
+  return (
+    <div className="support-voice-selectors">
+      <select
+        aria-label="Support read-aloud provider"
+        value={value.provider}
+        onChange={event => {
+          const provider = event.target.value
+          const first = choices.find(choice => choice.provider === provider)
+          onChange({ ...value, provider, voice: first?.voice ?? '' })
+        }}
+      >
+        <option value="">Main voice default</option>
+        {providers.map(provider => (
+          <option key={provider} value={provider}>
+            {provider}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Support read-aloud voice"
+        disabled={!value.provider || voices.length === 0}
+        value={value.voice}
+        onChange={event => onChange({ ...value, voice: event.target.value })}
+      >
+        <option value="">Provider default</option>
+        {voices.map(choice => (
+          <option key={`${choice.provider}:${choice.voice}`} value={choice.voice}>
+            {choice.label}
+          </option>
+        ))}
+      </select>
+      <label className="support-speed-field">
+        <span>Speed {value.speed.toFixed(2)}×</span>
+        <input
+          max="2"
+          min="0.5"
+          step="0.05"
+          type="range"
+          value={value.speed}
+          onChange={event =>
+            onChange({ ...value, speed: Number(event.target.value) })
+          }
+        />
+      </label>
+    </div>
+  )
+}
+
+function SupportSetupPanel({
+  busy,
+  choices,
+  config,
+  onBackup,
+  onExport,
+  onImport,
+  onImportError,
+  onSave,
+}: {
+  busy: string
+  choices: VoiceChoice[]
+  config: SupportOperatorConfig | null
+  onBackup: () => Promise<void>
+  onExport: () => Promise<void>
+  onImport: (value: unknown) => Promise<void>
+  onImportError: (error: unknown) => void
+  onSave: (value: SupportOperatorConfig) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(() => supportSetupDraft(config ?? undefined))
+  const importRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => setDraft(supportSetupDraft(config ?? undefined)), [config])
+  const field = (
+    label: string,
+    description: string,
+    control: ReactNode,
+  ) => (
+    <label className="support-setup-row">
+      <span>
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+      {control}
+    </label>
+  )
+  return (
+    <details className="support-disclosure support-setup-panel">
+      <summary>Setup and portability</summary>
+      <p className="support-muted">
+        Portable plugin state excludes credentials and Discord posting authority.
+      </p>
+      <div className="support-setup-grid">
+        {field(
+          'Your display name',
+          'Used when Support Ops identifies the specific operator.',
+          <input
+            value={draft.operator_name}
+            onChange={event =>
+              setDraft(current => ({
+                ...current,
+                operator_name: event.target.value,
+              }))
+            }
+          />,
+        )}
+        {field(
+          'Support members',
+          'One Discord author alias per line.',
+          <textarea
+            rows={4}
+            value={draft.support_members}
+            onChange={event =>
+              setDraft(current => ({
+                ...current,
+                support_members: event.target.value,
+              }))
+            }
+          />,
+        )}
+        {field(
+          'Developers',
+          'Aliases assignable from PR mentions, one per line.',
+          <textarea
+            rows={4}
+            value={draft.developer_members}
+            onChange={event =>
+              setDraft(current => ({
+                ...current,
+                developer_members: event.target.value,
+              }))
+            }
+          />,
+        )}
+        {field(
+          'Categories',
+          'Editable support topic labels, one per line.',
+          <textarea
+            rows={4}
+            value={draft.categories}
+            onChange={event =>
+              setDraft(current => ({
+                ...current,
+                categories: event.target.value,
+              }))
+            }
+          />,
+        )}
+        {field(
+          'Read-aloud voice',
+          'Uses the connected host voice catalog and applies to Listen.',
+          <SupportVoiceFields
+            choices={choices}
+            value={draft.playback_voice}
+            onChange={playback_voice =>
+              setDraft(current => ({ ...current, playback_voice }))
+            }
+          />,
+        )}
+        {field(
+          'Voice presets',
+          'Optional participant mappings: label | provider | voice | model.',
+          <textarea
+            rows={4}
+            value={draft.voice_presets}
+            onChange={event =>
+              setDraft(current => ({
+                ...current,
+                voice_presets: event.target.value,
+              }))
+            }
+          />,
+        )}
+        {field(
+          'Backup directory',
+          'Absolute directory on the connected host; it must already exist.',
+          <input
+            placeholder="C:\\Backups\\HermesSupport"
+            value={draft.backup_directory}
+            onChange={event =>
+              setDraft(current => ({
+                ...current,
+                backup_directory: event.target.value,
+              }))
+            }
+          />,
+        )}
+      </div>
+      <input
+        ref={importRef}
+        accept="application/json,.json"
+        hidden
+        type="file"
+        onChange={event => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          if (!file) return
+          void (async () => {
+            try {
+              await onImport(JSON.parse(await file.text()))
+            } catch (error) {
+              onImportError(error)
+            }
+          })()
+        }}
+      />
+      <div className="support-action-row">
+        <button disabled={Boolean(busy)} onClick={() => void onExport()} type="button">
+          {busy === 'Export setup' ? 'Exporting…' : 'Export'}
+        </button>
+        <button disabled={Boolean(busy)} onClick={() => importRef.current?.click()} type="button">
+          {busy === 'Import setup' ? 'Importing…' : 'Import'}
+        </button>
+        <button disabled={Boolean(busy)} onClick={() => void onBackup()} type="button">
+          {busy === 'Backup setup' ? 'Backing up…' : 'Back up now'}
+        </button>
+        <button
+          className="primary"
+          disabled={Boolean(busy)}
+          onClick={() => void onSave(supportSetupPayload(draft))}
+          type="button"
+        >
+          {busy === 'Save setup' ? 'Saving…' : 'Save setup'}
+        </button>
+      </div>
+    </details>
+  )
+}
+
+function SupportThreadReader({
+  activeSpeechId,
+  choices,
+  config,
+  detail,
+  onSpeak,
+  onStop,
+}: {
+  activeSpeechId?: string
+  choices: VoiceChoice[]
+  config: SupportOperatorConfig | null
+  detail: SupportThreadDetail
+  onSpeak?: SupportOpsViewProps['onSpeak']
+  onStop?: () => void
+}) {
+  const participants = supportVisibleParticipants(
+    detail.messages?.map(message => message.author),
+  )
+  const participantKey = participants.join('\u0000')
+  const [assignments, setAssignments] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const presets = config?.voice_presets ?? []
+    setAssignments(current =>
+      Object.fromEntries(
+        participants.map(participant => {
+          const preset = presets.find(
+            row => row.label?.trim().toLowerCase() === participant.toLowerCase(),
+          )
+          return [
+            participant,
+            current[participant] ??
+              (preset?.provider || preset?.voice
+                ? `${preset.provider ?? ''}:${preset.voice ?? ''}`
+                : ''),
+          ]
+        }),
+      ),
+    )
+  }, [config, detail.thread_id, participantKey])
+  if (!onSpeak || !detail.messages?.length) return null
+  const active = activeSpeechId === 'support-thread-reader'
+  return (
+    <details className="support-disclosure support-thread-reader">
+      <summary>Read thread</summary>
+      <p className="support-muted">
+        Assign a connected-host voice per participant, then play the full transcript in order.
+      </p>
+      <div className="support-reader-assignments">
+        {participants.map(participant => (
+          <label key={participant}>
+            <span>{participant}</span>
+            <select
+              value={assignments[participant] ?? ''}
+              onChange={event =>
+                setAssignments(current => ({
+                  ...current,
+                  [participant]: event.target.value,
+                }))
+              }
+            >
+              <option value="">Support default</option>
+              {choices.map(choice => (
+                <option
+                  key={`${choice.provider}:${choice.voice}`}
+                  value={`${choice.provider}:${choice.voice}`}
+                >
+                  {choice.provider} · {choice.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+      <button
+        className="primary"
+        onClick={() => {
+          if (active) {
+            onStop?.()
+            return
+          }
+          const items = (detail.messages ?? [])
+            .filter(message => !isOmittedSupportParticipant(message.author))
+            .map((message, index) => {
+              const author = String(message.author || 'Unknown')
+              const selected = assignments[author] ?? ''
+              const choice = choices.find(
+                row => `${row.provider}:${row.voice}` === selected,
+              )
+              return {
+                id: `support-thread-${message.message_id ?? index}`,
+                text: `${author}. ${markdownToSpeechText(
+                  normalizeSupportMarkdown(message.body, detail.mention_names),
+                )}`,
+                ttsConfig: supportSpeechConfig(config?.playback_voice, choice),
+              }
+            })
+            .filter(item => item.text.trim())
+          void onSpeak(items, {
+            speechId: 'support-thread-reader',
+            bufferAhead: 3,
+            maxConcurrentSynthesis: 2,
+          })
+        }}
+        type="button"
+      >
+        {active ? 'Stop thread' : 'Play full thread'}
+      </button>
+    </details>
   )
 }
 
@@ -477,8 +1015,16 @@ function SupportAttachmentView({
 }
 
 function TicketPanel({
+  activeSpeechId,
+  onSpeak,
+  onStop,
+  playbackVoice,
   ticket,
 }: {
+  activeSpeechId?: string
+  onSpeak?: SupportOpsViewProps['onSpeak']
+  onStop?: () => void
+  playbackVoice?: SupportOperatorConfig['playback_voice']
   ticket: Record<string, unknown> | null | undefined
 }) {
   if (!ticket) {
@@ -504,7 +1050,17 @@ function TicketPanel({
           <div className="support-ticket-section" key={name}>
             <div className="support-inline-heading">
               <strong>{name}</strong>
-              <CopyAction label={`Copy ${name}`} text={text} />
+              <span className="support-section-actions">
+                <SupportSpeakButton
+                  activeSpeechId={activeSpeechId}
+                  config={playbackVoice}
+                  id={`support-ticket-${name}`}
+                  onSpeak={onSpeak}
+                  onStop={onStop}
+                  text={text}
+                />
+                <CopyAction label={`Copy ${name}`} text={text} />
+              </span>
             </div>
             <MarkdownContent>{text}</MarkdownContent>
           </div>
@@ -895,15 +1451,20 @@ function SettingsEditor({
 }
 
 function SuggestedResponse({
+  activeSpeechId,
   busy,
   settings,
   threadId,
   workspace,
   mutate,
+  onSpeak,
+  onStop,
   onVoiceInput,
+  playbackVoice,
   voicePhase = 'idle',
   voiceRecordingAvailable = false,
 }: {
+  activeSpeechId?: string
   busy: boolean
   settings: SupportSettings
   threadId: string
@@ -913,7 +1474,10 @@ function SuggestedResponse({
     body: Record<string, unknown>,
     method?: 'POST' | 'PUT',
   ) => Promise<void>
+  onSpeak?: SupportOpsViewProps['onSpeak']
+  onStop?: () => void
   onVoiceInput?: (target: (text: string) => void) => void
+  playbackVoice?: SupportOperatorConfig['playback_voice']
   voicePhase?: string
   voiceRecordingAvailable?: boolean
 }) {
@@ -934,7 +1498,20 @@ function SuggestedResponse({
     )
   }
   return (
-    <SupportSection copyText={draft} title="Suggested response">
+    <SupportSection
+      copyText={draft}
+      headingActions={
+        <SupportSpeakButton
+          activeSpeechId={activeSpeechId}
+          config={playbackVoice}
+          id={`support-suggested-${threadId}`}
+          onSpeak={onSpeak}
+          onStop={onStop}
+          text={draft}
+        />
+      }
+      title="Suggested response"
+    >
       {editing ? (
         <div className="support-voice-field">
           <textarea
@@ -1028,12 +1605,16 @@ function SuggestedResponse({
 
 export function SupportOpsView({
   active,
+  activeSpeechId,
   connected,
   connectionId,
   transport,
   onError,
   onNotice,
+  onSpeak,
   onStartSession,
+  onStartVoiceSession,
+  onStopSpeech,
   onVoiceInput,
   voicePhase = 'idle',
   voiceRecordingAvailable = false,
@@ -1042,6 +1623,8 @@ export function SupportOpsView({
   const [stats, setStats] = useState<SupportStatsPayload | null>(null)
   const [view, setView] = useState<'queue' | 'overview'>('queue')
   const [health, setHealth] = useState<SupportOpsHealth | null>(null)
+  const [operatorConfig, setOperatorConfig] =
+    useState<SupportOperatorConfig | null>(null)
   const [queueLoading, setQueueLoading] = useState(false)
   const [selectedId, setSelectedId] = useState('')
   const selectedIdRef = useRef(selectedId)
@@ -1061,6 +1644,7 @@ export function SupportOpsView({
     promise: Promise<void>
     threadId: string
   } | null>(null)
+  const voiceCatalog = useVoiceCatalog(transport, connected)
 
   const fail = useCallback(
     (error: unknown) => {
@@ -1113,6 +1697,21 @@ export function SupportOpsView({
         { timeoutMs: 20_000 },
       )
       setStats(payload)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/HTTP 404|no such api endpoint|not found/i.test(message)) fail(error)
+    }
+  }, [connected, fail, transport])
+
+  const loadOperatorConfig = useCallback(async () => {
+    if (!connected || !transport) return
+    try {
+      const payload = await transport.requestJson<SupportOperatorConfigPayload>(
+        supportOpsPath('/operator-config'),
+        undefined,
+        { timeoutMs: 20_000 },
+      )
+      setOperatorConfig(payload.config ?? {})
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (!/HTTP 404|no such api endpoint|not found/i.test(message)) fail(error)
@@ -1195,6 +1794,7 @@ export function SupportOpsView({
     setQueue(null)
     setStats(null)
     setHealth(null)
+    setOperatorConfig(null)
     setSelectedId('')
     setDetail(null)
     setSettingsPayload(null)
@@ -1204,13 +1804,26 @@ export function SupportOpsView({
 
   useEffect(() => {
     if (!active || !connected || !transport) return
-    void Promise.all([loadQueue(), loadHealth(), loadStats()])
+    void Promise.all([
+      loadQueue(),
+      loadHealth(),
+      loadStats(),
+      loadOperatorConfig(),
+    ])
     const timer = window.setInterval(
       () => void Promise.all([loadQueue(), loadHealth()]),
       30_000,
     )
     return () => window.clearInterval(timer)
-  }, [active, connected, loadHealth, loadQueue, loadStats, transport])
+  }, [
+    active,
+    connected,
+    loadHealth,
+    loadOperatorConfig,
+    loadQueue,
+    loadStats,
+    transport,
+  ])
 
   useEffect(() => {
     if (!active || !connected || !transport) return
@@ -1237,6 +1850,7 @@ export function SupportOpsView({
   )
   const summary = queue?.summary ?? {}
   const settings = settingsPayload?.settings ?? {}
+  const operatorLabel = operatorConfig?.operator_name?.trim() || 'Operator'
   const targetedSyncAvailable = supportOpsTargetedSyncAvailable(health)
   const activeJob = jobs.find((job) =>
     ['queued', 'running'].includes(job.status ?? ''),
@@ -1327,6 +1941,168 @@ export function SupportOpsView({
     [connected, fail, loadQueue, onNotice, transport],
   )
 
+  const pluginAction = useCallback(
+    async <T,>(
+      path: string,
+      body: Record<string, unknown> | undefined,
+      method: 'GET' | 'POST' | 'PUT',
+      label: string,
+      timeoutMs = 45_000,
+    ): Promise<T | null> => {
+      if (!connected || !transport) return null
+      setBusy(label)
+      setLocalError('')
+      try {
+        return await transport.requestJson<T>(supportOpsPath(path), body, {
+          method,
+          timeoutMs,
+        })
+      } catch (error) {
+        fail(error)
+        return null
+      } finally {
+        setBusy('')
+      }
+    },
+    [connected, fail, transport],
+  )
+
+  const saveOperatorConfig = useCallback(
+    async (value: SupportOperatorConfig) => {
+      const result = await pluginAction<SupportOperatorConfigPayload>(
+        '/operator-config',
+        value as Record<string, unknown>,
+        'PUT',
+        'Save setup',
+      )
+      if (!result) return
+      setOperatorConfig(result.config ?? value)
+      await loadQueue()
+      onNotice?.('Support Ops setup saved')
+    },
+    [loadQueue, onNotice, pluginAction],
+  )
+
+  const exportPortable = useCallback(async () => {
+    const bundle = await pluginAction<Record<string, unknown>>(
+      '/portable/export',
+      undefined,
+      'GET',
+      'Export setup',
+    )
+    if (!bundle) return
+    const saved = await saveBlob(
+      new Blob([JSON.stringify(bundle, null, 2)], {
+        type: 'application/json',
+      }),
+      `hermes-support-ops-${new Date().toISOString().slice(0, 10)}.json`,
+      'application/json',
+    )
+    if (saved) onNotice?.('Support Ops settings exported')
+  }, [onNotice, pluginAction])
+
+  const importPortable = useCallback(
+    async (bundle: unknown) => {
+      if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
+        fail(new Error('Support Ops import must be a JSON object'))
+        return
+      }
+      const result = await pluginAction<SupportOperatorConfigPayload>(
+        '/portable/import',
+        bundle as Record<string, unknown>,
+        'POST',
+        'Import setup',
+      )
+      if (!result) return
+      await Promise.all([loadOperatorConfig(), loadQueue(), loadStats()])
+      onNotice?.('Support Ops settings imported')
+    },
+    [fail, loadOperatorConfig, loadQueue, loadStats, onNotice, pluginAction],
+  )
+
+  const backupPortable = useCallback(async () => {
+    const result = await pluginAction<{ filename?: string }>(
+      '/portable/backup',
+      {},
+      'POST',
+      'Backup setup',
+    )
+    if (result) {
+      onNotice?.(
+        result.filename
+          ? `Backup saved as ${result.filename}`
+          : 'Support Ops backup saved',
+      )
+    }
+  }, [onNotice, pluginAction])
+
+  const regenerateStats = useCallback(async () => {
+    const result = await pluginAction<SupportJob>(
+      '/stats/regenerate',
+      {},
+      'POST',
+      'Regenerate stats',
+    )
+    if (!result) return
+    onNotice?.('Support statistics regeneration started')
+    window.setTimeout(() => void loadStats(), 2_500)
+    window.setTimeout(() => void loadStats(), 7_500)
+  }, [loadStats, onNotice, pluginAction])
+
+  const refreshFilteredThreads = useCallback(async () => {
+    const threadIds = rows.slice(0, 100).map(row => row.thread_id)
+    if (!threadIds.length) return
+    const result = await pluginAction<{
+      started?: number
+      failures?: unknown[]
+    }>(
+      '/sync',
+      { thread_ids: threadIds },
+      'POST',
+      'Refresh filtered',
+      120_000,
+    )
+    if (!result) return
+    await loadQueue()
+    onNotice?.(
+      `Started ${Number(result.started ?? 0)} filtered thread refreshes${
+        result.failures?.length ? `; ${result.failures.length} failed` : ''
+      }`,
+    )
+  }, [loadQueue, onNotice, pluginAction, rows])
+
+  const ticketAllUnticketed = useCallback(async () => {
+    const count = Number(summary.without_ticket ?? 0)
+    if (
+      !count ||
+      !window.confirm(
+        `Create or repair durable local tickets for all ${count} unticketed open threads?\n\nThis does not post to Discord.`,
+      )
+    ) {
+      return
+    }
+    const result = await pluginAction<{
+      requested?: number
+      ticketed?: number
+      failures?: unknown[]
+    }>(
+      '/tickets/unticketed',
+      { confirm: true },
+      'POST',
+      'Ticket unticketed',
+      120_000,
+    )
+    if (!result) return
+    await loadQueue()
+    onNotice?.(
+      `Created ${Number(result.ticketed ?? 0)} of ${Number(
+        result.requested ?? 0,
+      )} requested tickets${
+        result.failures?.length ? `; ${result.failures.length} failed` : ''
+      }`,
+    )
+  }, [loadQueue, onNotice, pluginAction, summary.without_ticket])
+
   if (!transport) {
     return (
       <div className="support-ops-screen support-empty-state">
@@ -1408,6 +2184,24 @@ export function SupportOpsView({
             >
               {detailLoading ? 'Loading…' : 'Refresh'}
             </button>
+            <button
+              disabled={Boolean(!connected || !detail || !onStartVoiceSession)}
+              onClick={async () => {
+                if (!detail || !onStartVoiceSession) return
+                setBusy('Voice session')
+                try {
+                  await onStartVoiceSession(supportInvestigationPrompt(detail))
+                  onNotice?.('Support voice session opened')
+                } catch (sessionError) {
+                  fail(sessionError)
+                } finally {
+                  setBusy('')
+                }
+              }}
+              type="button"
+            >
+              {busy === 'Voice session' ? 'Opening…' : 'Voice session'}
+            </button>
           </div>
         </header>
 
@@ -1420,6 +2214,16 @@ export function SupportOpsView({
         )}
         {detail?.detail_warning && (
           <div className="support-inline-warning">{detail.detail_warning}</div>
+        )}
+        {detail?.waiting_on && (
+          <div className="support-owner-strip">
+            {detail.waiting_on.support?.map(name => (
+              <span key={`support-${name}`}>Support: {name}</span>
+            ))}
+            {detail.waiting_on.developers?.map(name => (
+              <span key={`dev-${name}`}>Dev: {name}</span>
+            ))}
+          </div>
         )}
         {detailLoading && !detail ? (
           <div className="support-loading">Loading thread…</div>
@@ -1471,7 +2275,7 @@ export function SupportOpsView({
                   }}
                   type="button"
                 >
-                  {busy === 'Chat session' ? 'Opening…' : 'Continue in Chat'}
+                  {busy === 'Chat session' ? 'Opening…' : 'Open in session'}
                 </button>
                 <button
                   className="primary"
@@ -1616,6 +2420,17 @@ export function SupportOpsView({
               )}
             </SupportSection>
 
+            {detail && (
+              <SupportThreadReader
+                activeSpeechId={activeSpeechId}
+                choices={voiceCatalog.choices}
+                config={operatorConfig}
+                detail={detail}
+                onSpeak={onSpeak}
+                onStop={onStopSpeech}
+              />
+            )}
+
             <details className="support-disclosure">
               <summary>Thread run settings</summary>
               <SettingsEditor
@@ -1655,10 +2470,20 @@ export function SupportOpsView({
                         <strong>
                           {message.role === 'assistant' ? 'Agent' : 'You'}
                         </strong>
-                        <CopyAction
-                          label="Copy sidechat message"
-                          text={content}
-                        />
+                        <span className="support-section-actions">
+                          <SupportSpeakButton
+                            activeSpeechId={activeSpeechId}
+                            config={operatorConfig?.playback_voice}
+                            id={`support-sidechat-${String(message.id ?? index)}`}
+                            onSpeak={onSpeak}
+                            onStop={onStopSpeech}
+                            text={content}
+                          />
+                          <CopyAction
+                            label="Copy sidechat message"
+                            text={content}
+                          />
+                        </span>
                       </div>
                       <MarkdownContent>{content}</MarkdownContent>
                     </article>
@@ -1706,12 +2531,22 @@ export function SupportOpsView({
               </button>
             </SupportSection>
 
-            <TicketPanel ticket={detail?.ticket} />
+            <TicketPanel
+              activeSpeechId={activeSpeechId}
+              onSpeak={onSpeak}
+              onStop={onStopSpeech}
+              playbackVoice={operatorConfig?.playback_voice}
+              ticket={detail?.ticket}
+            />
 
             <SuggestedResponse
+              activeSpeechId={activeSpeechId}
               busy={Boolean(!connected || busy)}
               mutate={mutate}
+              onSpeak={onSpeak}
+              onStop={onStopSpeech}
               onVoiceInput={onVoiceInput}
+              playbackVoice={operatorConfig?.playback_voice}
               settings={settings}
               threadId={selectedId}
               voicePhase={voicePhase}
@@ -1726,6 +2561,16 @@ export function SupportOpsView({
                 return (
                   <SupportSection
                     copyText={text}
+                    headingActions={
+                      <SupportSpeakButton
+                        activeSpeechId={activeSpeechId}
+                        config={operatorConfig?.playback_voice}
+                        id={`support-workspace-${key}`}
+                        onSpeak={onSpeak}
+                        onStop={onStopSpeech}
+                        text={text}
+                      />
+                    }
                     key={key}
                     title={
                       key === 'investigation'
@@ -1758,6 +2603,15 @@ export function SupportOpsView({
                         <strong>{message.author || 'Unknown'}</strong>
                         <span>
                           {formatTime(message.timestamp)}
+                          <SupportSpeakButton
+                            activeSpeechId={activeSpeechId}
+                            config={operatorConfig?.playback_voice}
+                            id={`support-message-${messageId || index}`}
+                            label="Listen"
+                            onSpeak={onSpeak}
+                            onStop={onStopSpeech}
+                            text={text}
+                          />
                           <CopyAction
                             label="Copy Discord message"
                             text={text}
@@ -1859,6 +2713,16 @@ export function SupportOpsView({
           >
             {queueLoading ? 'Refreshing…' : 'Refresh'}
           </button>
+          {view === 'overview' && (
+            <button
+              disabled={Boolean(!connected || busy)}
+              onClick={() => void regenerateStats()}
+              title="Re-run the host artifact generator and rebuild Support statistics"
+              type="button"
+            >
+              {busy === 'Regenerate stats' ? 'Generating…' : 'Regenerate stats'}
+            </button>
+          )}
         </div>
       </header>
       {localError && <div className="support-inline-error">{localError}</div>}
@@ -1868,6 +2732,18 @@ export function SupportOpsView({
           remain available.
         </div>
       )}
+      {operatorConfig && (
+        <SupportSetupPanel
+          busy={busy}
+          choices={voiceCatalog.choices}
+          config={operatorConfig}
+          onBackup={backupPortable}
+          onExport={exportPortable}
+          onImport={importPortable}
+          onImportError={fail}
+          onSave={saveOperatorConfig}
+        />
+      )}
       {view === 'overview' ? (
         <SupportOverview queue={queue} stats={stats} />
       ) : (
@@ -1875,7 +2751,7 @@ export function SupportOpsView({
           <div className="support-metrics" aria-label="Support queue counts">
             {[
               ['all', 'Open', summary.open],
-              ['waiting_operator', 'Operator', summary.waiting_on_operator],
+              ['waiting_operator', operatorLabel, summary.waiting_on_operator],
               ['waiting_support', 'Support', summary.waiting_on_support],
               ['pr_review', 'PR review', summary.pr_review_pending],
               ['stale', 'Stale', summary.stale],
@@ -1909,13 +2785,39 @@ export function SupportOpsView({
             >
               {FILTERS.map(([value, label]) => (
                 <option key={value} value={value}>
-                  {label}
+                  {value === 'waiting_operator'
+                    ? `Waiting on ${operatorLabel}`
+                    : label}
                 </option>
               ))}
             </select>
           </div>
           <div className="support-queue-count">
             {rows.length}/{summary.open ?? 0} open threads
+          </div>
+          <div className="support-bulk-actions">
+            <button
+              disabled={Boolean(
+                !connected || busy || !rows.length || !targetedSyncAvailable,
+              )}
+              onClick={() => void refreshFilteredThreads()}
+              title="Start targeted sync for up to the first 100 threads in the current filter"
+              type="button"
+            >
+              {busy === 'Refresh filtered'
+                ? 'Starting…'
+                : `Refresh filtered (${Math.min(rows.length, 100)})`}
+            </button>
+            <button
+              disabled={Boolean(!connected || busy || !summary.without_ticket)}
+              onClick={() => void ticketAllUnticketed()}
+              title="Create durable local tickets for every currently unticketed queue item"
+              type="button"
+            >
+              {busy === 'Ticket unticketed'
+                ? 'Ticketing…'
+                : `Ticket unticketed (${Number(summary.without_ticket ?? 0)})`}
+            </button>
           </div>
           {queueLoading && !queue ? (
             <div className="support-loading">Loading support queue…</div>
@@ -1940,7 +2842,33 @@ export function SupportOpsView({
                       {compactAge(row.hours_since_last_message) &&
                         ` · ${compactAge(row.hours_since_last_message)}`}
                     </span>
-                    <SupportTags row={row} />
+                    <SupportTags operatorName={operatorLabel} row={row} />
+                    {supportVisibleParticipants(row.participants).length > 0 && (
+                      <span className="support-participants">
+                        {supportVisibleParticipants(row.participants)
+                          .slice(0, 4)
+                          .map(name => (
+                            <span key={name}>{name}</span>
+                          ))}
+                        {supportVisibleParticipants(row.participants).length >
+                          4 && (
+                          <span>
+                            +{supportVisibleParticipants(row.participants).length - 4}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {(row.waiting_on?.support?.length ||
+                      row.waiting_on?.developers?.length) && (
+                      <span className="support-waiting-owners">
+                        {row.waiting_on.support?.map(name => (
+                          <span key={`support-${name}`}>Support: {name}</span>
+                        ))}
+                        {row.waiting_on.developers?.map(name => (
+                          <span key={`dev-${name}`}>Dev: {name}</span>
+                        ))}
+                      </span>
+                    )}
                   </button>
                   <div className="support-thread-actions">
                     <button

@@ -12,6 +12,11 @@ export interface SupportOpsHealth {
   capabilities?: Record<string, unknown>
 }
 
+export interface SupportWaitingOwners {
+  support?: string[]
+  developers?: string[]
+}
+
 export interface SupportQueueThread {
   thread_id: string
   title?: string
@@ -28,6 +33,7 @@ export interface SupportQueueThread {
   stale_open?: boolean
   has_ticket?: boolean
   participants?: string[]
+  waiting_on?: SupportWaitingOwners
   discord_url?: string
 }
 
@@ -44,6 +50,7 @@ export interface SupportStatsDay {
   opened?: number
   closed?: number
   net?: number
+  cumulative_open?: number
 }
 
 export interface SupportStatsBucket {
@@ -73,6 +80,43 @@ export interface SupportStatsPayload {
     archive_integrity?: { archive_gap?: number }
   }
   issue_clusters?: { cluster_count?: number }
+}
+
+export interface SupportPlaybackVoice {
+  provider?: string
+  voice?: string
+  speed?: number
+}
+
+export interface SupportVoicePreset {
+  label?: string
+  provider?: string
+  voice?: string
+  model?: string
+}
+
+export interface SupportOperatorConfig {
+  operator_name?: string
+  team_members?: string[]
+  support_members?: string[]
+  developer_members?: string[]
+  categories?: string[]
+  voice_presets?: SupportVoicePreset[]
+  playback_voice?: SupportPlaybackVoice
+  backup_directory?: string
+}
+
+export interface SupportOperatorConfigPayload {
+  config?: SupportOperatorConfig
+  external_posting?: boolean
+}
+
+export interface SupportPortableBundle {
+  schema?: string
+  exported_at?: string
+  operator_config?: SupportOperatorConfig
+  settings?: SupportSettings
+  thread_settings?: Record<string, SupportSettings>
 }
 
 export interface SupportMessage {
@@ -165,6 +209,7 @@ export interface SupportThreadDetail {
   detail_message?: string
   detail_warning?: string
   archive_is_current?: boolean
+  waiting_on?: SupportWaitingOwners
 }
 
 export function supportOpsPath(path: string): string {
@@ -246,6 +291,80 @@ export function filterSupportThreads(
         String(left.last_message_at ?? ''),
       ),
     )
+}
+
+export function isOmittedSupportParticipant(value: unknown): boolean {
+  const name = String(value ?? '').trim().toLowerCase()
+  return (
+    name === 'argus' ||
+    name === 'argus panoptes' ||
+    name.startsWith('argus panoptes#')
+  )
+}
+
+export function supportVisibleParticipants(
+  values: unknown[] | null | undefined,
+): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values ?? []) {
+    const name = String(value ?? '').trim()
+    const key = name.toLowerCase()
+    if (!name || seen.has(key) || isOmittedSupportParticipant(name)) continue
+    seen.add(key)
+    result.push(name)
+  }
+  return result
+}
+
+export function supportSetupLines(values: unknown): string {
+  return Array.isArray(values)
+    ? values.map(value => String(value ?? '').trim()).filter(Boolean).join('\n')
+    : ''
+}
+
+export function parseSupportSetupLines(value: unknown): string[] {
+  return [
+    ...new Set(
+      String(value ?? '')
+        .split(/\r?\n/)
+        .map(item => item.trim())
+        .filter(Boolean),
+    ),
+  ]
+}
+
+export function supportVoicePresetLines(values: unknown): string {
+  return Array.isArray(values)
+    ? values
+        .filter(value => value && typeof value === 'object')
+        .map(value => {
+          const row = value as SupportVoicePreset
+          return [row.label, row.provider, row.voice, row.model]
+            .map(part => String(part ?? '').trim())
+            .join(' | ')
+        })
+        .join('\n')
+    : ''
+}
+
+export function parseSupportVoicePresetLines(
+  value: unknown,
+): SupportVoicePreset[] {
+  return String(value ?? '')
+    .split(/\r?\n/)
+    .map(row => {
+      const [label = '', provider = '', voice = '', model = ''] = row
+        .split('|')
+        .map(item => item.trim())
+      return { label, provider, voice, model }
+    })
+    .filter(row => row.label || row.provider || row.voice)
+}
+
+export function normalizeSupportPlaybackSpeed(value: unknown): number {
+  const speed = Number(value)
+  return Number.isFinite(speed) ? Math.max(0.5, Math.min(2, speed)) : 1
 }
 
 function escapeMarkdownLabel(value: unknown, fallback: string): string {
