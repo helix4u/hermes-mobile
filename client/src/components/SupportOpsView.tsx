@@ -2708,7 +2708,7 @@ export function SupportOpsView({
           {health?.capabilities?.backend_control === true && (
             <div className="support-view-toggle" role="group" aria-label="Support backend controls">
               <span
-                className={health.backend?.running ? 'active' : ''}
+                className={`support-backend-state${health.backend?.running ? ' active' : ''}`}
                 title={health.backend?.last_error || undefined}
               >
                 {health.backend?.running

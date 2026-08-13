@@ -4108,6 +4108,24 @@ h3 {
   border-radius: 0.62rem;
 }
 
+.support-backend-state {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  padding: 0.55rem 0.65rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.support-backend-state.active {
+  color: var(--text);
+}
+
 .support-view-toggle button { border: 0; border-radius: 0; }
 .support-view-toggle button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); }
 
