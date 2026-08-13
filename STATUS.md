@@ -43,6 +43,10 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
   state, and the Support header exposes Start, Stop, and Poll now. Missing
   dedicated Discord credentials leave copied queue/history/ticket data readable
   while source Sync and worker start remain unavailable.
+- The Support backend state label now has explicit compact control typography
+  and overflow containment. Android WebView no longer text-autosizes `Backend
+  running`, `Backend stopped`, or `Backend needs token` beyond the adjacent
+  lifecycle buttons.
 - The Windows Mobile host now runs entirely from the AppData Mobile checkout.
   The empty plugin directory left by copying the former junction was replaced
   with an AppData-owned junction, and the desktop-bound scheduled task was
@@ -273,9 +277,9 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
   files. TypeScript typecheck, the Vite production build, Capacitor sync, and
   Android debug assembly pass from the authoritative AppData checkout.
 - Current debug APK:
-  `client/android/app/build/outputs/apk/debug/app-debug.apk` (126,933,588
+  `client/android/app/build/outputs/apk/debug/app-debug.apk` (126,934,429
   bytes, SHA-256
-  `59D55058F0AA7C39F32AB307BB791C1130B11D569D33EA1577DD339730EBD97F`).
+  `D26D0B9C086DB8313B6CB7E75E661B99CE3C9EA64FBCB5CB5F3F3732F49B4434`).
 - The current APK was replacement-installed with `-r` on the intended Samsung
   SM-S918U at the explicitly supplied ADB endpoint. The installed base APK hash
   exactly matches the AppData artifact, the application process launches, and
