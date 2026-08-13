@@ -20,6 +20,7 @@ if (-not (Test-Path -LiteralPath $HermesExecutable)) {
 }
 
 $runner = Join-Path $PSScriptRoot 'run-mobile-server.ps1'
+$hiddenRunner = Join-Path $PSScriptRoot 'run-hidden.vbs'
 $manager = Join-Path $PSScriptRoot 'manage-mobile-server.ps1'
 $proxyScript = Join-Path $PSScriptRoot 'mobile_proxy.py'
 if (-not (Test-Path -LiteralPath $runner)) {
@@ -27,6 +28,9 @@ if (-not (Test-Path -LiteralPath $runner)) {
 }
 if (-not (Test-Path -LiteralPath $manager)) {
     throw "Mobile server manager not found: $manager"
+}
+if (-not (Test-Path -LiteralPath $hiddenRunner)) {
+    throw "Hidden process runner not found: $hiddenRunner"
 }
 
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -42,14 +46,16 @@ if ($existing) {
 & $manager -Action Stop -Port $Port -ProxyPort $ProxyPort -TaskName $TaskName -Runner $runner | Out-Null
 
 $powerShell = (Get-Command pwsh.exe -ErrorAction Stop).Source
-$arguments = @(
+$wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
+if (-not (Test-Path -LiteralPath $wscript)) {
+    throw "Windows Script Host executable not found: $wscript"
+}
+$powerShellArguments = @(
     '-NoLogo',
     '-NoProfile',
     '-NonInteractive',
     '-ExecutionPolicy',
     'Bypass',
-    '-WindowStyle',
-    'Hidden',
     '-File',
     "`"$runner`"",
     '-Port',
@@ -60,11 +66,12 @@ $arguments = @(
     "`"$HermesHome`""
 ) -join ' '
 if ($TailnetHost) {
-    $arguments = "$arguments -TailnetHost `"$TailnetHost`""
+    $powerShellArguments = "$powerShellArguments -TailnetHost `"$TailnetHost`""
 }
 if ($HermesExecutable) {
-    $arguments = "$arguments -HermesExecutable `"$HermesExecutable`""
+    $powerShellArguments = "$powerShellArguments -HermesExecutable `"$HermesExecutable`""
 }
+$desktopIsRunning = $null
 if ($StartupMode -eq 'desktop') {
     $agentRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $HermesExecutable))
     $runningDesktop = @(
@@ -85,12 +92,15 @@ if ($StartupMode -eq 'desktop') {
     if (-not (Test-Path -LiteralPath $desktopExecutable)) {
         throw "Desktop-bound startup requires the packaged Desktop executable: $desktopExecutable"
     }
-    $arguments = "$arguments -DesktopExecutable `"$desktopExecutable`""
+    $desktopIsRunning = [bool]$runningDesktop
+    $powerShellArguments = "$powerShellArguments -DesktopExecutable `"$desktopExecutable`""
 }
+
+$arguments = "//B //NoLogo `"$hiddenRunner`" `"$powerShell`" $powerShellArguments"
 
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $action = New-ScheduledTaskAction `
-    -Execute $powerShell `
+    -Execute $wscript `
     -Argument $arguments `
     -WorkingDirectory $PSScriptRoot
 $triggers = @()
@@ -133,6 +143,11 @@ if ($triggers.Count -gt 0) {
 Register-ScheduledTask @register | Out-Null
 
 Start-ScheduledTask -TaskName $TaskName
+
+if ($StartupMode -eq 'desktop' -and -not $desktopIsRunning) {
+    Write-Host "Hermes Mobile server is registered and waiting for packaged Desktop (startup: $StartupMode)"
+    return
+}
 
 $deadline = [DateTimeOffset]::Now.AddSeconds(45)
 do {

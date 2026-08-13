@@ -9,9 +9,6 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
-if ($task.State -ne 'Running') {
-    throw "Scheduled task is not running: $TaskName ($($task.State))"
-}
 
 foreach ($expectedPort in @($Port, $ProxyPort)) {
     $listener = Get-NetTCPConnection `

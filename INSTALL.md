@@ -66,7 +66,8 @@ python scripts/mobile_host.py install --startup manual
 `desktop` starts the backend, proxy, and supervisor only while the packaged
 Hermes Desktop process is running. All three exit after Desktop quits. A
 plugin-owned one-minute scheduled recovery trigger starts them again after
-Desktop reopens; duplicate ticks are ignored while the supervisor is healthy.
+Desktop reopens; its windowless launcher does not flash a terminal on idle
+checks, and duplicate ticks are ignored while the supervisor is healthy.
 `persistent` keeps Mobile reachable independently after Desktop quits.
 `manual` registers no automatic trigger and runs only after an explicit start.
 Re-running install with a different policy safely replaces the prior task and

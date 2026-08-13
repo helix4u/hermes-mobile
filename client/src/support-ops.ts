@@ -4,12 +4,26 @@ export const SUPPORT_OPS_API_ROOT = '/api/plugins/support-ops'
 
 export type SupportOpsAvailability = 'available' | 'missing' | 'unknown'
 
+export interface SupportOpsBackendStatus {
+  available?: boolean
+  running?: boolean
+  status?: string
+  credential_ready?: boolean
+  poll_interval_seconds?: number
+  last_poll_at?: string | null
+  last_success_at?: string | null
+  last_error?: string | null
+  next_poll_at?: string | null
+  external_posting?: boolean
+}
+
 export interface SupportOpsHealth {
   ok?: boolean
   read_only?: boolean
   external_posting?: boolean
   index_exists?: boolean
   capabilities?: Record<string, unknown>
+  backend?: SupportOpsBackendStatus
 }
 
 export interface SupportWaitingOwners {

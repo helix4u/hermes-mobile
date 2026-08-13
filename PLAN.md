@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-08-10
+Last updated: 2026-08-12
 
 Project root: current repository checkout
 
@@ -58,7 +58,8 @@ index in the same work session.
   safe plugin installation/update, local provider adapters, and observer hooks.
 - Windows desktop-bound hosting uses a plugin-owned recurring task trigger:
   Desktop presence starts the host, Desktop exit retires the server, proxy, and
-  supervisor, and a later trigger revives them after Desktop reopens.
+  supervisor, and a later windowless trigger revives them after Desktop reopens
+  without flashing a console during idle checks.
 
 ## Milestone map
 
@@ -152,6 +153,13 @@ Acceptance contract:
   Mobile disables both queue and detail Sync actions when a host reports
   `targeted_sync: false`, explains that tickets and agent work remain usable,
   and never presents an absent connector as a runnable operation.
+- Current Support Ops hosts bundle their Discord poller and artifact builder,
+  keep archives, tickets, workspace, jobs, generated views, and worker state in
+  one portable data root, and expose authenticated backend status/start/stop/
+  poll routes without depending on the retired support website.
+- Mobile renders that host-owned lifecycle state and Start, Stop, and Poll now
+  controls. A missing dedicated Discord credential disables source mutations
+  while preserving copied queue, history, ticket, and investigation access.
 - A transport interruption keeps the last successful Support queue or thread
   mounted as read-only cached content, marks it reconnecting, and resumes
   polling after recovery instead of replacing the page with an empty state.
@@ -341,14 +349,15 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-The current Support-parity APK is replacement-installed on the intended
-Samsung SM-S918U with its prior app identity and stored state retained.
-Exercise the native Support tab against a host running the current Support Ops
-plugin. Verify setup save/export/import/backup, real statistics regeneration,
-filtered targeted sync, bulk unticketed ticket creation, named support/developer
-ownership, participant filtering, per-message Listen, participant-assigned
-whole-thread playback, and Open/Voice session handoff. Confirm every mutation
-remains local or job-oriented and no action posts to Discord automatically.
+Continue physical-device acceptance from the repaired AppData host and freshly
+replacement-installed APK. Verify Stop, stopped-state queue readability, Start,
+Poll now, and automatic polling with the dedicated Support Ops environment
+credential. Then verify setup save/export/import/backup, statistics
+regeneration, filtered targeted sync, bulk unticketed ticket creation, named
+support/developer ownership, participant filtering, per-message Listen,
+participant-assigned whole-thread playback, and Open/Voice session handoff.
+Confirm every mutation remains local or job-oriented and no action posts to
+Discord automatically.
 
 After that focused acceptance, continue the outstanding physical-device checks
 for live-session attachment, Support reconnect caching and landscape

@@ -2049,6 +2049,27 @@ export function SupportOpsView({
     window.setTimeout(() => void loadStats(), 7_500)
   }, [loadStats, onNotice, pluginAction])
 
+  const controlBackend = useCallback(
+    async (action: 'start' | 'stop' | 'poll') => {
+      const result = await pluginAction<SupportJob | SupportOpsHealth['backend']>(
+        `/backend/${action}`,
+        {},
+        'POST',
+        `${action === 'poll' ? 'Poll' : action === 'start' ? 'Start' : 'Stop'} backend`,
+        action === 'poll' ? 120_000 : 30_000,
+      )
+      if (!result) return
+      await loadHealth()
+      if (action === 'poll') {
+        onNotice?.('Support poll started')
+        window.setTimeout(() => void Promise.all([loadQueue(), loadHealth(), loadStats()]), 4_000)
+      } else {
+        onNotice?.(`Support backend ${action === 'start' ? 'started' : 'stopped'}`)
+      }
+    },
+    [loadHealth, loadQueue, loadStats, onNotice, pluginAction],
+  )
+
   const refreshFilteredThreads = useCallback(async () => {
     const threadIds = rows.slice(0, 100).map(row => row.thread_id)
     if (!threadIds.length) return
@@ -2684,6 +2705,48 @@ export function SupportOpsView({
           <small>No automatic Discord posting</small>
         </div>
         <div className="support-heading-actions">
+          {health?.capabilities?.backend_control === true && (
+            <div className="support-view-toggle" role="group" aria-label="Support backend controls">
+              <span
+                className={health.backend?.running ? 'active' : ''}
+                title={health.backend?.last_error || undefined}
+              >
+                {health.backend?.running
+                  ? 'Backend running'
+                  : health.backend?.credential_ready === false
+                    ? 'Backend needs token'
+                    : 'Backend stopped'}
+              </span>
+              {health.backend?.running ? (
+                <button
+                  disabled={Boolean(!connected || busy)}
+                  onClick={() => void controlBackend('stop')}
+                  type="button"
+                >
+                  {busy === 'Stop backend' ? 'Stopping…' : 'Stop'}
+                </button>
+              ) : (
+                <button
+                  disabled={Boolean(
+                    !connected || busy || health.backend?.credential_ready === false,
+                  )}
+                  onClick={() => void controlBackend('start')}
+                  type="button"
+                >
+                  {busy === 'Start backend' ? 'Starting…' : 'Start'}
+                </button>
+              )}
+              <button
+                disabled={Boolean(
+                  !connected || busy || health.backend?.credential_ready === false,
+                )}
+                onClick={() => void controlBackend('poll')}
+                type="button"
+              >
+                {busy === 'Poll backend' ? 'Polling…' : 'Poll now'}
+              </button>
+            </div>
+          )}
           <div
             className="support-view-toggle"
             role="group"

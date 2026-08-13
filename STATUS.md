@@ -1,6 +1,6 @@
 # Hermes Mobile Current Status
 
-Last updated: 2026-08-10
+Last updated: 2026-08-12
 
 Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
@@ -38,6 +38,18 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
   clusters, and independent-snapshot warnings. A thread can download a Markdown
   handoff or start a normal Hermes investigation session without granting any
   Discord posting authority.
+- Mobile now consumes Support Ops' plugin-owned backend lifecycle instead of
+  assuming an external website or poller. Host health carries contained-worker
+  state, and the Support header exposes Start, Stop, and Poll now. Missing
+  dedicated Discord credentials leave copied queue/history/ticket data readable
+  while source Sync and worker start remain unavailable.
+- The Windows Mobile host now runs entirely from the AppData Mobile checkout.
+  The empty plugin directory left by copying the former junction was replaced
+  with an AppData-owned junction, and the desktop-bound scheduled task was
+  recreated against AppData. Authenticated health is `ok`, compatibility is
+  `compatible`, both loopback listeners are live, and Tailscale Serve remains
+  configured. The freshly installed phone shows a green Workstation connection,
+  the native Support tab, live queue data, and the running backend controls.
 - Mobile now consumes the current Support Ops operator and portability routes.
   A collapsed setup panel edits display name, support/developer aliases,
   categories, participant voice presets, catalog-backed playback voice/speed,
@@ -131,7 +143,8 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 - Desktop-bound Windows hosting now exits cleanly with Desktop and recovers
   through a plugin-owned recurring trigger after Desktop reopens. A forced
   listener stop recovered automatically in 15.8 seconds while Desktop remained
-  open.
+  open. The task now enters through Windows Script Host and starts PowerShell
+  hidden from process creation, so idle recovery checks do not flash a terminal.
 - Focused and full client tests, typecheck, production build, Capacitor sync,
   and Android debug assembly pass.
 - Inline remote attachments now use stable Markdown renderer identities plus a
@@ -257,17 +270,17 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 ## Validation state
 
 - The Support setup/parity slice passes 13 focused Support tests across two
-  files. The complete Mobile client suite passes 57 files and 303 tests.
-  TypeScript typecheck, the Vite production build, Capacitor sync, and Android
-  debug assembly pass.
+  files. TypeScript typecheck, the Vite production build, Capacitor sync, and
+  Android debug assembly pass from the authoritative AppData checkout.
 - Current debug APK:
-  `client/android/app/build/outputs/apk/debug/app-debug.apk` (127,217,135
+  `client/android/app/build/outputs/apk/debug/app-debug.apk` (126,933,588
   bytes, SHA-256
-  `8B235934C9E4AF25F16592E89B4BD2580F4D2AEA356BF80B402AE81F0F85BD6A`).
-- The current APK was replacement-installed on the intended Samsung SM-S918U
-  at the explicitly supplied ADB endpoint. The installed base APK hash exactly
-  matches the local artifact, Android retained the original package install
-  time, and no uninstall or application-data reset occurred.
+  `59D55058F0AA7C39F32AB307BB791C1130B11D569D33EA1577DD339730EBD97F`).
+- The current APK was replacement-installed with `-r` on the intended Samsung
+  SM-S918U at the explicitly supplied ADB endpoint. The installed base APK hash
+  exactly matches the AppData artifact, the application process launches, and
+  its captured error tail contains no fatal exception or ANR. No uninstall or
+  application-data reset occurred.
 - The production build emits the existing large-chunk advisory for the 770 kB
   main bundle; it is non-fatal and no new Support-specific build failure is
   present.
@@ -276,10 +289,8 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
 ## Next action
 
-Test against a current Support Ops host: save operator/team/category and
-catalog-backed voice settings; export/import them; run a host backup; regenerate
-statistics; filter the queue and refresh that explicit set; ticket unticketed
-rows; verify named owners and Argus omission; read one message and the full
-participant-assigned thread; then open both ordinary and voice investigation
-sessions. Confirm the cached queue remains usable through a brief reconnect and
-that no Support action gains automatic Discord posting authority.
+Continue physical-device Support acceptance from the healthy AppData host:
+exercise Stop, stopped-state queue readability, Start, Poll now, and automatic
+polling with the dedicated Support Ops environment credential. Then continue
+setup, statistics, filtered-sync, ticket, voice, reconnect, and session-handoff
+acceptance. No Support action may gain automatic Discord posting authority.
