@@ -103,6 +103,15 @@ export interface WakeWordUtteranceEvent {
   sessionId: string
 }
 
+export interface SessionOpenTarget {
+  id: string
+  connectionId: string
+  runtimeSessionId: string
+  storedSessionId: string
+  title: string
+  preview: string
+}
+
 interface HermesNativePlugin {
   setCredential(options: { connectionId: string; token: string }): Promise<void>
   hasCredential(options: {
@@ -128,6 +137,16 @@ interface HermesNativePlugin {
     mimeType?: string
   }): Promise<{ saved: boolean; filename?: string }>
   getPendingShare(): Promise<{ share?: SharedContent }>
+  enableSessionNotifications(): Promise<{ enabled: boolean }>
+  showSessionResultNotification(options: {
+    connectionId: string
+    runtimeSessionId: string
+    storedSessionId: string
+    title: string
+    preview: string
+  }): Promise<{ shown: boolean }>
+  getPendingSessionOpen(): Promise<{ target?: SessionOpenTarget }>
+  clearPendingSessionOpen(options: { id: string }): Promise<void>
   readSharedImage(options: { shareId: string }): Promise<{
     dataUrl: string
   }>
@@ -203,6 +222,10 @@ interface HermesNativePlugin {
   addListener(
     eventName: 'shareReceived',
     listener: (event: SharedContent) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(
+    eventName: 'sessionOpen',
+    listener: (event: SessionOpenTarget) => void,
   ): Promise<PluginListenerHandle>
   addListener(
     eventName: 'wakeWordDetected',

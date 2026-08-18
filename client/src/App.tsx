@@ -59,6 +59,7 @@ import {
   removeConnection,
 } from './state/connection'
 import { aliasCommand, commandParts } from './state/commands'
+import { canSubmitComposer } from './state/composer'
 import {
   cloudAgentConnectable,
   cloudAgentStatus,
@@ -66,6 +67,11 @@ import {
   resolveNousCloudAgent,
 } from './state/cloud'
 import { projectSessionRows } from './state/sessions'
+import {
+  loadSelectedSession,
+  persistSelectedSession,
+  sessionRestoreTarget,
+} from './state/session-continuity'
 import {
   sharedImageAttachParams,
   sharedPromptText,
@@ -108,6 +114,7 @@ import {
   type CloudOrganization,
   HermesNative,
   isNativeHermesClient,
+  type SessionOpenTarget,
   type SharedContent,
 } from './transport/native-bridge'
 import {
@@ -145,6 +152,11 @@ function normalizeToolDetailMode(value: unknown): ToolDetailMode {
 
 interface CommandsCatalog {
   pairs?: Array<[string, string]>
+}
+
+interface SessionRefreshSnapshot {
+  sessions: SessionSummary[]
+  activeSessions: LiveSessionSummary[]
 }
 
 interface SlashSuggestion {
@@ -252,7 +264,9 @@ export function App() {
   const [savedConnections, setSavedConnections] = useState<BrowserConnection[]>(
     () => (typeof window === 'undefined' ? [] : loadConnections()),
   )
-  const [selectedStoredId, setSelectedStoredId] = useState('')
+  const [selectedStoredId, setSelectedStoredId] = useState(() =>
+    typeof window === 'undefined' ? '' : loadSelectedSession(initialConnection.id),
+  )
   const [runtimeSessionId, setRuntimeSessionId] = useState('')
   const [preferredWorkspace, setPreferredWorkspace] = useState(() =>
     typeof window === 'undefined'
@@ -343,6 +357,7 @@ export function App() {
   const connectionRef = useRef(connection)
   const selectedStoredIdRef = useRef(selectedStoredId)
   const runtimeSessionIdRef = useRef(runtimeSessionId)
+  const turnActiveRef = useRef(turnActive)
   const desiredConnectedRef = useRef(false)
   const appActiveRef = useRef(true)
   const connectingRef = useRef(false)
@@ -361,6 +376,10 @@ export function App() {
     sessionId: string
     shareId: string
   } | null>(null)
+  const sessionOpenRouterRef = useRef<
+    (target: SessionOpenTarget) => Promise<void>
+  >(async () => undefined)
+  const handledSessionOpenIdsRef = useRef(new Set<string>())
 
   const activeSession = useMemo(
     () =>
@@ -384,7 +403,23 @@ export function App() {
   connectionRef.current = connection
   selectedStoredIdRef.current = selectedStoredId
   runtimeSessionIdRef.current = runtimeSessionId
+  turnActiveRef.current = turnActive
   themeSelectionRef.current = themeSelection
+
+  function commitSelectedStoredSession(
+    sessionId: string,
+    connectionId = connectionRef.current.id,
+  ) {
+    const value = sessionId.trim()
+    selectedStoredIdRef.current = value
+    setSelectedStoredId(value)
+    persistSelectedSession(connectionId, value)
+  }
+
+  function commitTurnActive(active: boolean) {
+    turnActiveRef.current = active
+    setTurnActive(active)
+  }
 
   useEffect(() => {
     cacheTranscript(
@@ -537,10 +572,16 @@ export function App() {
 
   const appendEvent = useCallback(
     (event: GatewayEvent) => {
+      const wasTurnActive = turnActiveRef.current
       if (event.type === 'message.complete') {
         pet.finishTurnCommentary()
       }
-      setTurnActive((current) => petTurnActiveAfterEvent(current, event.type))
+      const nextTurnActive = petTurnActiveAfterEvent(
+        turnActiveRef.current,
+        event.type,
+      )
+      turnActiveRef.current = nextTurnActive
+      setTurnActive(nextTurnActive)
       if (event.type === 'gateway.ready') {
         const payload =
           event.payload && typeof event.payload === 'object'
@@ -565,13 +606,30 @@ export function App() {
         }
       }
       setTranscript((current) => reduceGatewayEvent(current, event))
+      const text = completedAssistantText(event)
+      const eventSessionId = String(event.session_id ?? '').trim()
+      const runtimeSessionId = runtimeSessionIdRef.current
+      if (
+        nativeClient &&
+        event.type === 'message.complete' &&
+        wasTurnActive &&
+        !appActiveRef.current &&
+        (!eventSessionId || !runtimeSessionId || eventSessionId === runtimeSessionId)
+      ) {
+        void HermesNative.showSessionResultNotification({
+          connectionId: connectionRef.current.id,
+          runtimeSessionId: eventSessionId || runtimeSessionId,
+          storedSessionId: selectedStoredIdRef.current,
+          title: 'Hermes finished',
+          preview: text || 'Your Hermes session has a result.',
+        }).catch(() => undefined)
+      }
       if (!autoSpeakRef.current) return
       const delta = assistantDeltaText(event)
       if (delta) {
         appendIncrementalSpeech(delta, 'auto-response', getDefaultTtsConfig())
         return
       }
-      const text = completedAssistantText(event)
       if (event.type === 'message.complete') {
         finishIncrementalSpeech(
           text,
@@ -587,6 +645,7 @@ export function App() {
       getDefaultTtsConfig,
       pet.finishTurnCommentary,
       pet.waitForSpeechPriority,
+      nativeClient,
     ],
   )
   useEffect(() => {
@@ -613,6 +672,7 @@ export function App() {
     setConnectionState('disconnected')
     runtimeSessionIdRef.current = ''
     setRuntimeSessionId('')
+    turnActiveRef.current = false
     setTurnActive(false)
     setSupportOpsAvailability('unknown')
   }, [])
@@ -669,6 +729,46 @@ export function App() {
     ]).then((results) => {
       if (results[0].status === 'rejected') setCloudSignedIn(false)
     })
+  }, [nativeClient])
+  useEffect(() => {
+    if (!nativeClient) return
+    void HermesNative.enableSessionNotifications().catch(() => undefined)
+
+    let disposed = false
+    let removeSessionOpenListener: (() => Promise<void>) | null = null
+    const receiveSessionOpen = async (target: SessionOpenTarget) => {
+      if (disposed || !target?.id || handledSessionOpenIdsRef.current.has(target.id)) {
+        return
+      }
+      handledSessionOpenIdsRef.current.add(target.id)
+      try {
+        await sessionOpenRouterRef.current(target)
+      } finally {
+        await HermesNative.clearPendingSessionOpen({ id: target.id }).catch(
+          () => undefined,
+        )
+      }
+    }
+
+    void HermesNative.addListener('sessionOpen', target => {
+      void receiveSessionOpen(target)
+    }).then(handle => {
+      if (disposed) {
+        void handle.remove()
+        return
+      }
+      removeSessionOpenListener = () => handle.remove()
+    })
+    void HermesNative.getPendingSessionOpen()
+      .then(result => {
+        if (result.target) void receiveSessionOpen(result.target)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      disposed = true
+      if (removeSessionOpenListener) void removeSessionOpenListener()
+    }
   }, [nativeClient])
   useEffect(() => {
     if (!nativeClient) return
@@ -982,9 +1082,8 @@ export function App() {
       if (result.resumed) {
         const storedId =
           result.resumed.stored_session_id || selectedStoredIdRef.current
-        selectedStoredIdRef.current = storedId
+        commitSelectedStoredSession(storedId, activeConnection.id)
         runtimeSessionIdRef.current = result.resumed.session_id
-        setSelectedStoredId(storedId)
         setRuntimeSessionId(result.resumed.session_id)
         setTranscript((current) =>
           mergeResumedTranscript(current, result.messages ?? []),
@@ -1114,7 +1213,7 @@ export function App() {
         setOrphanCredentialIds((current) =>
           current.filter((id) => id !== activeTarget.id),
         )
-        await Promise.all([
+        const [sessionSnapshot] = await Promise.all([
           refreshSessions(transport, activeTarget.profile),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
@@ -1122,6 +1221,13 @@ export function App() {
             if (result !== 'unknown') setSupportOpsAvailability(result)
           }),
         ])
+        if (sessionSnapshot) {
+          await restoreConnectedSession(
+            transport,
+            activeTarget.id,
+            sessionSnapshot,
+          )
+        }
         setConnectionOpen(false)
         setNotice(`Connected to ${activeTarget.name || 'Hermes'}`)
         return true
@@ -1144,8 +1250,8 @@ export function App() {
   async function refreshSessions(
     transport = transportRef.current,
     profile = connection.profile,
-  ): Promise<void> {
-    if (!transport) return
+  ): Promise<SessionRefreshSnapshot | null> {
+    if (!transport) return null
     const [result, liveResult] = await Promise.all([
       transport.gateway.request<SessionListResult>('session.list', {
         profile: profile === 'default' ? '' : profile,
@@ -1157,14 +1263,19 @@ export function App() {
         })
         .catch(() => null),
     ])
-    if (transportRef.current !== transport) return
-    setSessions(result.sessions ?? [])
-    if (liveResult) setActiveSessions(liveResult.sessions ?? [])
+    if (transportRef.current !== transport) return null
+    const refreshedSessions = result.sessions ?? []
+    const refreshedActiveSessions = liveResult?.sessions ?? []
+    setSessions(refreshedSessions)
+    if (liveResult) setActiveSessions(refreshedActiveSessions)
     if (profile !== 'default') {
       setProjects([])
       setActiveProjectId('')
       setProjectDetail(null)
-      return
+      return {
+        sessions: refreshedSessions,
+        activeSessions: refreshedActiveSessions,
+      }
     }
 
     const projectId = activeProjectId
@@ -1184,6 +1295,34 @@ export function App() {
         setActiveProjectId('')
         setProjectDetail(null)
       })
+    return {
+      sessions: refreshedSessions,
+      activeSessions: refreshedActiveSessions,
+    }
+  }
+
+  async function restoreConnectedSession(
+    transport: HermesTransport,
+    connectionId: string,
+    snapshot: SessionRefreshSnapshot,
+  ): Promise<void> {
+    if (transportRef.current !== transport) return
+    const target = sessionRestoreTarget(
+      loadSelectedSession(connectionId),
+      snapshot.sessions,
+      snapshot.activeSessions,
+    )
+    if (!target) return
+    try {
+      if (target.kind === 'active') {
+        await selectActiveSession(target.session)
+      } else {
+        await selectSession(target.session)
+      }
+    } catch {
+      // The connection remains usable even if a previously selected session
+      // was deleted or became unavailable on the host.
+    }
   }
 
   async function refreshToolDetailMode(
@@ -1382,11 +1521,12 @@ export function App() {
     disconnect()
     transcriptFollowRef.current = true
     connectionRef.current = nextConnection
-    selectedStoredIdRef.current = ''
+    const selectedSessionId = loadSelectedSession(nextConnection.id)
+    selectedStoredIdRef.current = selectedSessionId
     runtimeSessionIdRef.current = ''
     setConnection(nextConnection)
     setDraft(loadDraft(nextConnection.id))
-    setSelectedStoredId('')
+    setSelectedStoredId(selectedSessionId)
     setRuntimeSessionId('')
     setPreferredWorkspace(loadPreferredWorkspace(nextConnection.id))
     setSessionCwd('')
@@ -1501,7 +1641,9 @@ export function App() {
     const transport = transportRef.current
     if (!transport) throw new Error('Connect to Hermes first')
     const selectionEpoch = ++sessionSelectionEpochRef.current
-    const connectionId = connectionRef.current.id
+    const activeConnection = connectionRef.current
+    const connectionId = activeConnection.id
+    const connectionWorkspace = loadPreferredWorkspace(connectionId)
     const selectionIsCurrent = () =>
       sessionSelectionEpochRef.current === selectionEpoch &&
       transportRef.current === transport &&
@@ -1509,7 +1651,7 @@ export function App() {
     const previousStoredId = selectedStoredIdRef.current
     cacheTranscript(
       transcriptCacheRef.current,
-      connection.id,
+      connectionId,
       previousStoredId,
       transcript,
     )
@@ -1521,21 +1663,21 @@ export function App() {
         'session.resume',
         {
           session_id: session.id,
-          profile: connection.profile === 'default' ? '' : connection.profile,
+          profile:
+            activeConnection.profile === 'default' ? '' : activeConnection.profile,
           cols: 100,
         },
       )
       if (!selectionIsCurrent()) return ''
       const storedId = resumed.stored_session_id || session.id
-      selectedStoredIdRef.current = storedId
+      commitSelectedStoredSession(storedId, connectionId)
       runtimeSessionIdRef.current = resumed.session_id
-      setSelectedStoredId(storedId)
       setRuntimeSessionId(resumed.session_id)
       setSessionCwd(
         resumed.info?.cwd ||
           session.cwd ||
           session.git_repo_root ||
-          preferredWorkspace,
+          connectionWorkspace,
       )
       let messages = resumed.messages ?? []
       try {
@@ -1551,12 +1693,12 @@ export function App() {
       const cached =
         readCachedTranscript(
           transcriptCacheRef.current,
-          connection.id,
+          connectionId,
           storedId,
         ) ??
         readCachedTranscript(
           transcriptCacheRef.current,
-          connection.id,
+          connectionId,
           session.id,
         )
       setTranscript((current) => {
@@ -1600,9 +1742,8 @@ export function App() {
       )
       const storedId = resumed.stored_session_id || storedSessionId
       runtimeSessionIdRef.current = resumed.session_id
-      selectedStoredIdRef.current = storedId
+      commitSelectedStoredSession(storedId)
       setRuntimeSessionId(resumed.session_id)
-      setSelectedStoredId(storedId)
       setSessionCwd(resumed.info?.cwd || preferredWorkspace)
       if (resumed.messages?.length) {
         setTranscript((current) =>
@@ -1620,9 +1761,8 @@ export function App() {
       }),
     )
     runtimeSessionIdRef.current = created.session_id
-    selectedStoredIdRef.current = created.stored_session_id
+    commitSelectedStoredSession(created.stored_session_id)
     setRuntimeSessionId(created.session_id)
-    setSelectedStoredId(created.stored_session_id)
     setSessionCwd(created.info?.cwd || preferredWorkspace)
     return created.session_id
   }
@@ -1642,7 +1782,7 @@ export function App() {
   async function submitPrompt(text: string, sessionId: string) {
     const transport = transportRef.current
     if (!transport) throw new Error('Connect to Hermes first')
-    setTurnActive(true)
+    commitTurnActive(true)
     try {
       await transport.gateway.request('prompt.submit', {
         busy_mode: activeTurnInputMode,
@@ -1650,7 +1790,7 @@ export function App() {
         text,
       })
     } catch (submitError) {
-      setTurnActive(false)
+      commitTurnActive(false)
       throw submitError
     }
     void refreshSessions(transport)
@@ -1814,14 +1954,14 @@ export function App() {
   async function submit(event: FormEvent) {
     event.preventDefault()
     const text = draft.trim()
-    if (!text) return
+    if (!canSubmitComposer(connected, busy, turnActive, text)) return
     await sendTextToHermes(text)
   }
 
   async function stop() {
     stopPlayback()
     pet.cancelCommentary(true)
-    setTurnActive(false)
+    commitTurnActive(false)
     const transport = transportRef.current
     if (!transport || !runtimeSessionId) return
     try {
@@ -1878,11 +2018,10 @@ export function App() {
     sessionSelectionEpochRef.current += 1
     stopPlayback()
     transcriptFollowRef.current = true
-    selectedStoredIdRef.current = ''
+    commitSelectedStoredSession('')
     runtimeSessionIdRef.current = ''
-    setSelectedStoredId('')
     setRuntimeSessionId('')
-    setTurnActive(false)
+    commitTurnActive(false)
     setBusy(false)
     setWakeReviewPending(false)
     setSessionCwd('')
@@ -1933,6 +2072,7 @@ export function App() {
     if (!transport) throw new Error('Connect to Hermes first')
     const selectionEpoch = ++sessionSelectionEpochRef.current
     const connectionId = connectionRef.current.id
+    const connectionWorkspace = loadPreferredWorkspace(connectionId)
     const previousRuntimeId = runtimeSessionIdRef.current
     const selectionIsCurrent = () =>
       sessionSelectionEpochRef.current === selectionEpoch &&
@@ -1949,14 +2089,13 @@ export function App() {
       if (!selectionIsCurrent()) return ''
       const storedId = activated.session_key || session.session_key || ''
       runtimeSessionIdRef.current = activated.session_id
-      selectedStoredIdRef.current = storedId
+      commitSelectedStoredSession(storedId, connectionId)
       setRuntimeSessionId(activated.session_id)
-      setSelectedStoredId(storedId)
-      setSessionCwd(activated.info?.cwd || preferredWorkspace)
+      setSessionCwd(activated.info?.cwd || connectionWorkspace)
       const cached = storedId
         ? readCachedTranscript(
             transcriptCacheRef.current,
-            connection.id,
+            connectionId,
             storedId,
           )
         : null
@@ -1967,14 +2106,14 @@ export function App() {
             ? mergeResumedTranscript(current, activated.messages ?? [])
             : historyToTranscript(activated.messages ?? []),
       )
-      setTurnActive(
+      commitTurnActive(
         Boolean(activated.running) ||
-          ['starting', 'working', 'waiting'].includes(
-            activated.status || session.status,
-          ),
+        ['starting', 'working', 'waiting'].includes(
+          activated.status || session.status,
+        ),
       )
       setActiveTab('chat')
-      void refreshSessions(transport)
+      void refreshSessions(transport, connectionRef.current.profile)
       return activated.session_id
     } catch (activateError) {
       if (!selectionIsCurrent()) return ''
@@ -1988,6 +2127,78 @@ export function App() {
       if (selectionIsCurrent()) setBusy(false)
     }
   }
+
+  async function openSessionTarget(target: SessionOpenTarget): Promise<void> {
+    const storedSessionId = target.storedSessionId.trim()
+    if (storedSessionId) {
+      persistSelectedSession(target.connectionId, storedSessionId)
+    }
+    setActiveTab('chat')
+    setConnectionOpen(false)
+
+    if (connectionRef.current.id !== target.connectionId) {
+      const saved = loadConnections().find(row => row.id === target.connectionId)
+      if (!saved) {
+        setError('The Hermes connection for this session is no longer saved.')
+        return
+      }
+      await switchSavedConnection(saved)
+      return
+    }
+
+    commitSelectedStoredSession(storedSessionId, target.connectionId)
+    if (
+      transportRef.current &&
+      desiredConnectedRef.current &&
+      !transportRef.current.gateway.connected
+    ) {
+      const deadline = Date.now() + 15_000
+      while (
+        transportRef.current &&
+        desiredConnectedRef.current &&
+        !transportRef.current.gateway.connected &&
+        Date.now() < deadline
+      ) {
+        await new Promise(resolve => window.setTimeout(resolve, 100))
+      }
+    }
+    if (
+      !transportRef.current ||
+      !desiredConnectedRef.current ||
+      !transportRef.current.gateway.connected
+    ) {
+      await connect(connectionRef.current)
+      return
+    }
+    if (
+      target.runtimeSessionId &&
+      target.runtimeSessionId === runtimeSessionIdRef.current
+    ) {
+      return
+    }
+    if (target.runtimeSessionId) {
+      try {
+        await selectActiveSession({
+          id: target.runtimeSessionId,
+          session_key: storedSessionId || null,
+          title: target.title || null,
+          preview: target.preview || null,
+          status: 'idle',
+        })
+        return
+      } catch {
+        if (!storedSessionId) return
+      }
+    }
+    if (storedSessionId) {
+      const storedTarget = sessionRestoreTarget(storedSessionId, sessions, [])
+      if (storedTarget?.kind === 'stored') {
+        await selectSession(storedTarget.session)
+      }
+    }
+  }
+
+  sessionOpenRouterRef.current = openSessionTarget
 
   function changeActiveTurnInputMode(mode: ActiveTurnInputMode) {
     setActiveTurnInputMode(mode)
@@ -2098,9 +2309,8 @@ export function App() {
         )
         sessionId = created.session_id
         runtimeSessionIdRef.current = sessionId
-        selectedStoredIdRef.current = created.stored_session_id
+        commitSelectedStoredSession(created.stored_session_id)
         setRuntimeSessionId(sessionId)
-        setSelectedStoredId(created.stored_session_id)
         setSessionCwd(created.info?.cwd || destination.cwd)
         setTranscript(historyToTranscript(created.messages ?? []))
       } else {
@@ -2405,7 +2615,9 @@ export function App() {
                     </button>
                     <button
                       className="primary-button"
-                      disabled={!draft.trim() || busy}
+                      disabled={
+                        !canSubmitComposer(connected, busy, turnActive, draft)
+                      }
                       type="submit"
                     >
                       Send
@@ -2480,7 +2692,9 @@ export function App() {
                 <button
                   aria-label="Send"
                   className="send-button"
-                  disabled={!connected || busy || !draft.trim()}
+                  disabled={
+                    !canSubmitComposer(connected, busy, turnActive, draft)
+                  }
                   type="submit"
                 >
                   <SendIcon />
@@ -2541,7 +2755,9 @@ export function App() {
                 await selectActiveSession(session)
               }}
               onProject={selectProject}
-              onRefresh={() => refreshSessions()}
+              onRefresh={async () => {
+                await refreshSessions()
+              }}
               onSession={async (session) => {
                 await selectSession(session)
               }}

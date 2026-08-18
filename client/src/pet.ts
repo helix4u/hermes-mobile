@@ -322,6 +322,39 @@ export function builtinMobilePetPersonality(
   return BUILTIN_MOBILE_PET_PERSONALITIES[slug] ?? null
 }
 
+export interface PetSidechatMessage {
+  id: string
+  role: 'assistant' | 'user'
+  text: string
+  timestamp?: number
+}
+
+export function reconcilePetSidechatMessages(
+  current: PetSidechatMessage[],
+  optimistic: PetSidechatMessage,
+  stored: PetSidechatMessage[] | undefined,
+  reply: string | undefined,
+): PetSidechatMessage[] {
+  if (stored?.length) return stored
+  const withoutOptimistic = current.filter(message => message.id !== optimistic.id)
+  return [
+    ...withoutOptimistic,
+    optimistic,
+    ...(reply?.trim()
+      ? [{ id: `reply-${optimistic.id}`, role: 'assistant' as const, text: reply }]
+      : []),
+  ]
+}
+
+export function latestPetSidechatAssistantText(
+  messages: PetSidechatMessage[],
+): string {
+  return [...messages]
+    .reverse()
+    .find(message => message.role === 'assistant' && message.text.trim())
+    ?.text.trim() ?? ''
+}
+
 export function petSidechatPrompt(
   personality: PetPersonalityData | null | undefined,
   fallbackName = 'Your pet',

@@ -30,6 +30,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HermesNativePlugin.class);
         super.onCreate(savedInstanceState);
         receiveShareIntent(getIntent());
+        receiveSessionOpenIntent(getIntent());
     }
 
     @Override
@@ -37,6 +38,7 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         receiveShareIntent(intent);
+        receiveSessionOpenIntent(intent);
     }
 
     @Override
@@ -59,6 +61,23 @@ public class MainActivity extends BridgeActivity {
         intent.setAction(null);
         intent.removeExtra(Intent.EXTRA_TEXT);
         intent.removeExtra(Intent.EXTRA_STREAM);
+    }
+
+    private void receiveSessionOpenIntent(Intent intent) {
+        if (
+            intent == null ||
+            !HermesNativePlugin.ACTION_OPEN_SESSION.equals(intent.getAction())
+        ) {
+            return;
+        }
+        HermesNativePlugin.receiveSessionOpen(intent);
+        intent.setAction(null);
+        intent.removeExtra(HermesNativePlugin.EXTRA_NOTIFICATION_TARGET_ID);
+        intent.removeExtra(HermesNativePlugin.EXTRA_CONNECTION_ID);
+        intent.removeExtra(HermesNativePlugin.EXTRA_RUNTIME_SESSION_ID);
+        intent.removeExtra(HermesNativePlugin.EXTRA_STORED_SESSION_ID);
+        intent.removeExtra(HermesNativePlugin.EXTRA_SESSION_TITLE);
+        intent.removeExtra(HermesNativePlugin.EXTRA_SESSION_PREVIEW);
     }
 
     @Override

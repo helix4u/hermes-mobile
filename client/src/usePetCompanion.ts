@@ -27,6 +27,8 @@ import {
   petObserverFramesFromTranscript,
   petPersonalityOverrideFromData,
   petSidechatPrompt,
+  latestPetSidechatAssistantText,
+  reconcilePetSidechatMessages,
   persistPetPersonalityOverrides,
   persistPetPreferences,
   petContextFromTranscript,
@@ -997,19 +999,11 @@ export function usePetCompanion({
         turnId,
       }, { timeoutMs: 180_000 })
       if (activeConnectionIdRef.current !== requestedConnectionId) return false
-      const stored = result.messages ?? [
-        optimistic,
-        {
-          id: `reply-${eventId()}`,
-          role: 'assistant' as const,
-          text: result.reply ?? '',
-        },
-      ]
-      setSidechatMessages(current => [
-        ...current.filter(message => message.id !== optimistic.id),
-        ...stored,
-      ])
-      const reply = result.reply || stored.find(message => message.role === 'assistant')?.text
+      const stored = result.messages
+      setSidechatMessages(current =>
+        reconcilePetSidechatMessages(current, optimistic, stored, result.reply),
+      )
+      const reply = result.reply || latestPetSidechatAssistantText(stored ?? [])
       if (reply) {
         if (preparedSpeech) {
           pendingHeldForSpeech = true

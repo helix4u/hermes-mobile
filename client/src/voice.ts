@@ -29,15 +29,10 @@ export type VoicePhase =
 
 export function canToggleVoiceRecording(
   phase: VoicePhase,
-  activeSpeechId: string,
-  playbackPaused = false,
+  _activeSpeechId: string,
+  _playbackPaused = false,
 ): boolean {
-  if (phase === 'idle' || phase === 'recording') return true
-  if (phase === 'transcribing') return false
-  return (
-    activeSpeechId === 'reader' &&
-    (playbackPaused || phase === 'speaking' || phase === 'synthesizing')
-  )
+  return phase !== 'transcribing'
 }
 
 export interface SpeechSequenceItem {

@@ -2,6 +2,9 @@ package dev.hermes.mobile;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.PowerManager;
@@ -47,6 +50,7 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import com.getcapacitor.PermissionState;
 import androidx.activity.result.ActivityResult;
+import androidx.core.app.NotificationCompat;
 
 import org.json.JSONException;
 import org.json.JSONArray;
@@ -97,6 +101,10 @@ import okhttp3.WebSocketListener;
         @Permission(
             alias = "microphone",
             strings = { Manifest.permission.RECORD_AUDIO }
+        ),
+        @Permission(
+            alias = "notifications",
+            strings = { Manifest.permission.POST_NOTIFICATIONS }
         )
     }
 )
@@ -105,6 +113,20 @@ public class HermesNativePlugin extends Plugin {
     private static final String KEY_ALIAS = "hermes_mobile_credentials_v1";
     private static final String PREFERENCES = "hermes_mobile_secure_v1";
     private static final String CREDENTIAL_PREFIX = "credential.";
+    private static final String NOTIFICATION_PERMISSION_REQUESTED =
+        "notification_permission_requested";
+    public static final String ACTION_OPEN_SESSION =
+        "dev.hermes.mobile.action.OPEN_SESSION";
+    public static final String EXTRA_NOTIFICATION_TARGET_ID =
+        "notification_target_id";
+    public static final String EXTRA_CONNECTION_ID = "connection_id";
+    public static final String EXTRA_RUNTIME_SESSION_ID = "runtime_session_id";
+    public static final String EXTRA_STORED_SESSION_ID = "stored_session_id";
+    public static final String EXTRA_SESSION_TITLE = "session_title";
+    public static final String EXTRA_SESSION_PREVIEW = "session_preview";
+    private static final String RESULT_NOTIFICATION_CHANNEL =
+        "hermes_session_results";
+    private static final int RESULT_NOTIFICATION_BASE_ID = 4600;
     private static final String GATEWAY_PATH =
         "/api/plugins/hermes-mobile/v1/gateway";
     private static final String CORE_GATEWAY_PATH = "/api/ws";
@@ -125,6 +147,8 @@ public class HermesNativePlugin extends Plugin {
     private static volatile WeakReference<HermesNativePlugin> activeSharePlugin =
         new WeakReference<>(null);
     private static PendingShare pendingShare;
+    private static final Object SESSION_OPEN_LOCK = new Object();
+    private static PendingSessionOpen pendingSessionOpen;
 
     private static final class PendingShare {
         final String id;
@@ -167,6 +191,42 @@ public class HermesNativePlugin extends Plugin {
         }
     }
 
+    private static final class PendingSessionOpen {
+        final String id;
+        final String connectionId;
+        final String runtimeSessionId;
+        final String storedSessionId;
+        final String title;
+        final String preview;
+
+        PendingSessionOpen(
+            String id,
+            String connectionId,
+            String runtimeSessionId,
+            String storedSessionId,
+            String title,
+            String preview
+        ) {
+            this.id = id;
+            this.connectionId = connectionId;
+            this.runtimeSessionId = runtimeSessionId;
+            this.storedSessionId = storedSessionId;
+            this.title = title;
+            this.preview = preview;
+        }
+
+        JSObject toJs() {
+            JSObject result = new JSObject();
+            result.put("id", id);
+            result.put("connectionId", connectionId);
+            result.put("runtimeSessionId", runtimeSessionId);
+            result.put("storedSessionId", storedSessionId);
+            result.put("title", title);
+            result.put("preview", preview);
+            return result;
+        }
+    }
+
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -203,6 +263,7 @@ public class HermesNativePlugin extends Plugin {
         activeSharePlugin = new WeakReference<>(this);
         cleanupOrphanedShares(getContext());
         publishPendingShare();
+        publishPendingSessionOpen();
     }
 
     private static void cleanupOrphanedShares(Context context) {
@@ -397,6 +458,218 @@ public class HermesNativePlugin extends Plugin {
             return;
         }
         mainHandler.post(() -> notifyListeners("shareReceived", share.toJs()));
+    }
+
+    public static void receiveSessionOpen(Intent intent) {
+        if (
+            intent == null ||
+            !ACTION_OPEN_SESSION.equals(intent.getAction())
+        ) {
+            return;
+        }
+        PendingSessionOpen target = new PendingSessionOpen(
+            stringOrEmpty(intent.getStringExtra(EXTRA_NOTIFICATION_TARGET_ID)),
+            stringOrEmpty(intent.getStringExtra(EXTRA_CONNECTION_ID)),
+            stringOrEmpty(intent.getStringExtra(EXTRA_RUNTIME_SESSION_ID)),
+            stringOrEmpty(intent.getStringExtra(EXTRA_STORED_SESSION_ID)),
+            stringOrEmpty(intent.getStringExtra(EXTRA_SESSION_TITLE)),
+            stringOrEmpty(intent.getStringExtra(EXTRA_SESSION_PREVIEW))
+        );
+        if (target.id.isEmpty() || target.connectionId.isEmpty()) {
+            return;
+        }
+        synchronized (SESSION_OPEN_LOCK) {
+            pendingSessionOpen = target;
+        }
+        HermesNativePlugin plugin = activeSharePlugin.get();
+        if (plugin != null) {
+            plugin.publishPendingSessionOpen();
+        }
+    }
+
+    private void publishPendingSessionOpen() {
+        final PendingSessionOpen target;
+        synchronized (SESSION_OPEN_LOCK) {
+            target = pendingSessionOpen;
+        }
+        if (target == null) {
+            return;
+        }
+        mainHandler.post(() -> notifyListeners("sessionOpen", target.toJs()));
+    }
+
+    @PluginMethod
+    public void enableSessionNotifications(PluginCall call) {
+        createResultNotificationChannel();
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            getPermissionState("notifications") != PermissionState.GRANTED
+        ) {
+            if (preferences().getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false)) {
+                resolveNotificationPermission(call);
+                return;
+            }
+            requestPermissionForAlias(
+                "notifications",
+                call,
+                "notificationPermissionCallback"
+            );
+            return;
+        }
+        resolveNotificationPermission(call);
+    }
+
+    @PermissionCallback
+    private void notificationPermissionCallback(PluginCall call) {
+        preferences().edit()
+            .putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true)
+            .apply();
+        resolveNotificationPermission(call);
+    }
+
+    private void resolveNotificationPermission(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("enabled", notificationsGranted());
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void showSessionResultNotification(PluginCall call) {
+        String connectionId = call.getString("connectionId", "").trim();
+        String runtimeSessionId = call.getString("runtimeSessionId", "").trim();
+        String storedSessionId = call.getString("storedSessionId", "").trim();
+        String title = clippedNotificationText(
+            call.getString("title", "Hermes finished"),
+            96
+        );
+        String preview = clippedNotificationText(
+            call.getString("preview", "Your Hermes session has a result."),
+            360
+        );
+        if (
+            connectionId.isEmpty() ||
+            (runtimeSessionId.isEmpty() && storedSessionId.isEmpty())
+        ) {
+            call.reject("A Hermes connection and session are required");
+            return;
+        }
+        if (!notificationsGranted()) {
+            JSObject result = new JSObject();
+            result.put("shown", false);
+            call.resolve(result);
+            return;
+        }
+
+        String targetId = UUID.randomUUID().toString();
+        int notificationId = RESULT_NOTIFICATION_BASE_ID + Math.floorMod(
+            (connectionId + ":" + storedSessionId + ":" + runtimeSessionId).hashCode(),
+            100_000
+        );
+        Intent openIntent = new Intent(getContext(), MainActivity.class);
+        openIntent.setAction(ACTION_OPEN_SESSION);
+        openIntent.setFlags(
+            Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP
+        );
+        openIntent.putExtra(EXTRA_NOTIFICATION_TARGET_ID, targetId);
+        openIntent.putExtra(EXTRA_CONNECTION_ID, connectionId);
+        openIntent.putExtra(EXTRA_RUNTIME_SESSION_ID, runtimeSessionId);
+        openIntent.putExtra(EXTRA_STORED_SESSION_ID, storedSessionId);
+        openIntent.putExtra(EXTRA_SESSION_TITLE, title);
+        openIntent.putExtra(EXTRA_SESSION_PREVIEW, preview);
+        PendingIntent contentIntent = PendingIntent.getActivity(
+            getContext(),
+            notificationId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(
+            getContext(),
+            RESULT_NOTIFICATION_CHANNEL
+        )
+            .setSmallIcon(R.drawable.ic_stat_hermes)
+            .setContentTitle(title)
+            .setContentText(preview)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(preview))
+            .setContentIntent(contentIntent)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH);
+        NotificationManager manager =
+            getContext().getSystemService(NotificationManager.class);
+        try {
+            createResultNotificationChannel();
+            if (manager != null) {
+                manager.notify(notificationId, builder.build());
+            }
+            JSObject result = new JSObject();
+            result.put("shown", manager != null);
+            call.resolve(result);
+        } catch (SecurityException error) {
+            JSObject result = new JSObject();
+            result.put("shown", false);
+            call.resolve(result);
+        }
+    }
+
+    @PluginMethod
+    public void getPendingSessionOpen(PluginCall call) {
+        final PendingSessionOpen target;
+        synchronized (SESSION_OPEN_LOCK) {
+            target = pendingSessionOpen;
+        }
+        JSObject result = new JSObject();
+        if (target != null) {
+            result.put("target", target.toJs());
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void clearPendingSessionOpen(PluginCall call) {
+        String id = call.getString("id", "").trim();
+        synchronized (SESSION_OPEN_LOCK) {
+            if (pendingSessionOpen != null && pendingSessionOpen.id.equals(id)) {
+                pendingSessionOpen = null;
+            }
+        }
+        call.resolve();
+    }
+
+    private boolean notificationsGranted() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            getPermissionState("notifications") == PermissionState.GRANTED;
+    }
+
+    private void createResultNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return;
+        }
+        NotificationChannel channel = new NotificationChannel(
+            RESULT_NOTIFICATION_CHANNEL,
+            "Hermes session results",
+            NotificationManager.IMPORTANCE_HIGH
+        );
+        channel.setDescription(
+            "Notifies you when a connected Hermes session has a result"
+        );
+        NotificationManager manager =
+            getContext().getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.createNotificationChannel(channel);
+        }
+    }
+
+    private static String clippedNotificationText(String value, int limit) {
+        String text = stringOrEmpty(value).trim();
+        if (text.isEmpty()) {
+            return limit <= 96
+                ? "Hermes finished"
+                : "Your Hermes session has a result.";
+        }
+        if (text.length() <= limit) {
+            return text;
+        }
+        return text.substring(0, Math.max(1, limit - 1)).trim() + "…";
     }
 
     @PluginMethod
@@ -1885,24 +2158,19 @@ public class HermesNativePlugin extends Plugin {
         if (!requireSecureUrl(call, url, false)) {
             return;
         }
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.reject("Hermes Mobile is not in the foreground");
+            return;
+        }
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            if (
-                intent.resolveActivity(getContext().getPackageManager()) ==
-                null
-            ) {
-                call.reject("No browser is available for this sign-in");
-                return;
-            }
-            Activity activity = getActivity();
-            if (activity == null) {
-                call.reject("Hermes Mobile is not in the foreground");
-                return;
-            }
             activity.startActivity(intent);
             JSObject result = new JSObject();
             result.put("opened", true);
             call.resolve(result);
+        } catch (ActivityNotFoundException error) {
+            call.reject("No browser is available for this sign-in");
         } catch (RuntimeException error) {
             call.reject(
                 "Could not open the sign-in page (" +
