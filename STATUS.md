@@ -1,10 +1,35 @@
 # Hermes Mobile Current Status
 
-Last updated: 2026-08-12
+Last updated: 2026-08-17
 
 Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
 ## Current result
+
+- Support Ops polling no longer deadlocks behind a lock abandoned by its own
+  still-running backend instance. The backend reclaims that self-owned lock,
+  and repeated live polls complete without leaving a lock behind.
+- Android external OAuth pages now launch the registered browser directly and
+  report no-browser only when Android actually throws `ActivityNotFoundException`.
+  This avoids the false negative caused by package-visibility-filtered intent
+  resolution. The persistent connection and result notifications now use a
+  monochrome Nous girl small icon instead of the temporary `H` glyph.
+- Chat no longer locks manual input behind an awaited turn. Send stays enabled
+  during an active turn and routes the new text through the selected Interrupt
+  or Steer mode. Manual microphone capture also stays available during reply,
+  Reader, and pet audio; starting it stops or pauses playback before recording.
+- The last selected durable session is now stored per connection. Startup and
+  reconnect prefer `session.activate` for its matching live runtime, then fall
+  back to `session.resume`, so Mobile returns directly to the conversation
+  instead of only reconnecting the host shell.
+- Android now requests notification permission and posts a native result
+  notification when the current live session completes in the background. The
+  notification carries connection, runtime-session, and durable-session IDs;
+  tapping it switches or reconnects as needed and opens that exact session.
+- Generic pet sidechat no longer appends the backend's full returned history to
+  the already-rendered history. The authoritative list replaces optimistic
+  state, and reply fallback selects the newest assistant message rather than the
+  first one in the conversation.
 
 - Same-device Termux connections now accept HTTP/WS only for `localhost`,
   `127.0.0.1`, and IPv6 loopback. Android keeps cleartext denied globally;
@@ -277,14 +302,18 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
   files. TypeScript typecheck, the Vite production build, Capacitor sync, and
   Android debug assembly pass from the authoritative AppData checkout.
 - Current debug APK:
-  `client/android/app/build/outputs/apk/debug/app-debug.apk` (126,934,429
+  `client/android/app/build/outputs/apk/debug/app-debug.apk` (127,206,378
   bytes, SHA-256
-  `D26D0B9C086DB8313B6CB7E75E661B99CE3C9EA64FBCB5CB5F3F3732F49B4434`).
+  `5A18BFB19C0B5CB14908DE1FC7B84067DB3CBDAB65D99BEA7B5244AA732D034B`).
 - The current APK was replacement-installed with `-r` on the intended Samsung
   SM-S918U at the explicitly supplied ADB endpoint. The installed base APK hash
   exactly matches the AppData artifact, the application process launches, and
   its captured error tail contains no fatal exception or ANR. No uninstall or
   application-data reset occurred.
+- Four focused client files pass 50 tests covering active-turn composer gating,
+  speech-time microphone access, session continuity, and pet sidechat. TypeScript,
+  Vite production build, Capacitor sync, Android unit tests, and debug assembly
+  pass. Android grants result-notification permission on the installed package.
 - The production build emits the existing large-chunk advisory for the 770 kB
   main bundle; it is non-fatal and no new Support-specific build failure is
   present.
@@ -293,8 +322,8 @@ Current milestone: Live sessions, platform roaming, Petdex, and Support parity
 
 ## Next action
 
-Continue physical-device Support acceptance from the healthy AppData host:
-exercise Stop, stopped-state queue readability, Start, Poll now, and automatic
-polling with the dedicated Support Ops environment credential. Then continue
-setup, statistics, filtered-sync, ticket, voice, reconnect, and session-handoff
-acceptance. No Support action may gain automatic Discord posting authority.
+Verify active-turn microphone and Interrupt/Steer sends during playback,
+restart/reconnect restoration, exact-session notification taps, and repeated
+generic pet-sidechat turns on the physical phone. Then continue the outstanding
+Support lifecycle, setup, reconnect, and session-handoff acceptance. No Support
+action may gain automatic Discord posting authority.

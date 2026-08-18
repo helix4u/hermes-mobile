@@ -20,10 +20,11 @@ import {
 } from './voice'
 
 describe('voice helpers', () => {
-  test('keeps microphone capture available while Reader playback is active', () => {
+  test('keeps microphone capture available while any playback is active', () => {
     expect(canToggleVoiceRecording('speaking', 'reader')).toBe(true)
     expect(canToggleVoiceRecording('synthesizing', 'reader')).toBe(true)
-    expect(canToggleVoiceRecording('speaking', 'assistant-message')).toBe(false)
+    expect(canToggleVoiceRecording('speaking', 'assistant-message')).toBe(true)
+    expect(canToggleVoiceRecording('synthesizing', 'pet-sidechat')).toBe(true)
     expect(canToggleVoiceRecording('transcribing', 'reader', true)).toBe(false)
     expect(canToggleVoiceRecording('recording', 'reader', true)).toBe(true)
   })

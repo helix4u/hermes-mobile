@@ -130,6 +130,7 @@ export interface SessionActivateResult {
 
 export interface GatewayEvent<T = Record<string, unknown>> {
   type: string
+  session_id?: string
   payload: T
 }
 

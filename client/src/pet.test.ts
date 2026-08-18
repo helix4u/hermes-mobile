@@ -17,6 +17,8 @@ import {
   petRowForState,
   petSidechatPrompt,
   petSidechatTranscriptPrompt,
+  latestPetSidechatAssistantText,
+  reconcilePetSidechatMessages,
   petShouldTravel,
   petSpeechProfileFromConfig,
   petToolObserverHasSettledNewEvidence,
@@ -325,6 +327,26 @@ describe('mobile pet companion state', () => {
       }),
     ).toBe('runtime-resumed')
     expect(attaches).toBe(1)
+  })
+
+  it('treats returned sidechat history as authoritative without duplicating it', () => {
+    const optimistic = { id: 'local-1', role: 'user' as const, text: 'Again?' }
+    const stored = [
+      { id: 'user-1', role: 'user' as const, text: 'Earlier' },
+      { id: 'assistant-1', role: 'assistant' as const, text: 'First reply' },
+      { id: 'user-2', role: 'user' as const, text: 'Again?' },
+      { id: 'assistant-2', role: 'assistant' as const, text: 'Newest reply' },
+    ]
+
+    expect(
+      reconcilePetSidechatMessages(
+        [...stored.slice(0, 2), optimistic],
+        optimistic,
+        stored,
+        'Newest reply',
+      ),
+    ).toEqual(stored)
+    expect(latestPetSidechatAssistantText(stored)).toBe('Newest reply')
   })
 
   it('uses a full-conversation character prompt instead of commentary brevity', () => {

@@ -2,7 +2,7 @@
 
 Status: active
 
-Last updated: 2026-08-12
+Last updated: 2026-08-17
 
 Project root: current repository checkout
 
@@ -50,8 +50,8 @@ index in the same work session.
 - Direct/Tailnet targets prefer the authenticated Mobile plugin contract.
 - Hermes Cloud can use the core JSON-RPC gateway when the plugin is absent.
 - Android owns Nous portal sessions, per-agent cookie jars, native connection
-  persistence, foreground connection service, wake word capture, file/share
-  intents, and system save/open flows.
+  persistence, foreground connection service, external OAuth launches, wake
+  word capture, file/share intents, and system save/open flows.
 - React owns the connection-scoped transcript, Reader, file preview/editor,
   provider selection, pet presentation, and ordinary interaction state.
 - The server plugin owns compatibility discovery, authenticated Mobile APIs,
@@ -156,7 +156,8 @@ Acceptance contract:
 - Current Support Ops hosts bundle their Discord poller and artifact builder,
   keep archives, tickets, workspace, jobs, generated views, and worker state in
   one portable data root, and expose authenticated backend status/start/stop/
-  poll routes without depending on the retired support website.
+  poll routes without depending on the retired support website. Their exclusive
+  operation lock recovers an abandoned lock owned by the same backend instance.
 - Mobile renders that host-owned lifecycle state and Start, Stop, and Poll now
   controls. A missing dedicated Discord credential disables source mutations
   while preserving copied queue, history, ticket, and investigation access.
@@ -300,21 +301,38 @@ Acceptance contract:
   active. Pet-prefixed transcripts continue to route directly to sidechat;
   ordinary active-turn messages use a connection-scoped `Interrupt` or `Steer`
   preference sent per request, without changing the selected host's config.
+- Manual microphone capture and the ordinary Send button remain available while
+  reply, Reader, or pet audio is synthesizing or playing. Starting capture stops
+  non-Reader playback or pauses Reader playback before recording, and an active-
+  turn Send uses the selected Interrupt or Steer behavior.
+- The selected durable session is persisted per connection. Reopening Mobile or
+  reconnecting first attaches a matching live runtime and otherwise resumes the
+  same durable session, including notification-driven navigation.
+- A background `message.complete` on the current live session creates a native
+  Android result notification. Tapping it returns to the exact saved connection
+  and runtime or durable session instead of merely opening the app shell. Both
+  result and persistent connection notifications use the monochrome Nous girl.
+- Pet sidechat treats the backend's returned message list as authoritative.
+  Sending another message no longer duplicates prior history or speaks the
+  oldest assistant response when the explicit reply field is absent.
 
 ## Near-term backlog
 
-1. Complete physical-device acceptance for full-viewport pet drag/roaming,
+1. Complete physical-device acceptance for active-turn microphone and Send,
+   restart/reconnect session restoration, exact-session notification taps, and
+   repeated pet-sidechat turns without duplicated history.
+2. Complete physical-device acceptance for full-viewport pet drag/roaming,
    prepared-audio poke handoff, incremental final-response speech, inline
    audio/video playback, and Reader Follow/parallel rendering without provider
    throttling, audible segment gaps, or transport-bar crowding.
-2. Continue ordinary-device acceptance for foreground lifecycle, long TTS,
+3. Continue ordinary-device acceptance for foreground lifecycle, long TTS,
    wake-word capture, and provider-specific behavior.
-3. Finish the revisioned event journal and durable replay contract.
-4. Continue server capability negotiation so vanilla Cloud hosts degrade
+4. Finish the revisioned event journal and durable replay contract.
+5. Continue server capability negotiation so vanilla Cloud hosts degrade
    cleanly without showing unsupported-endpoint errors.
-5. Evaluate plugin offloading only when the generic seam preserves identical
+6. Evaluate plugin offloading only when the generic seam preserves identical
    Desktop, Mobile, local, remote, and Cloud behavior.
-6. After Mobile landscape acceptance, discuss a separate Desktop resource
+7. After Mobile landscape acceptance, discuss a separate Desktop resource
    monitor plugin: a compact theme-aware information deck with configurable
    metrics and sizing, without adding monitor-specific behavior to core.
 
@@ -349,18 +367,13 @@ without compromising behavior; that seam does not exist today.
 
 ## Next action
 
-Continue physical-device acceptance from the repaired AppData host and freshly
-replacement-installed APK. Verify Stop, stopped-state queue readability, Start,
-Poll now, and automatic polling with the dedicated Support Ops environment
-credential. Then verify setup save/export/import/backup, statistics
-regeneration, filtered targeted sync, bulk unticketed ticket creation, named
-support/developer ownership, participant filtering, per-message Listen,
-participant-assigned whole-thread playback, and Open/Voice session handoff.
-Confirm every mutation remains local or job-oriented and no action posts to
-Discord automatically.
+From the freshly replacement-installed APK, verify active-turn voice capture and
+Interrupt/Steer sends during playback, restart/reconnect restoration of the last
+selected session, notification taps into that exact session, and several
+successive generic pet-sidechat turns without duplicate history.
 
-After that focused acceptance, continue the outstanding physical-device checks
-for live-session attachment, Support reconnect caching and landscape
-containment, full-viewport pet motion, cooperative pet/reply audio handoff,
-Reader Follow, wake routing, and inline media. Install only when the user
-supplies an explicit device target.
+After that focused acceptance, continue Support lifecycle/setup acceptance and
+the outstanding checks for Support reconnect caching, landscape containment,
+full-viewport pet motion, cooperative pet/reply audio handoff, Reader Follow,
+wake routing, and inline media. Install only when the user supplies an explicit
+device target.
