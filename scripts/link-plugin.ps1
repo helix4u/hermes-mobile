@@ -1,14 +1,27 @@
 [CmdletBinding()]
 param(
     [string]$HermesHome = (Join-Path $env:LOCALAPPDATA 'hermes'),
-    [string]$HermesExecutable = ''
+    [string]$HermesExecutable = '',
+    [string]$Profile = 'default'
 )
 
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $source = (Resolve-Path -LiteralPath (Join-Path $projectRoot 'server-plugin')).Path
-$pluginsRoot = Join-Path $HermesHome 'plugins'
+$profileName = $Profile.Trim()
+if (-not $profileName) {
+    $profileName = 'default'
+}
+if ($profileName -ne 'default' -and $profileName -notmatch '^[a-z0-9][a-z0-9_-]{0,63}$') {
+    throw "Invalid Hermes profile name: $profileName"
+}
+$profileHome = if ($profileName -eq 'default') {
+    $HermesHome
+} else {
+    Join-Path $HermesHome "profiles\$profileName"
+}
+$pluginsRoot = Join-Path $profileHome 'plugins'
 $target = Join-Path $pluginsRoot 'hermes-mobile'
 
 if (-not (Test-Path -LiteralPath $pluginsRoot)) {
@@ -37,10 +50,20 @@ if (-not (Test-Path -LiteralPath $HermesExecutable)) {
     throw "Hermes executable not found: $HermesExecutable"
 }
 
-& $HermesExecutable plugins enable --no-allow-tool-override hermes-mobile
+$enableArguments = @()
+if ($profileName -ne 'default') {
+    $enableArguments += @('--profile', $profileName)
+}
+$enableArguments += @(
+    'plugins',
+    'enable',
+    '--no-allow-tool-override',
+    'hermes-mobile'
+)
+& $HermesExecutable @enableArguments
 if ($LASTEXITCODE -ne 0) {
-    throw "Hermes could not enable the hermes-mobile plugin"
+    throw "Hermes could not enable the hermes-mobile plugin for profile $profileName"
 }
 
-Write-Host "Hermes Mobile linked at $target"
+Write-Host "Hermes Mobile linked for profile $profileName at $target"
 Write-Host 'Restart the target Hermes server process to load the plugin.'

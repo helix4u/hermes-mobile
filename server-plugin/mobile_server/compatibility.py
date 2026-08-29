@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module, metadata
+from pathlib import Path
+import sys
 from typing import Any
 
 
@@ -28,6 +30,43 @@ class CompatibilityReport:
             and callable(self.websocket_request_guard)
             and callable(self.http_auth)
         )
+
+
+def load_dashboard_router(plugin_root: Path):
+    """Load the dashboard router from this plugin's canonical package.
+
+    Hermes imports dashboard ``plugin_api.py`` files directly, before the
+    ordinary plugin package is guaranteed to have been discovered. Loading
+    ``mobile_server`` as a second bare package would give the dashboard a
+    different observer module, and therefore different live state, from the
+    registered plugin hooks. Discover first, then resolve the package whose
+    ``__file__`` belongs to this exact plugin root.
+    """
+    from hermes_cli.plugins import discover_plugins
+
+    expected_root = plugin_root.resolve()
+    discover_plugins()
+
+    for module_name, module in tuple(sys.modules.items()):
+        if not (
+            module_name == "hermes_plugins.hermes_mobile"
+            or module_name.startswith("hermes_plugins.hermes_mobile__home_")
+        ):
+            continue
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            continue
+        try:
+            loaded_root = Path(module_file).resolve().parent
+        except (OSError, RuntimeError):
+            continue
+        if loaded_root != expected_root:
+            continue
+        return import_module(f"{module_name}.mobile_server.api").router
+
+    raise ImportError(
+        "Hermes loaded no enabled hermes-mobile package for the dashboard API"
+    )
 
 
 def _hermes_version() -> str:

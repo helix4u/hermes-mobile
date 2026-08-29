@@ -50,14 +50,21 @@ function Get-HermesMobileListener {
             continue
         }
         $commandLine = [string]$process.CommandLine
+        $mobileBridge =
+            $commandLine.Contains($proxyScript, [StringComparison]::OrdinalIgnoreCase) -and
+            $commandLine -match "(?i)--port\s+$ListenerPort(?:\s|$)" -and
+            $commandLine -match '(?i)--upstream\s+http://127\.0\.0\.1:\d+(?:\s|$)' -and
+            $commandLine -match '(?i)--credential-file(?:\s|$)'
         $owned = if ($Role -eq 'server') {
-            $commandLine -match '(?i)(?:^|\s)serve(?:\s|$)' -and
-            $commandLine -match '(?i)--host\s+127\.0\.0\.1(?:\s|$)' -and
-            $commandLine -match "(?i)--port\s+$ListenerPort(?:\s|$)"
+            (
+                $commandLine -match '(?i)(?:^|\s)serve(?:\s|$)' -and
+                $commandLine -match '(?i)--host\s+127\.0\.0\.1(?:\s|$)' -and
+                $commandLine -match "(?i)--port\s+$ListenerPort(?:\s|$)"
+            ) -or $mobileBridge
         } else {
             $commandLine.Contains($proxyScript, [StringComparison]::OrdinalIgnoreCase) -and
             $commandLine -match "(?i)--port\s+$ListenerPort(?:\s|$)" -and
-            $commandLine -match "(?i)--upstream\s+http://127\.0\.0\.1:$Port(?:\s|$)"
+            $commandLine -match '(?i)--upstream\s+http://127\.0\.0\.1:\d+(?:\s|$)'
         }
         if (-not $owned) {
             throw "Refusing to manage unrelated process $($process.ProcessId) listening on 127.0.0.1:$ListenerPort"
@@ -65,6 +72,21 @@ function Get-HermesMobileListener {
         $rows += $process
     }
     return $rows
+}
+
+function Get-HermesMobileSupervisor {
+    $expectedRunner = [System.IO.Path]::GetFullPath($Runner)
+    $portPattern = '(?i)"?-Port"?\s+"?{0}"?(?:\s|$)' -f [regex]::Escape([string]$Port)
+    $proxyPortPattern = '(?i)"?-ProxyPort"?\s+"?{0}"?(?:\s|$)' -f [regex]::Escape([string]$ProxyPort)
+    return @(
+        Get-CimInstance Win32_Process -Filter "Name = 'pwsh.exe' OR Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $commandLine = [string]$_.CommandLine
+                $commandLine.Contains($expectedRunner, [StringComparison]::OrdinalIgnoreCase) -and
+                $commandLine -match $portPattern -and
+                $commandLine -match $proxyPortPattern
+            }
+    )
 }
 
 function Stop-HermesMobileHost {
@@ -79,6 +101,13 @@ function Stop-HermesMobileHost {
         if ($task -and $task.State -eq 'Running') {
             throw "Timed out stopping scheduled task: $TaskName"
         }
+    }
+
+    # Task Scheduler and wscript can exit while the PowerShell supervisor keeps
+    # running. Retire only the exact checked-in runner with the expected ports,
+    # then validate and retire its listener children below.
+    foreach ($supervisor in @(Get-HermesMobileSupervisor)) {
+        & taskkill.exe /PID $supervisor.ProcessId /T /F 2>$null | Out-Null
     }
 
     # Task Scheduler does not reliably put Start-Process descendants in the
@@ -175,6 +204,17 @@ function Get-HermesMobileStatus {
     }
     $backend = @(Get-HermesMobileListener -ListenerPort $Port -Role server)
     $proxy = @(Get-HermesMobileListener -ListenerPort $ProxyPort -Role proxy)
+    $sharedDesktopBackend = $false
+    $desktopBackendPort = $null
+    if ($backend.Count -gt 0) {
+        $backendCommand = [string]$backend[0].CommandLine
+        $sharedDesktopBackend =
+            $backendCommand.Contains((Join-Path $PSScriptRoot 'mobile_proxy.py'), [StringComparison]::OrdinalIgnoreCase) -and
+            $backendCommand -match '(?i)--credential-file(?:\s|$)'
+        if ($sharedDesktopBackend -and $backendCommand -match '(?i)--upstream\s+http://127\.0\.0\.1:(\d+)(?:\s|$)') {
+            $desktopBackendPort = [int]$Matches[1]
+        }
+    }
     [pscustomobject]@{
         Task = $TaskName
         Installed = [bool]$task
@@ -183,6 +223,8 @@ function Get-HermesMobileStatus {
         DesktopRunning = $desktopRunning
         BackendListening = $backend.Count -gt 0
         BackendPid = if ($backend.Count -gt 0) { $backend[0].ProcessId } else { $null }
+        SharedDesktopBackend = $sharedDesktopBackend
+        DesktopBackendPort = $desktopBackendPort
         ProxyListening = $proxy.Count -gt 0
         ProxyPid = if ($proxy.Count -gt 0) { $proxy[0].ProcessId } else { $null }
     }

@@ -38,6 +38,8 @@ $launcherLog = Join-Path $stateDirectory 'launcher.log'
 $proxyStdoutPath = Join-Path $stateDirectory 'proxy.stdout.log'
 $proxyStderrPath = Join-Path $stateDirectory 'proxy.stderr.log'
 $proxyScript = Join-Path $PSScriptRoot 'mobile_proxy.py'
+$desktopProcessScript = Join-Path $PSScriptRoot 'mobile-desktop-process.ps1'
+$desktopRouteScript = Join-Path $PSScriptRoot 'mobile-desktop-route.ps1'
 $pythonExecutable = Join-Path (Split-Path -Parent $HermesExecutable) 'python.exe'
 $serverWorkingDirectory = if (
     $env:USERPROFILE -and
@@ -48,23 +50,255 @@ $serverWorkingDirectory = if (
     $HermesHome
 }
 
+if (-not (Test-Path -LiteralPath $desktopProcessScript -PathType Leaf)) {
+    throw "Desktop process identity helper not found: $desktopProcessScript"
+}
+. $desktopProcessScript
+if (-not (Test-Path -LiteralPath $desktopRouteScript -PathType Leaf)) {
+    throw "Desktop route helper not found: $desktopRouteScript"
+}
+. $desktopRouteScript
+
 function Test-DesktopRunning {
     if (-not $DesktopExecutable) {
         return $true
     }
-    $expected = [System.IO.Path]::GetFullPath($DesktopExecutable)
-    $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'Hermes.exe'" -ErrorAction SilentlyContinue)
-    foreach ($process in $processes) {
-        $candidate = [string]$process.ExecutablePath
-        if ($candidate -and [string]::Equals(
-            [System.IO.Path]::GetFullPath($candidate),
-            $expected,
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-            return $true
+    return @(Get-HermesDesktopProcessIds -DesktopExecutable $DesktopExecutable).Count -gt 0
+}
+
+function Get-BackendProcessTree {
+    param([int]$RootProcessId)
+
+    $allProcesses = @(
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+    )
+    $byParent = @{}
+    foreach ($candidate in $allProcesses) {
+        $parentId = [int]$candidate.ParentProcessId
+        if (-not $byParent.ContainsKey($parentId)) {
+            $byParent[$parentId] = [System.Collections.Generic.List[object]]::new()
+        }
+        $byParent[$parentId].Add($candidate)
+    }
+
+    $queue = [System.Collections.Generic.Queue[int]]::new()
+    $seen = [System.Collections.Generic.HashSet[int]]::new()
+    $queue.Enqueue($RootProcessId)
+    while ($queue.Count -gt 0) {
+        $processId = $queue.Dequeue()
+        if (-not $seen.Add($processId)) {
+            continue
+        }
+        $process = $allProcesses | Where-Object { [int]$_.ProcessId -eq $processId } | Select-Object -First 1
+        if ($process) {
+            $process
+        }
+        if ($byParent.ContainsKey($processId)) {
+            foreach ($child in $byParent[$processId]) {
+                $queue.Enqueue([int]$child.ProcessId)
+            }
         }
     }
+}
+
+function Test-ProcessStartMarker {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Process,
+        [Parameter(Mandatory = $true)]
+        [string]$Marker
+    )
+
+    if (-not $Process.CreationDate) {
+        return $false
+    }
+    if ($Marker -match '^win:(\d+)$') {
+        $expectedTicks = [long]$Matches[1]
+        $actualTicks = [long]$Process.CreationDate.ToUniversalTime().Ticks
+        return [Math]::Abs($actualTicks - $expectedTicks) -le 10000
+    }
+    if ($Marker -match '^winms:(\d+)$') {
+        $expectedMilliseconds = [long]$Matches[1]
+        $actualMilliseconds = [long]([DateTimeOffset]$Process.CreationDate).ToUnixTimeMilliseconds()
+        return [Math]::Abs($actualMilliseconds - $expectedMilliseconds) -le 1000
+    }
     return $false
+}
+
+function Get-DesktopBackendEndpoint {
+    if (-not $DesktopExecutable) {
+        return $null
+    }
+
+    $desktopPids = @(Get-HermesDesktopProcessIds -DesktopExecutable $DesktopExecutable)
+    if ($desktopPids.Count -eq 0) {
+        return $null
+    }
+
+    $userDataDirectory = Join-Path $env:APPDATA 'Hermes'
+    $ownershipPath = Join-Path $userDataDirectory 'backend-ownership.json'
+    $accessDirectory = [System.IO.Path]::GetFullPath((Join-Path $userDataDirectory 'backend-access'))
+    if (-not (Test-Path -LiteralPath $ownershipPath -PathType Leaf)) {
+        return $null
+    }
+
+    $routePreference = Get-HermesDesktopRoutePreference -UserDataDirectory $userDataDirectory
+    if ($routePreference.Published) {
+        if (-not $routePreference.Local) {
+            return $null
+        }
+        $activeProfile = [string]$routePreference.Profile
+    } else {
+        $activeProfile = 'default'
+        $activeProfilePath = Join-Path $userDataDirectory 'active-profile.json'
+        if (Test-Path -LiteralPath $activeProfilePath -PathType Leaf) {
+            try {
+                $configured = [string](Get-Content -LiteralPath $activeProfilePath -Raw | ConvertFrom-Json).profile
+                if ($configured.Trim()) {
+                    $activeProfile = $configured.Trim()
+                }
+            } catch {
+                $activeProfile = 'default'
+            }
+        }
+    }
+
+    try {
+        $entries = @((Get-Content -LiteralPath $ownershipPath -Raw | ConvertFrom-Json).backends)
+    } catch {
+        return $null
+    }
+
+    foreach ($entry in $entries) {
+        if (
+            [string]$entry.profile -ne $activeProfile -or
+            [int]$entry.parentPid -notin $desktopPids
+        ) {
+            continue
+        }
+        $backendPid = [int]$entry.pid
+        $processTree = @(Get-BackendProcessTree -RootProcessId $backendPid)
+        $rootProcess = $processTree | Where-Object { [int]$_.ProcessId -eq $backendPid } | Select-Object -First 1
+        $parentProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$entry.parentPid)" -ErrorAction SilentlyContinue
+        $ownedCommand = [string]$entry.command
+        if (
+            -not $rootProcess -or
+            [int]$rootProcess.ParentProcessId -ne [int]$entry.parentPid -or
+            -not [string]$entry.startMarker -or
+            -not $parentProcess -or
+            -not [string]$entry.parentStartMarker -or
+            -not (Test-ProcessStartMarker -Process $rootProcess -Marker ([string]$entry.startMarker)) -or
+            -not (Test-ProcessStartMarker -Process $parentProcess -Marker ([string]$entry.parentStartMarker)) -or
+            $ownedCommand -notmatch '(?i)(?:^|\s)serve(?:\s|$)' -or
+            $ownedCommand -notmatch '(?i)--host\s+127\.0\.0\.1(?:\s|$)'
+        ) {
+            continue
+        }
+        $accessTokenFile = [string]$entry.accessTokenFile
+        if (-not $accessTokenFile) {
+            continue
+        }
+        try {
+            $accessTokenFile = [System.IO.Path]::GetFullPath($accessTokenFile)
+        } catch {
+            continue
+        }
+        if (
+            -not $accessTokenFile.StartsWith(
+                "$accessDirectory$([System.IO.Path]::DirectorySeparatorChar)",
+                [StringComparison]::OrdinalIgnoreCase
+            ) -or
+            -not (Test-Path -LiteralPath $accessTokenFile -PathType Leaf)
+        ) {
+            continue
+        }
+        # Windows venv launchers can remain as the ownership PID while the base
+        # interpreter child owns the socket. CIM can hide both command lines in
+        # packaged Desktop. The ownership record, start markers, Desktop parent,
+        # and subtree above prove identity before accepting a loopback listener.
+        $candidates = @()
+        foreach ($backendProcess in $processTree) {
+            $listeners = @(
+                Get-NetTCPConnection -OwningProcess ([int]$backendProcess.ProcessId) -State Listen -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LocalAddress -in @('127.0.0.1', '::1') }
+            )
+            foreach ($listener in $listeners) {
+                $listenerPort = [int]$listener.LocalPort
+                if ($listenerPort -ge 1024 -and $listenerPort -notin @($Port, $ProxyPort)) {
+                    $candidates += [pscustomobject]@{
+                        Url = "http://127.0.0.1:$listenerPort"
+                        AccessTokenFile = $accessTokenFile
+                        Profile = $activeProfile
+                        IdentityKey = "$backendPid|$listenerPort|$accessTokenFile"
+                    }
+                }
+            }
+        }
+        # A Hermes backend process can own unrelated loopback listeners in
+        # addition to the JSON API. Never select a port by enumeration order.
+        # Prove that the candidate serves the authenticated Hermes status route.
+        $selected = Select-HermesDesktopBackendCandidate -Candidates $candidates -Probe {
+            param($candidate)
+            Test-DesktopBackendApi -Backend $candidate
+        }
+        if ($selected) {
+            return $selected
+        }
+    }
+    return $null
+}
+
+function Test-DesktopBackendApi {
+    param([Parameter(Mandatory = $true)]$Backend)
+
+    try {
+        $accessToken = [System.IO.File]::ReadAllText([string]$Backend.AccessTokenFile).Trim()
+        if ($accessToken.Length -lt 32) {
+            return $false
+        }
+        $status = Invoke-RestMethod `
+            -Uri "$([string]$Backend.Url)/api/status" `
+            -Headers @{ Authorization = "Bearer $accessToken" } `
+            -Method Get `
+            -TimeoutSec 2
+        return [string]$status.overall -eq 'ok'
+    } catch {
+        return $false
+    }
+}
+
+function Test-DesktopBackendStable {
+    param($ExpectedBackend)
+
+    if (-not $ExpectedBackend) {
+        return $true
+    }
+    $routePreference = Get-HermesDesktopRoutePreference -UserDataDirectory (Join-Path $env:APPDATA 'Hermes')
+    if ($routePreference.Published) {
+        if (
+            -not $routePreference.Local -or
+            [string]$routePreference.Profile -ne [string]$ExpectedBackend.Profile
+        ) {
+            return $false
+        }
+    } else {
+        $fallbackProfile = 'default'
+        $activeProfilePath = Join-Path $env:APPDATA 'Hermes\active-profile.json'
+        if (Test-Path -LiteralPath $activeProfilePath -PathType Leaf) {
+            try {
+                $configured = [string](Get-Content -LiteralPath $activeProfilePath -Raw | ConvertFrom-Json).profile
+                if ($configured.Trim()) {
+                    $fallbackProfile = $configured.Trim()
+                }
+            } catch {
+                $fallbackProfile = 'default'
+            }
+        }
+        if ($fallbackProfile -ne [string]$ExpectedBackend.Profile) {
+            return $false
+        }
+    }
+    return Test-DesktopBackendApi -Backend $ExpectedBackend
 }
 
 if (-not (Test-Path -LiteralPath $proxyScript)) {
@@ -112,7 +346,6 @@ if (-not $mutex.WaitOne(0)) {
 }
 
 try {
-    $env:HERMES_DASHBOARD_SESSION_TOKEN = $token
     while ($true) {
         if (-not (Test-DesktopRunning)) {
             [System.IO.File]::AppendAllText(
@@ -121,38 +354,85 @@ try {
             )
             return
         }
-        [System.IO.File]::AppendAllText(
-            $launcherLog,
+
+        $desktopBackend = Get-DesktopBackendEndpoint
+        if ($DesktopExecutable -and -not $desktopBackend) {
+            Start-Sleep -Seconds 2
+            continue
+        }
+
+        $upstream = if ($desktopBackend) { [string]$desktopBackend.Url } else { "http://127.0.0.1:$Port" }
+        $launcherMessage = if ($desktopBackend) {
+            "[$([DateTimeOffset]::Now.ToString('O'))] attaching Mobile bridges on 127.0.0.1:$Port and 127.0.0.1:$ProxyPort to the Desktop backend`r`n"
+        } else {
             "[$([DateTimeOffset]::Now.ToString('O'))] starting Hermes Mobile server on 127.0.0.1:$Port with proxy 127.0.0.1:$ProxyPort for $TailnetHost`r`n"
+        }
+        [System.IO.File]::AppendAllText($launcherLog, $launcherMessage)
+
+        if ($desktopBackend) {
+            $server = Start-Process `
+                -FilePath $pythonExecutable `
+                -ArgumentList @(
+                    $proxyScript,
+                    '--host',
+                    '127.0.0.1',
+                    '--port',
+                    $Port.ToString(),
+                    '--upstream',
+                    $upstream,
+                    '--allowed-host',
+                    $TailnetHost,
+                    '--credential-file',
+                    $tokenPath,
+                    '--upstream-credential-file',
+                    [string]$desktopBackend.AccessTokenFile
+                ) `
+                -WorkingDirectory $PSScriptRoot `
+                -WindowStyle Hidden `
+                -RedirectStandardOutput $stdoutPath `
+                -RedirectStandardError $stderrPath `
+                -PassThru
+        } else {
+            $env:HERMES_DASHBOARD_SESSION_TOKEN = $token
+            $server = Start-Process `
+                -FilePath $HermesExecutable `
+                -ArgumentList @(
+                    'serve',
+                    '--host',
+                    '127.0.0.1',
+                    '--port',
+                    $Port.ToString()
+                ) `
+                -WorkingDirectory $serverWorkingDirectory `
+                -WindowStyle Hidden `
+                -RedirectStandardOutput $stdoutPath `
+                -RedirectStandardError $stderrPath `
+                -PassThru
+        }
+
+        $proxyArguments = @(
+            $proxyScript,
+            '--host',
+            '127.0.0.1',
+            '--port',
+            $ProxyPort.ToString(),
+            '--upstream',
+            $upstream,
+            '--allowed-host',
+            $TailnetHost
         )
-        $server = Start-Process `
-            -FilePath $HermesExecutable `
-            -ArgumentList @(
-                'serve',
-                '--host',
-                '127.0.0.1',
-                '--port',
-                $Port.ToString()
-            ) `
-            -WorkingDirectory $serverWorkingDirectory `
-            -WindowStyle Hidden `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath `
-            -PassThru
+        if ($desktopBackend) {
+            $proxyArguments += @(
+                '--credential-file',
+                $tokenPath,
+                '--upstream-credential-file',
+                [string]$desktopBackend.AccessTokenFile
+            )
+        }
 
         $proxy = Start-Process `
             -FilePath $pythonExecutable `
-            -ArgumentList @(
-                $proxyScript,
-                '--host',
-                '127.0.0.1',
-                '--port',
-                $ProxyPort.ToString(),
-                '--upstream',
-                "http://127.0.0.1:$Port",
-                '--allowed-host',
-                $TailnetHost
-            ) `
+            -ArgumentList $proxyArguments `
             -WorkingDirectory $PSScriptRoot `
             -WindowStyle Hidden `
             -RedirectStandardOutput $proxyStdoutPath `
@@ -162,7 +442,8 @@ try {
         while (
             -not $server.HasExited -and
             -not $proxy.HasExited -and
-            (Test-DesktopRunning)
+            (Test-DesktopRunning) -and
+            (Test-DesktopBackendStable -ExpectedBackend $desktopBackend)
         ) {
             Start-Sleep -Seconds 2
             $server.Refresh()
@@ -171,6 +452,8 @@ try {
 
         $exitedName = if (-not (Test-DesktopRunning)) {
             'desktop'
+        } elseif ($desktopBackend -and -not (Test-DesktopBackendStable -ExpectedBackend $desktopBackend)) {
+            'desktop backend'
         } elseif ($server.HasExited) {
             'server'
         } else {

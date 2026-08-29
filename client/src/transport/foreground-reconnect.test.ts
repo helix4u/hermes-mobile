@@ -2,9 +2,24 @@ import { describe, expect, test, vi } from 'vitest'
 import type { SessionCreateResult } from '../protocol/types'
 import type { HermesTransport } from './hermes-transport'
 import {
+  reconnectDelayMs,
   reconcileForegroundConnection,
   shouldSurfaceGatewayStateError,
 } from './foreground-reconnect'
+
+describe('reconnectDelayMs', () => {
+  test('backs off quickly and keeps retrying at a capped interval', () => {
+    expect([0, 1, 2, 3, 4].map(reconnectDelayMs)).toEqual([
+      250,
+      1_000,
+      2_500,
+      5_000,
+      10_000,
+    ])
+    expect(reconnectDelayMs(5)).toBe(10_000)
+    expect(reconnectDelayMs(500)).toBe(10_000)
+  })
+})
 
 function fakeTransport(
   request: ReturnType<typeof vi.fn>,
@@ -36,12 +51,13 @@ describe('reconcileForegroundConnection', () => {
 
     expect(result).toEqual({
       reconnected: false,
+      activated: null,
       resumed: null,
       messages: null,
     })
     expect(request).toHaveBeenCalledWith(
-      'session.list',
-      { profile: '', limit: 1 },
+      'gateway.ping',
+      {},
       { timeoutMs: 42 },
     )
     expect(transport.disconnect).not.toHaveBeenCalled()
@@ -83,6 +99,7 @@ describe('reconcileForegroundConnection', () => {
     })
     expect(result).toEqual({
       reconnected: true,
+      activated: null,
       resumed,
       messages: history,
     })
@@ -105,6 +122,7 @@ describe('reconcileForegroundConnection', () => {
     expect(transport.connect).toHaveBeenCalledOnce()
     expect(request).toHaveBeenCalledTimes(2)
     expect(result.resumed).toBeNull()
+    expect(result.activated).toBeNull()
   })
 
   test('keeps the current socket after one transiently slow probe', async () => {
@@ -124,19 +142,59 @@ describe('reconcileForegroundConnection', () => {
 
     expect(request).toHaveBeenNthCalledWith(
       1,
-      'session.list',
-      { profile: '', limit: 1 },
+      'gateway.ping',
+      {},
       { timeoutMs: 25 },
     )
     expect(request).toHaveBeenNthCalledWith(
       2,
-      'session.list',
-      { profile: '', limit: 1 },
+      'gateway.ping',
+      {},
       { timeoutMs: 50 },
     )
     expect(transport.disconnect).not.toHaveBeenCalled()
     expect(transport.connect).not.toHaveBeenCalled()
     expect(result.reconnected).toBe(false)
+  })
+
+  test('reattaches the live runtime before falling back to durable resume', async () => {
+    const activated = {
+      session_id: 'runtime-1',
+      session_key: 'stored-1',
+      message_count: 1,
+      messages: [{ role: 'assistant', content: 'live projection' }],
+      running: true,
+      status: 'working',
+    }
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('closed'))
+      .mockResolvedValueOnce(activated)
+      .mockResolvedValueOnce({ messages: [{ role: 'assistant', content: 'durable plus live' }] })
+    const transport = fakeTransport(request)
+    Object.defineProperty(transport.gateway, 'connected', { value: false })
+
+    const result = await reconcileForegroundConnection({
+      transport,
+      profile: 'default',
+      storedSessionId: 'stored-1',
+      runtimeSessionId: 'runtime-1',
+    })
+
+    expect(request).toHaveBeenNthCalledWith(2, 'session.activate', {
+      session_id: 'runtime-1',
+      cols: 100,
+    })
+    expect(request).toHaveBeenNthCalledWith(3, 'session.history', {
+      session_id: 'runtime-1',
+    })
+    expect(request).not.toHaveBeenCalledWith('session.resume', expect.anything())
+    expect(result).toMatchObject({
+      reconnected: true,
+      activated,
+      resumed: null,
+      messages: [{ role: 'assistant', content: 'durable plus live' }],
+    })
   })
 })
 

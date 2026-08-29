@@ -23,6 +23,7 @@ $runner = Join-Path $PSScriptRoot 'run-mobile-server.ps1'
 $hiddenRunner = Join-Path $PSScriptRoot 'run-hidden.vbs'
 $manager = Join-Path $PSScriptRoot 'manage-mobile-server.ps1'
 $proxyScript = Join-Path $PSScriptRoot 'mobile_proxy.py'
+$profilePluginLinker = Join-Path $PSScriptRoot 'link-profile-plugins.ps1'
 if (-not (Test-Path -LiteralPath $runner)) {
     throw "Mobile server runner not found: $runner"
 }
@@ -31,6 +32,25 @@ if (-not (Test-Path -LiteralPath $manager)) {
 }
 if (-not (Test-Path -LiteralPath $hiddenRunner)) {
     throw "Hidden process runner not found: $hiddenRunner"
+}
+if (-not (Test-Path -LiteralPath $profilePluginLinker)) {
+    throw "Profile plugin linker not found: $profilePluginLinker"
+}
+
+$profiles = @('default')
+$profilesRoot = Join-Path $HermesHome 'profiles'
+if (Test-Path -LiteralPath $profilesRoot -PathType Container) {
+    $profiles += @(
+        Get-ChildItem -LiteralPath $profilesRoot -Directory |
+            Where-Object { $_.Name -match '^[a-z0-9][a-z0-9_-]{0,63}$' } |
+            Select-Object -ExpandProperty Name
+    )
+}
+foreach ($profileName in ($profiles | Sort-Object -Unique)) {
+    & $profilePluginLinker `
+        -Profile $profileName `
+        -HermesHome $HermesHome `
+        -HermesExecutable $HermesExecutable
 }
 
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue

@@ -73,6 +73,10 @@ import {
   sessionRestoreTarget,
 } from './state/session-continuity'
 import {
+  loadSessionSnapshot,
+  persistSessionSnapshot,
+} from './state/session-snapshot'
+import {
   sharedImageAttachParams,
   sharedPromptText,
   type ShareDestination,
@@ -105,6 +109,7 @@ import {
 } from './transport/hermes-transport'
 import { prepareDirectAuthentication } from './transport/direct-auth'
 import {
+  reconnectDelayMs,
   reconcileForegroundConnection,
   shouldSurfaceGatewayStateError,
 } from './transport/foreground-reconnect'
@@ -144,7 +149,6 @@ import {
 import { usePetCompanion } from './usePetCompanion'
 
 type AppTab = 'chat' | 'sessions' | 'reader' | 'files' | 'support' | 'control'
-const MAX_RECONNECT_ATTEMPTS = 5
 
 function normalizeToolDetailMode(value: unknown): ToolDetailMode {
   return value === 'expanded' || value === 'hidden' ? value : 'collapsed'
@@ -246,6 +250,13 @@ export function App() {
     [],
   )
   const nativeClient = isNativeHermesClient()
+  const initialSessionSnapshot = useMemo(
+    () =>
+      typeof window === 'undefined'
+        ? null
+        : loadSessionSnapshot(initialConnection.id, initialConnection.profile),
+    [initialConnection],
+  )
   const [connection, setConnection] =
     useState<BrowserConnection>(initialConnection)
   const [connectionState, setConnectionState] =
@@ -255,8 +266,12 @@ export function App() {
   )
   const [supportOpsAvailability, setSupportOpsAvailability] =
     useState<SupportOpsAvailability>('unknown')
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [activeSessions, setActiveSessions] = useState<LiveSessionSummary[]>([])
+  const [sessions, setSessions] = useState<SessionSummary[]>(
+    () => initialSessionSnapshot?.sessions ?? [],
+  )
+  const [activeSessions, setActiveSessions] = useState<LiveSessionSummary[]>(
+    () => initialSessionSnapshot?.activeSessions ?? [],
+  )
   const [projects, setProjects] = useState<ProjectTree[]>([])
   const [activeProjectId, setActiveProjectId] = useState('')
   const [projectDetail, setProjectDetail] = useState<ProjectTree | null>(null)
@@ -1041,9 +1056,7 @@ export function App() {
     ) {
       return
     }
-    const delays = [250, 1_000, 2_500, 5_000, 10_000]
-    const nextDelay =
-      delay ?? delays[Math.min(reconnectAttemptRef.current, delays.length - 1)]
+    const nextDelay = delay ?? reconnectDelayMs(reconnectAttemptRef.current)
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null
       void reconcileAfterInterruption()
@@ -1069,6 +1082,7 @@ export function App() {
         transport,
         profile: activeConnection.profile,
         storedSessionId: selectedStoredIdRef.current,
+        runtimeSessionId: runtimeSessionIdRef.current,
       })
       if (
         transportRef.current !== transport ||
@@ -1079,15 +1093,24 @@ export function App() {
       }
 
       reconnectAttemptRef.current = 0
-      if (result.resumed) {
+      const restored = result.activated ?? result.resumed
+      if (restored) {
         const storedId =
-          result.resumed.stored_session_id || selectedStoredIdRef.current
+          result.activated?.session_key ||
+          result.resumed?.stored_session_id ||
+          selectedStoredIdRef.current
         commitSelectedStoredSession(storedId, activeConnection.id)
-        runtimeSessionIdRef.current = result.resumed.session_id
-        setRuntimeSessionId(result.resumed.session_id)
+        runtimeSessionIdRef.current = restored.session_id
+        setRuntimeSessionId(restored.session_id)
         setTranscript((current) =>
           mergeResumedTranscript(current, result.messages ?? []),
         )
+        if (result.activated) {
+          commitTurnActive(
+            Boolean(result.activated.running) ||
+            ['starting', 'working', 'waiting'].includes(result.activated.status || ''),
+          )
+        }
       }
 
       if (result.reconnected) {
@@ -1116,13 +1139,14 @@ export function App() {
         connectionEpochRef.current === epoch
       if (stillCurrent) {
         reconnectAttemptRef.current += 1
+        // A selected host remains the desired connection until the user
+        // explicitly disconnects or chooses another one. Mobile networks and
+        // Desktop-owned backends routinely disappear for longer than five
+        // probes, so keep the last good UI and retry at the capped backoff
+        // instead of forcing the user through Connections again.
+        retry = true
         setConnectionState('disconnected')
-        retry = reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS
-        if (!retry) {
-          setError(
-            'Could not restore the Hermes connection. Open the host menu to retry.',
-          )
-        }
+        setError('')
       }
     } finally {
       if (reconnectInFlightRef.current === inFlight) {
@@ -1165,7 +1189,11 @@ export function App() {
       transportRef.current = transport
       desiredConnectedRef.current = true
       const stopState = transport.gateway.onState((state, stateError) => {
-        setConnectionState(state)
+        const transientFailure =
+          (state === 'disconnected' || state === 'failed') &&
+          desiredConnectedRef.current &&
+          !connectingRef.current
+        setConnectionState(transientFailure ? 'disconnected' : state)
         if (
           stateError &&
           shouldSurfaceGatewayStateError(
@@ -1213,23 +1241,26 @@ export function App() {
         setOrphanCredentialIds((current) =>
           current.filter((id) => id !== activeTarget.id),
         )
-        const [sessionSnapshot] = await Promise.all([
-          refreshSessions(transport, activeTarget.profile),
+        const cachedSnapshot = loadSessionSnapshot(activeTarget.id, activeTarget.profile)
+        await restoreConnectedSession(
+          transport,
+          activeTarget.id,
+          cachedSnapshot ?? { sessions: [], activeSessions: [] },
+        )
+        setConnectionOpen(false)
+        setNotice(`Connected to ${activeTarget.name || 'Hermes'}`)
+        void Promise.allSettled([
+          refreshSessions(transport, activeTarget.profile).then((sessionSnapshot) => {
+            if (sessionSnapshot && !runtimeSessionIdRef.current && selectedStoredIdRef.current) {
+              return restoreConnectedSession(transport, activeTarget.id, sessionSnapshot)
+            }
+          }),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
           probeSupportOps(transport).then((result) => {
             if (result !== 'unknown') setSupportOpsAvailability(result)
           }),
         ])
-        if (sessionSnapshot) {
-          await restoreConnectedSession(
-            transport,
-            activeTarget.id,
-            sessionSnapshot,
-          )
-        }
-        setConnectionOpen(false)
-        setNotice(`Connected to ${activeTarget.name || 'Hermes'}`)
         return true
       } catch (connectError) {
         throw connectError
@@ -1252,22 +1283,42 @@ export function App() {
     profile = connection.profile,
   ): Promise<SessionRefreshSnapshot | null> {
     if (!transport) return null
-    const [result, liveResult] = await Promise.all([
+    const connectionId = connectionRef.current.id
+    const cached = loadSessionSnapshot(connectionId, profile)
+    const [storedResult, activeResult] = await Promise.allSettled([
       transport.gateway.request<SessionListResult>('session.list', {
         profile: profile === 'default' ? '' : profile,
         limit: 100,
-      }),
-      transport.gateway
-        .request<ActiveSessionListResult>('session.active_list', {
+      }, { timeoutMs: 8_000 }),
+      transport.gateway.request<ActiveSessionListResult>(
+        'session.active_list',
+        {
           current_session_id: runtimeSessionIdRef.current,
-        })
-        .catch(() => null),
+        },
+        { timeoutMs: 4_000 },
+      ),
     ])
-    if (transportRef.current !== transport) return null
-    const refreshedSessions = result.sessions ?? []
-    const refreshedActiveSessions = liveResult?.sessions ?? []
-    setSessions(refreshedSessions)
-    if (liveResult) setActiveSessions(refreshedActiveSessions)
+    if (
+      transportRef.current !== transport ||
+      connectionRef.current.id !== connectionId ||
+      connectionRef.current.profile !== profile
+    ) return null
+    const refreshedSessions =
+      storedResult.status === 'fulfilled'
+        ? storedResult.value.sessions ?? []
+        : cached?.sessions ?? []
+    const refreshedActiveSessions =
+      activeResult.status === 'fulfilled'
+        ? activeResult.value.sessions ?? []
+        : cached?.activeSessions ?? []
+    if (storedResult.status === 'fulfilled' || cached) setSessions(refreshedSessions)
+    if (activeResult.status === 'fulfilled' || cached) setActiveSessions(refreshedActiveSessions)
+    if (storedResult.status === 'fulfilled' || activeResult.status === 'fulfilled') {
+      persistSessionSnapshot(connectionId, profile, {
+        sessions: refreshedSessions,
+        activeSessions: refreshedActiveSessions,
+      })
+    }
     if (profile !== 'default') {
       setProjects([])
       setActiveProjectId('')
@@ -1315,7 +1366,20 @@ export function App() {
     if (!target) return
     try {
       if (target.kind === 'active') {
-        await selectActiveSession(target.session)
+        try {
+          await selectActiveSession(target.session)
+        } catch {
+          const storedId = target.session.session_key || loadSelectedSession(connectionId)
+          if (!storedId) return
+          await selectSession({
+            id: storedId,
+            title: target.session.title ?? null,
+            preview: target.session.preview ?? null,
+            started_at: target.session.started_at ?? 0,
+            message_count: target.session.message_count ?? 0,
+            source: 'hermes-mobile',
+          })
+        }
       } else {
         await selectSession(target.session)
       }
@@ -1522,6 +1586,10 @@ export function App() {
     transcriptFollowRef.current = true
     connectionRef.current = nextConnection
     const selectedSessionId = loadSelectedSession(nextConnection.id)
+    const cachedSnapshot = loadSessionSnapshot(nextConnection.id, nextConnection.profile)
+    const cachedTranscript = selectedSessionId
+      ? readCachedTranscript(transcriptCacheRef.current, nextConnection.id, selectedSessionId)
+      : undefined
     selectedStoredIdRef.current = selectedSessionId
     runtimeSessionIdRef.current = ''
     setConnection(nextConnection)
@@ -1531,9 +1599,9 @@ export function App() {
     setPreferredWorkspace(loadPreferredWorkspace(nextConnection.id))
     setSessionCwd('')
     setWorkspaceOpen(false)
-    setTranscript([])
-    setSessions([])
-    setActiveSessions([])
+    setTranscript(cachedTranscript ?? [])
+    setSessions(cachedSnapshot?.sessions ?? [])
+    setActiveSessions(cachedSnapshot?.activeSessions ?? [])
     setProjects([])
     setActiveProjectId('')
     setProjectDetail(null)
