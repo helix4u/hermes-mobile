@@ -9,6 +9,11 @@ import {
 import { isMissingCapabilityError } from './capability-errors'
 import { resolvePetCapabilityProbe } from './pet-host-capabilities'
 import type { JsonRpcGatewayClient } from './protocol/json-rpc-client'
+import type { GatewayEvent } from './protocol/types'
+import {
+  claimPetCommentaryPresentation,
+  petCommentaryPresentation,
+} from './pet-commentary-presentation'
 import {
   applyPetPersonalityOverride,
   BUILTIN_ALIEN_CHILD_INFO,
@@ -142,6 +147,7 @@ export function usePetCompanion({
   const [sidechatBusy, setSidechatBusy] = useState(false)
   const [sidechatError, setSidechatError] = useState('')
   const recentRef = useRef<string[]>([])
+  const presentedCommentaryIdsRef = useRef<string[]>([])
   const observerIdsRef = useRef<string[]>([])
   const observerSignatureRef = useRef('')
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -247,6 +253,7 @@ export function usePetCompanion({
     recentRef.current = []
     observerIdsRef.current = []
     observerSignatureRef.current = ''
+    presentedCommentaryIdsRef.current = []
     sidechatBusyRef.current = false
     setSidechatBusy(false)
     setDesktopSpeech(null)
@@ -306,7 +313,11 @@ export function usePetCompanion({
   }, [])
 
   const record = useCallback(
-    async (text: string, source: 'generated' | 'interaction') => {
+    async (
+      commentaryEventId: string,
+      text: string,
+      source: 'generated' | 'interaction',
+    ) => {
       if (
         !hostCapabilities.commentary ||
         !gateway ||
@@ -317,7 +328,7 @@ export function usePetCompanion({
       }
       try {
         await gateway.request('pet.commentary.record', {
-          eventId: eventId(),
+          eventId: commentaryEventId,
           lens: preferences.commentaryLens,
           personalityId: personality?.id || preferences.personalitySlug,
           personalityName: personality?.displayName || '',
@@ -415,22 +426,60 @@ export function usePetCompanion({
     [beginPendingPetWork, showBubble, speakSequence],
   )
 
-  const publish = useCallback(
-    (text: string, source: 'generated' | 'interaction') => {
+  const presentCommentary = useCallback(
+    (
+      commentaryEventId: string,
+      text: string,
+      source: 'generated' | 'interaction',
+    ): boolean => {
+      const cleanId = commentaryEventId.trim()
       const clean = text.trim()
-      if (!clean) return
-      recentRef.current = [...recentRef.current.filter(row => row !== clean), clean].slice(-12)
+      if (!cleanId || !clean) return false
+      const claim = claimPetCommentaryPresentation(
+        presentedCommentaryIdsRef.current,
+        cleanId,
+      )
+      if (!claim.accepted) return false
+      presentedCommentaryIdsRef.current = claim.ids
+      recentRef.current = [
+        ...recentRef.current.filter(row => row !== clean),
+        clean,
+      ].slice(-12)
       if (preferencesRef.current.speakCommentary) {
-        void speakPet(clean, `pet-${source}:${eventId()}`, {
+        void speakPet(clean, `pet-${source}:${cleanId}`, {
           queueKey: source === 'interaction' ? 'pet-interaction' : undefined,
           replaceQueued: source === 'interaction',
         })
       } else {
         showBubble(clean)
       }
-      void record(clean, source)
+      return true
     },
-    [record, showBubble, speakPet],
+    [showBubble, speakPet],
+  )
+
+  const publish = useCallback(
+    (text: string, source: 'generated' | 'interaction') => {
+      const clean = text.trim()
+      if (!clean) return
+      const commentaryEventId = eventId()
+      presentCommentary(commentaryEventId, clean, source)
+      void record(commentaryEventId, clean, source)
+    },
+    [presentCommentary, record],
+  )
+
+  const handleGatewayEvent = useCallback(
+    (event: GatewayEvent): void => {
+      const presentation = petCommentaryPresentation(event)
+      if (!presentation) return
+      presentCommentary(
+        presentation.eventId,
+        presentation.text,
+        presentation.source,
+      )
+    },
+    [presentCommentary],
   )
 
   const refreshDesktopSpeech = useCallback(async () => {
@@ -1112,6 +1161,7 @@ export function usePetCompanion({
     error,
     finishTurnCommentary,
     generateCommentary: () => generateCommentary(true),
+    handleGatewayEvent,
     hostCapabilities,
     info,
     interact,

@@ -21,4 +21,17 @@ if (($actual -join ',') -ne ($expectedIds -join ',')) {
     throw "Unexpected Desktop process family: $($actual -join ','); expected $($expectedIds -join ',')"
 }
 
-Write-Output "Desktop process identity tests passed: $($actual -join ',')"
+$probeResults = [System.Collections.Generic.Queue[bool]]::new()
+$probeResults.Enqueue($false)
+$probeResults.Enqueue($false)
+$probeResults.Enqueue($true)
+$delays = [System.Collections.Generic.List[int]]::new()
+$polls = Wait-HermesDesktopPresence `
+    -Probe { $probeResults.Dequeue() } `
+    -PollMilliseconds 25 `
+    -Delay { param($milliseconds) $delays.Add($milliseconds) }
+if ($polls -ne 2 -or ($delays -join ',') -ne '25,25' -or $probeResults.Count -ne 0) {
+    throw "Desktop wait did not remain active until the process returned"
+}
+
+Write-Output "Desktop process and wait tests passed: $($actual -join ',')"

@@ -2,12 +2,21 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   activeTurnInputModePreferenceKey,
   loadActiveTurnInputMode,
+  loadSherpaWakePhrase,
   loadWakeWordMode,
+  loadWakeWordModelId,
+  loadWakeWordProvider,
   persistActiveTurnInputMode,
+  persistSherpaWakePhrase,
   persistWakeWordMode,
+  persistWakeWordModelId,
+  persistWakeWordProvider,
+  sherpaWakePhrasePreferenceKey,
   shouldListenForWakeWord,
   stripWakePhrase,
   wakeWordModePreferenceKey,
+  wakeWordModelPreferenceKey,
+  wakeWordProviderPreferenceKey,
   wakeWordPreferenceKey,
 } from './wake-word'
 
@@ -41,6 +50,37 @@ describe('Mobile wake word', () => {
     persistWakeWordMode('cloud-agent', 'review')
     expect(loadWakeWordMode('workstation')).toBe('send')
     expect(loadWakeWordMode('cloud-agent')).toBe('review')
+  })
+
+  test('persists a validated wake model per connection', () => {
+    persistWakeWordModelId('workstation', 'hey_jarvis')
+    persistWakeWordModelId('cloud-agent', 'alexa')
+    expect(loadWakeWordModelId('workstation')).toBe('hey_jarvis')
+    expect(loadWakeWordModelId('cloud-agent')).toBe('alexa')
+    expect(wakeWordModelPreferenceKey('workstation')).not.toBe(
+      wakeWordModelPreferenceKey('cloud-agent'),
+    )
+
+    window.localStorage.setItem(wakeWordModelPreferenceKey('bad'), 'unknown')
+    expect(loadWakeWordModelId('bad')).toBe('hey_hermes')
+  })
+
+  test('persists wake providers and Sherpa phrases per connection', () => {
+    persistWakeWordProvider('workstation', 'sherpa')
+    persistWakeWordProvider('cloud-agent', 'openwakeword')
+    expect(loadWakeWordProvider('workstation')).toBe('sherpa')
+    expect(loadWakeWordProvider('cloud-agent')).toBe('openwakeword')
+    expect(wakeWordProviderPreferenceKey('workstation')).not.toBe(
+      wakeWordProviderPreferenceKey('cloud-agent'),
+    )
+
+    expect(persistSherpaWakePhrase('workstation', '  Computer  ')).toBe(true)
+    expect(loadSherpaWakePhrase('workstation')).toBe('computer')
+    expect(sherpaWakePhrasePreferenceKey('workstation')).not.toBe(
+      sherpaWakePhrasePreferenceKey('cloud-agent'),
+    )
+    expect(persistSherpaWakePhrase('workstation', '../bad')).toBe(false)
+    expect(loadSherpaWakePhrase('workstation')).toBe('computer')
   })
 
   test('persists active-turn steering independently per connection', () => {
@@ -77,6 +117,18 @@ describe('Mobile wake word', () => {
     expect(stripWakePhrase('What is the weather?')).toBe(
       'What is the weather?',
     )
+    expect(stripWakePhrase('Hey Jarvis, open the session.', 'hey_jarvis')).toBe(
+      'open the session.',
+    )
+    expect(stripWakePhrase('Alexa: open the session.', 'alexa')).toBe(
+      'open the session.',
+    )
+    expect(stripWakePhrase('Hermes should stay in this text.', 'alexa')).toBe(
+      'Hermes should stay in this text.',
+    )
+    expect(
+      stripWakePhrase('Computer, open the session.', 'hey_hermes', 'computer'),
+    ).toBe('open the session.')
   })
 
   test('listens only when native, connected, foregrounded, enabled, and idle', () => {

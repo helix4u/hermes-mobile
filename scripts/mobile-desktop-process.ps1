@@ -82,3 +82,25 @@ function Get-HermesDesktopProcessIds {
 
     return @($desktopPids | Sort-Object)
 }
+
+function Wait-HermesDesktopPresence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Probe,
+        [ValidateRange(10, 60000)]
+        [int]$PollMilliseconds = 2000,
+        [scriptblock]$Delay = $null
+    )
+
+    $polls = 0
+    while (-not [bool](& $Probe)) {
+        $polls += 1
+        if ($Delay) {
+            & $Delay $PollMilliseconds
+        } else {
+            Start-Sleep -Milliseconds $PollMilliseconds
+        }
+    }
+    return $polls
+}

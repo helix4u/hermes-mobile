@@ -236,7 +236,7 @@ function Get-DesktopBackendEndpoint {
         }
         # A Hermes backend process can own unrelated loopback listeners in
         # addition to the JSON API. Never select a port by enumeration order.
-        # Prove that the candidate serves the authenticated Hermes status route.
+        # Prove that the candidate serves the authenticated Mobile contract.
         $selected = Select-HermesDesktopBackendCandidate -Candidates $candidates -Probe {
             param($candidate)
             Test-DesktopBackendApi -Backend $candidate
@@ -256,12 +256,12 @@ function Test-DesktopBackendApi {
         if ($accessToken.Length -lt 32) {
             return $false
         }
-        $status = Invoke-RestMethod `
-            -Uri "$([string]$Backend.Url)/api/status" `
+        $health = Invoke-RestMethod `
+            -Uri "$([string]$Backend.Url)/api/plugins/hermes-mobile/v1/health" `
             -Headers @{ Authorization = "Bearer $accessToken" } `
             -Method Get `
             -TimeoutSec 2
-        return [string]$status.overall -eq 'ok'
+        return Test-HermesMobileHealthResponse -Health $health
     } catch {
         return $false
     }
@@ -350,9 +350,16 @@ try {
         if (-not (Test-DesktopRunning)) {
             [System.IO.File]::AppendAllText(
                 $launcherLog,
-                "[$([DateTimeOffset]::Now.ToString('O'))] desktop-bound mode found no Desktop process; exiting until the recovery trigger`r`n"
+                "[$([DateTimeOffset]::Now.ToString('O'))] desktop-bound mode is idle until Desktop returns`r`n"
             )
-            return
+            $waitPolls = Wait-HermesDesktopPresence `
+                -Probe { Test-DesktopRunning } `
+                -PollMilliseconds 2000
+            [System.IO.File]::AppendAllText(
+                $launcherLog,
+                "[$([DateTimeOffset]::Now.ToString('O'))] Desktop returned after $waitPolls idle polls; resolving its current backend`r`n"
+            )
+            continue
         }
 
         $desktopBackend = Get-DesktopBackendEndpoint
@@ -477,10 +484,7 @@ try {
             $launcherLog,
             "[$([DateTimeOffset]::Now.ToString('O'))] $exitedName ended with code $exitCode; reevaluating lifecycle in 5 seconds`r`n"
         )
-        if ($exitedName -eq 'desktop') {
-            return
-        }
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds $(if ($exitedName -eq 'desktop') { 2 } else { 5 })
     }
 } finally {
     Remove-Item Env:HERMES_DASHBOARD_SESSION_TOKEN -ErrorAction SilentlyContinue

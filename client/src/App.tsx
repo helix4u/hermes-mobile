@@ -68,8 +68,10 @@ import {
 } from './state/cloud'
 import { projectSessionRows } from './state/sessions'
 import {
+  eventTargetsSelectedSession,
   loadSelectedSession,
   persistSelectedSession,
+  selectedSessionForDisplay,
   sessionRestoreTarget,
 } from './state/session-continuity'
 import {
@@ -132,12 +134,21 @@ import {
 } from './voice'
 import {
   loadActiveTurnInputMode,
+  loadSherpaWakePhrase,
   loadWakeWordMode,
+  loadWakeWordModelId,
+  loadWakeWordProvider,
   persistActiveTurnInputMode,
+  persistSherpaWakePhrase,
   persistWakeWordMode,
+  persistWakeWordModelId,
+  persistWakeWordProvider,
   type ActiveTurnInputMode,
   type WakeWordMode,
+  type WakeWordModelId,
+  type WakeWordProvider,
   useWakeWord,
+  wakeWordLabel,
 } from './wake-word'
 import { markdownToSpeechText } from './markdown'
 import { petSidechatTranscriptPrompt, petTurnActiveAfterEvent } from './pet'
@@ -343,6 +354,22 @@ export function App() {
       ? 'off'
       : loadWakeWordMode(initialConnection.id),
   )
+  const [wakeWordModelId, setWakeWordModelId] = useState<WakeWordModelId>(() =>
+    typeof window === 'undefined'
+      ? 'hey_hermes'
+      : loadWakeWordModelId(initialConnection.id),
+  )
+  const [wakeWordProvider, setWakeWordProvider] = useState<WakeWordProvider>(
+    () =>
+      typeof window === 'undefined'
+        ? 'openwakeword'
+        : loadWakeWordProvider(initialConnection.id),
+  )
+  const [sherpaWakePhrase, setSherpaWakePhrase] = useState(() =>
+    typeof window === 'undefined'
+      ? 'hey hermes'
+      : loadSherpaWakePhrase(initialConnection.id),
+  )
   const [activeTurnInputMode, setActiveTurnInputMode] =
     useState<ActiveTurnInputMode>(() =>
       typeof window === 'undefined'
@@ -398,12 +425,17 @@ export function App() {
 
   const activeSession = useMemo(
     () =>
-      sessions.find((session) => session.id === selectedStoredId) ??
+      selectedSessionForDisplay(
+        selectedStoredId,
+        runtimeSessionId,
+        sessions,
+        activeSessions,
+      ) ??
       projectSessionRows(projectDetail).find(
         (row) => row.session.id === selectedStoredId,
       )?.session ??
       null,
-    [projectDetail, selectedStoredId, sessions],
+    [activeSessions, projectDetail, runtimeSessionId, selectedStoredId, sessions],
   )
   const latestAssistantText = useMemo(
     () =>
@@ -525,9 +557,14 @@ export function App() {
       connectionId: connection.id,
       enabled: wakeWordMode !== 'off',
       getTransport,
+      modelId: wakeWordModelId,
       nativeClient,
+      provider: wakeWordProvider,
+      sherpaPhrase: sherpaWakePhrase,
       onDetected: () => {
-        setNotice('Hey Hermes heard. Say your request, then pause.')
+        setNotice(
+          `${wakeWordLabel(wakeWordProvider, wakeWordModelId, sherpaWakePhrase)} heard. Say your request, then pause.`,
+        )
       },
       onError: setError,
       onNotice: setNotice,
@@ -587,21 +624,11 @@ export function App() {
 
   const appendEvent = useCallback(
     (event: GatewayEvent) => {
-      const wasTurnActive = turnActiveRef.current
-      if (event.type === 'message.complete') {
-        pet.finishTurnCommentary()
-      }
-      const nextTurnActive = petTurnActiveAfterEvent(
-        turnActiveRef.current,
-        event.type,
-      )
-      turnActiveRef.current = nextTurnActive
-      setTurnActive(nextTurnActive)
+      const payload =
+        event.payload && typeof event.payload === 'object'
+          ? (event.payload as Record<string, unknown>)
+          : {}
       if (event.type === 'gateway.ready') {
-        const payload =
-          event.payload && typeof event.payload === 'object'
-            ? (event.payload as Record<string, unknown>)
-            : {}
         const bound = bindHermesSkin(connectionRef.current.id, payload.skin)
         if (bound) {
           hostSkinRef.current = bound
@@ -620,10 +647,62 @@ export function App() {
           }
         }
       }
-      setTranscript((current) => reduceGatewayEvent(current, event))
-      const text = completedAssistantText(event)
+
       const eventSessionId = String(event.session_id ?? '').trim()
       const runtimeSessionId = runtimeSessionIdRef.current
+      const selectedStoredId = selectedStoredIdRef.current
+      const payloadStoredSessionId =
+        event.type === 'session.info'
+          ? String(payload.stored_session_id ?? '').trim()
+          : ''
+      if (
+        !eventTargetsSelectedSession(
+          eventSessionId,
+          runtimeSessionId,
+          selectedStoredId,
+          payloadStoredSessionId,
+        )
+      ) {
+        return
+      }
+
+      if (event.type === 'session.info' && payloadStoredSessionId) {
+        const title = String(payload.title ?? '').trim()
+        if (eventSessionId && eventSessionId !== runtimeSessionId) {
+          runtimeSessionIdRef.current = eventSessionId
+          setRuntimeSessionId(eventSessionId)
+        }
+        if (payloadStoredSessionId !== selectedStoredId) {
+          commitSelectedStoredSession(payloadStoredSessionId)
+        }
+        if (eventSessionId) {
+          setActiveSessions(current => {
+            const index = current.findIndex(session => session.id === eventSessionId)
+            const existing = index >= 0 ? current[index] : null
+            const next: LiveSessionSummary = {
+              ...(existing ?? { id: eventSessionId, status: 'idle' }),
+              session_key: payloadStoredSessionId,
+              title: title || existing?.title || null,
+            }
+            if (index < 0) return [...current, next]
+            return current.map((session, row) => (row === index ? next : session))
+          })
+        }
+      }
+
+      const wasTurnActive = turnActiveRef.current
+      pet.handleGatewayEvent(event)
+      if (event.type === 'message.complete') {
+        pet.finishTurnCommentary()
+      }
+      const nextTurnActive = petTurnActiveAfterEvent(
+        turnActiveRef.current,
+        event.type,
+      )
+      turnActiveRef.current = nextTurnActive
+      setTurnActive(nextTurnActive)
+      setTranscript((current) => reduceGatewayEvent(current, event))
+      const text = completedAssistantText(event)
       if (
         nativeClient &&
         event.type === 'message.complete' &&
@@ -659,6 +738,7 @@ export function App() {
       finishIncrementalSpeech,
       getDefaultTtsConfig,
       pet.finishTurnCommentary,
+      pet.handleGatewayEvent,
       pet.waitForSpeechPriority,
       nativeClient,
     ],
@@ -724,6 +804,9 @@ export function App() {
     const nextWakeWordMode = loadWakeWordMode(connection.id)
     setWakeWordMode(nextWakeWordMode)
     wakeWordModeRef.current = nextWakeWordMode
+    setWakeWordModelId(loadWakeWordModelId(connection.id))
+    setWakeWordProvider(loadWakeWordProvider(connection.id))
+    setSherpaWakePhrase(loadSherpaWakePhrase(connection.id))
     setActiveTurnInputMode(loadActiveTurnInputMode(connection.id))
     setWakeReviewPending(false)
     setVoiceSelection(loadVoiceSelection(connection.id))
@@ -2115,6 +2198,28 @@ export function App() {
     }
   }
 
+  function changeWakeWordModel(modelId: WakeWordModelId) {
+    setWakeWordModelId(modelId)
+    persistWakeWordModelId(connection.id, modelId)
+    setWakeReviewPending(false)
+  }
+
+  function changeWakeWordProvider(provider: WakeWordProvider) {
+    setWakeWordProvider(provider)
+    persistWakeWordProvider(connection.id, provider)
+    setWakeReviewPending(false)
+  }
+
+  function changeSherpaWakePhrase(phrase: string) {
+    if (!persistSherpaWakePhrase(connection.id, phrase)) {
+      setError('Use a 2-48 character English wake phrase.')
+      return
+    }
+    setSherpaWakePhrase(loadSherpaWakePhrase(connection.id))
+    setWakeReviewPending(false)
+    setError('')
+  }
+
   async function refreshActiveSessions(
     transport = transportRef.current,
   ): Promise<void> {
@@ -2967,6 +3072,9 @@ export function App() {
               autoSpeak={autoSpeak}
               wakeWordAvailable={nativeClient}
               wakeWordMode={wakeWordMode}
+              wakeWordModelId={wakeWordModelId}
+              wakeWordProvider={wakeWordProvider}
+              sherpaWakePhrase={sherpaWakePhrase}
               wakeWordStatus={wakeWordStatus}
               transport={transportRef.current}
               voiceSelection={voiceSelection}
@@ -2992,6 +3100,9 @@ export function App() {
               }}
               onAutoSpeakChange={changeAutoSpeak}
               onWakeWordModeChange={changeWakeWordMode}
+              onWakeWordModelChange={changeWakeWordModel}
+              onWakeWordProviderChange={changeWakeWordProvider}
+              onSherpaWakePhraseChange={changeSherpaWakePhrase}
               onThemeSelectionChange={changeThemeSelection}
               onNotice={setNotice}
               onOpenWorkspace={() => setWorkspaceOpen(true)}

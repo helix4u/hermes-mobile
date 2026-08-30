@@ -16,7 +16,14 @@ import { MOBILE_THEME_OPTIONS, type MobileThemeSelection } from '../state/theme'
 import { formatDisplayValue, redactDisplayValue } from '../state/transcript'
 import type { HermesTransport } from '../transport/hermes-transport'
 import type { VoicePhase } from '../voice'
-import type { WakeWordMode, WakeWordStatus } from '../wake-word'
+import {
+  WAKE_WORD_MODELS,
+  type WakeWordMode,
+  type WakeWordModelId,
+  type WakeWordProvider,
+  type WakeWordStatus,
+  wakeWordLabel,
+} from '../wake-word'
 import { configPatch, HostSettings } from './HostSettings'
 import { MobileCompanionSettings } from './MobileCompanionSettings'
 import { MobilePluginInstaller } from './MobilePluginInstaller'
@@ -69,6 +76,9 @@ interface ControlPanelProps {
   autoSpeak: boolean
   wakeWordAvailable: boolean
   wakeWordMode: WakeWordMode
+  wakeWordModelId: WakeWordModelId
+  wakeWordProvider: WakeWordProvider
+  sherpaWakePhrase: string
   wakeWordStatus: WakeWordStatus
   transport: HermesTransport | null
   voiceSelection: VoiceSelection
@@ -94,6 +104,9 @@ interface ControlPanelProps {
   }
   onAutoSpeakChange: (enabled: boolean) => void
   onWakeWordModeChange: (mode: WakeWordMode) => void
+  onWakeWordModelChange: (modelId: WakeWordModelId) => void
+  onWakeWordProviderChange: (provider: WakeWordProvider) => void
+  onSherpaWakePhraseChange: (phrase: string) => void
   onThemeSelectionChange: (selection: MobileThemeSelection) => void
   onNotice: (message: string) => void
   onOpenWorkspace: () => void
@@ -211,6 +224,9 @@ export function ControlPanel({
   gateway,
   onAutoSpeakChange,
   onWakeWordModeChange,
+  onWakeWordModelChange,
+  onWakeWordProviderChange,
+  onSherpaWakePhraseChange,
   onNotice,
   onOpenWorkspace,
   onStopSpeech,
@@ -228,9 +244,15 @@ export function ControlPanel({
   voicePhase,
   wakeWordAvailable,
   wakeWordMode,
+  wakeWordModelId,
+  wakeWordProvider,
+  sherpaWakePhrase,
   wakeWordStatus,
 }: ControlPanelProps) {
   const [loading, setLoading] = useState(false)
+  const [sherpaPhraseDraft, setSherpaPhraseDraft] = useState(sherpaWakePhrase)
+
+  useEffect(() => setSherpaPhraseDraft(sherpaWakePhrase), [sherpaWakePhrase])
   const [error, setError] = useState('')
   const [models, setModels] = useState<ModelOptions>({})
   const [provider, setProvider] = useState('')
@@ -849,7 +871,14 @@ export function ControlPanel({
             <span>Automatically read completed replies aloud</span>
           </label>
           <label>
-            <span>“Hey Hermes” behavior</span>
+            <span>
+              {wakeWordLabel(
+                wakeWordProvider,
+                wakeWordModelId,
+                sherpaWakePhrase,
+              )}{' '}
+              behavior
+            </span>
             <select
               disabled={!wakeWordAvailable}
               value={wakeWordMode}
@@ -862,15 +891,61 @@ export function ControlPanel({
               <option value="send">Transcribe and send automatically</option>
             </select>
           </label>
+          <label>
+            <span>Wake-word engine</span>
+            <select
+              disabled={!wakeWordAvailable}
+              value={wakeWordProvider}
+              onChange={event =>
+                onWakeWordProviderChange(event.target.value as WakeWordProvider)
+              }
+            >
+              <option value="openwakeword">openWakeWord models</option>
+              <option value="sherpa">Sherpa custom phrase</option>
+            </select>
+          </label>
+          {wakeWordProvider === 'openwakeword' ? (
+            <label>
+              <span>Wake phrase model</span>
+              <select
+                disabled={!wakeWordAvailable}
+                value={wakeWordModelId}
+                onChange={event =>
+                  onWakeWordModelChange(event.target.value as WakeWordModelId)
+                }
+              >
+                {WAKE_WORD_MODELS.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label>
+              <span>Sherpa wake phrase</span>
+              <input
+                disabled={!wakeWordAvailable}
+                maxLength={48}
+                spellCheck={false}
+                value={sherpaPhraseDraft}
+                onBlur={() => onSherpaWakePhraseChange(sherpaPhraseDraft)}
+                onChange={event => setSherpaPhraseDraft(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') event.currentTarget.blur()
+                }}
+              />
+            </label>
+          )}
           <p className="advanced-copy">
             {wakeWordStatus === 'listening'
-              ? `Listening locally for “Hey Hermes” with the same openWakeWord model as Desktop. Begin the captured request with “${pet.preferences.sidechatCommands[0] || 'Pet'} …” or another configured alias to route it to private pet sidechat. Ambient audio is not sent to Hermes.`
+              ? `Listening locally for “${wakeWordLabel(wakeWordProvider, wakeWordModelId, sherpaWakePhrase)}” with ${wakeWordProvider === 'sherpa' ? 'Sherpa' : 'a bundled openWakeWord model'}. Begin the captured request with “${pet.preferences.sidechatCommands[0] || 'Pet'} …” or another configured alias to route it to private pet sidechat. Ambient audio is not sent to Hermes.`
               : wakeWordStatus === 'capturing'
-                ? `Wake phrase heard. Listening locally until you pause; begin with “${pet.preferences.sidechatCommands[0] || 'Pet'}” or another configured alias for private pet sidechat.`
+                ? `${wakeWordLabel(wakeWordProvider, wakeWordModelId, sherpaWakePhrase)} heard. Listening locally until you pause; begin with “${pet.preferences.sidechatCommands[0] || 'Pet'}” or another configured alias for private pet sidechat.`
                 : wakeWordStatus === 'transcribing'
                   ? 'Request ended. Transcribing it with the connected Hermes host…'
               : wakeWordStatus === 'starting'
-                ? 'Loading the local openWakeWord model…'
+                ? `Loading the local ${wakeWordProvider === 'sherpa' ? 'Sherpa' : 'openWakeWord'} engine…`
                 : wakeWordStatus === 'paused'
                   ? 'Paused until the app is foregrounded, connected, and other voice activity is idle.'
                   : wakeWordStatus === 'unsupported'
@@ -878,7 +953,7 @@ export function ControlPanel({
                     : wakeWordStatus === 'error'
                       ? 'Wake-word listening stopped. Toggle it off and on to retry.'
                       : wakeWordAvailable
-                        ? 'Off. The bundled openWakeWord model runs only on this Android device when enabled.'
+                        ? 'Off. Wake-word inference runs only on this Android device when enabled.'
                         : 'Wake word is available in the Android app.'}
           </p>
           <VoiceSettings

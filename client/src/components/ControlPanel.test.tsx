@@ -12,6 +12,9 @@ describe('mobile Control settings disclosures', () => {
           autoSpeak={false}
           wakeWordAvailable
           wakeWordMode="off"
+          wakeWordModelId="hey_hermes"
+          wakeWordProvider="openwakeword"
+          sherpaWakePhrase="hey hermes"
           wakeWordStatus="off"
           connected
           gateway={null}
@@ -68,6 +71,9 @@ describe('mobile Control settings disclosures', () => {
           }}
           onAutoSpeakChange={() => {}}
           onWakeWordModeChange={() => {}}
+          onWakeWordModelChange={() => {}}
+          onWakeWordProviderChange={() => {}}
+          onSherpaWakePhraseChange={() => {}}
           onNotice={() => {}}
           onOpenWorkspace={() => {}}
           onStopSpeech={() => {}}
@@ -82,9 +88,10 @@ describe('mobile Control settings disclosures', () => {
     expect(html).toContain('Mobile companion')
     expect(html).toContain('Rich link embeds')
     expect(html).toContain('API credentials and account sign-in')
-    expect(html).toContain('“Hey Hermes” behavior')
+    expect(html).toContain('Hey Hermes behavior')
     expect(html).toContain('Transcribe and send automatically')
-    expect(html).toContain('bundled openWakeWord model')
+    expect(html).toContain('openWakeWord models')
+    expect(html).toContain('Sherpa custom phrase')
     expect(html).not.toMatch(/<details[^>]*\sopen(?:=|>)/)
   })
 })

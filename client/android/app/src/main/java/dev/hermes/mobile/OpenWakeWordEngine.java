@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
@@ -16,12 +18,12 @@ import ai.onnxruntime.OrtSession;
 /**
  * Small, app-owned openWakeWord inference pipeline.
  *
- * The three ONNX assets are the exact feature and "hey_hermes" models used by
- * Hermes Desktop on Windows. Keeping inference in-process lets Mobile own the
- * microphone with AudioRecord instead of repeatedly starting Android's speech
- * recognition service, which can emit OEM recognition cues.
+ * The shared feature pipeline and selected classifier all run inside the app.
+ * Keeping inference in-process lets Mobile own the microphone with AudioRecord
+ * instead of repeatedly starting Android's speech recognition service, which
+ * can emit OEM recognition cues.
  */
-final class OpenWakeWordEngine implements AutoCloseable {
+final class OpenWakeWordEngine implements WakeWordDetector {
     static final int SAMPLE_RATE = 16_000;
     static final int FRAME_SAMPLES = 1_280;
     static final float DETECTION_THRESHOLD = 0.60f;
@@ -33,6 +35,17 @@ final class OpenWakeWordEngine implements AutoCloseable {
     private static final int EMBEDDING_SIZE = 96;
     private static final int RAW_OVERLAP_SAMPLES = 160 * 3;
     private static final int WARMUP_PREDICTIONS = 5;
+    private static final Map<String, String> MODEL_ASSETS;
+
+    static {
+        Map<String, String> models = new LinkedHashMap<>();
+        models.put("hey_hermes", "wakeword/hey_hermes.onnx");
+        models.put("alexa", "wakeword/alexa_v0.1.onnx");
+        models.put("hey_jarvis", "wakeword/hey_jarvis_v0.1.onnx");
+        models.put("hey_mycroft", "wakeword/hey_mycroft_v0.1.onnx");
+        models.put("hey_rhasspy", "wakeword/hey_rhasspy_v0.1.onnx");
+        MODEL_ASSETS = Collections.unmodifiableMap(models);
+    }
 
     private final OrtEnvironment environment;
     private final OrtSession melSession;
@@ -53,7 +66,12 @@ final class OpenWakeWordEngine implements AutoCloseable {
     private int confirmationStreak;
     private boolean closed;
 
-    OpenWakeWordEngine(Context context) throws IOException, OrtException {
+    OpenWakeWordEngine(Context context, String modelId)
+        throws IOException, OrtException {
+        String wakeModelAsset = modelAssetPath(modelId);
+        if (wakeModelAsset == null) {
+            throw new IllegalArgumentException("Unsupported wake word model");
+        }
         environment = OrtEnvironment.getEnvironment();
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
         options.setInterOpNumThreads(1);
@@ -68,7 +86,7 @@ final class OpenWakeWordEngine implements AutoCloseable {
                 options
             );
             wakeSession = environment.createSession(
-                readAsset(context, "wakeword/hey_hermes.onnx"),
+                readAsset(context, wakeModelAsset),
                 options
             );
         } finally {
@@ -80,7 +98,22 @@ final class OpenWakeWordEngine implements AutoCloseable {
         reset();
     }
 
-    synchronized void reset() {
+    static String modelAssetPath(String modelId) {
+        return MODEL_ASSETS.get(modelId);
+    }
+
+    @Override
+    public int sampleRate() {
+        return SAMPLE_RATE;
+    }
+
+    @Override
+    public int frameSamples() {
+        return FRAME_SAMPLES;
+    }
+
+    @Override
+    public synchronized void reset() {
         rawHistorySize = 0;
         predictionCount = 0;
         confirmationStreak = 0;
@@ -93,7 +126,8 @@ final class OpenWakeWordEngine implements AutoCloseable {
         }
     }
 
-    synchronized boolean process(short[] samples)
+    @Override
+    public synchronized boolean process(short[] samples)
         throws OrtException {
         if (closed) {
             return false;

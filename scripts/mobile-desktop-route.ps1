@@ -53,3 +53,15 @@ function Select-HermesDesktopBackendCandidate {
     }
     return $null
 }
+
+function Test-HermesMobileHealthResponse {
+    param([Parameter(Mandatory = $true)]$Health)
+
+    # Desktop's aggregate status can be degraded for an unrelated stopped
+    # messaging gateway while its dashboard and Mobile contract are healthy.
+    # The Mobile route itself is the lifecycle authority for these bridges.
+    return (
+        [string]$Health.status -eq 'ok' -and
+        [int]$Health.contract_version -ge 1
+    )
+}

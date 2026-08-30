@@ -115,6 +115,9 @@ public class HermesNativePlugin extends Plugin {
     private static final String CREDENTIAL_PREFIX = "credential.";
     private static final String NOTIFICATION_PERMISSION_REQUESTED =
         "notification_permission_requested";
+    private static final String SHERPA_INITIALIZATION_PENDING =
+        "wake_word.sherpa_initialization_pending";
+    private static final int SHERPA_RUNTIME_REVISION = 2;
     public static final String ACTION_OPEN_SESSION =
         "dev.hermes.mobile.action.OPEN_SESSION";
     public static final String EXTRA_NOTIFICATION_TARGET_ID =
@@ -254,7 +257,8 @@ public class HermesNativePlugin extends Plugin {
     private MediaRecorder recorder;
     private File recordingFile;
     private long recordingStartedAt;
-    private OpenWakeWordEngine wakeWordEngine;
+    private WakeWordDetector wakeWordEngine;
+    private String wakeWordEngineKey = "";
     private WakeWordAudioLoop wakeWordAudioLoop;
     private String wakeWordSessionId = "";
 
@@ -1866,6 +1870,17 @@ public class HermesNativePlugin extends Plugin {
         String phrase = normalizeWakeWords(
             call.getString("phrase", "hey hermes")
         );
+        String modelId = call
+            .getString("modelId", "hey_hermes")
+            .trim()
+            .toLowerCase(Locale.ROOT);
+        String provider = call
+            .getString("provider", "openwakeword")
+            .trim()
+            .toLowerCase(Locale.ROOT);
+        String sherpaKeywords = call
+            .getString("sherpaKeywords", "")
+            .trim();
         if (!sessionId.matches("[A-Za-z0-9._:-]{1,192}")) {
             pendingWakeWordSessionIds.remove(sessionId);
             call.reject("A valid wake word session is required");
@@ -1874,6 +1889,32 @@ public class HermesNativePlugin extends Plugin {
         if (phrase.isEmpty() || phrase.length() > 64) {
             pendingWakeWordSessionIds.remove(sessionId);
             call.reject("A valid wake word phrase is required");
+            return;
+        }
+        boolean openWakeWord = "openwakeword".equals(provider);
+        boolean sherpa = "sherpa".equals(provider);
+        if (
+            openWakeWord &&
+            OpenWakeWordEngine.modelAssetPath(modelId) == null
+        ) {
+            pendingWakeWordSessionIds.remove(sessionId);
+            call.reject("Unsupported wake word model");
+            return;
+        }
+        if (
+            sherpa &&
+            (
+                !SherpaWakeWordEngine.MODEL_ID.equals(modelId) ||
+                !SherpaWakeWordEngine.isValidKeywords(sherpaKeywords)
+            )
+        ) {
+            pendingWakeWordSessionIds.remove(sessionId);
+            call.reject("A valid Sherpa wake phrase is required");
+            return;
+        }
+        if (!openWakeWord && !sherpa) {
+            pendingWakeWordSessionIds.remove(sessionId);
+            call.reject("Unsupported wake word provider");
             return;
         }
         if (cancelledWakeWordSessionIds.remove(sessionId)) {
@@ -1891,7 +1932,11 @@ public class HermesNativePlugin extends Plugin {
 
             try {
                 stopWakeWordInternal("", false);
-                OpenWakeWordEngine engine = getWakeWordEngine();
+                WakeWordDetector engine = getWakeWordEngine(
+                    provider,
+                    modelId,
+                    sherpaKeywords
+                );
                 if (cancelledWakeWordSessionIds.remove(sessionId)) {
                     pendingWakeWordSessionIds.remove(sessionId);
                     call.reject("Wake word start was cancelled");
@@ -1925,8 +1970,9 @@ public class HermesNativePlugin extends Plugin {
                             JSObject event = new JSObject();
                             event.put("sessionId", sessionId);
                             event.put("phrase", phrase);
+                            event.put("modelId", modelId);
                             event.put("transcript", phrase);
-                            event.put("provider", "openwakeword");
+                            event.put("provider", provider);
                             notifyListeners("wakeWordDetected", event);
                         }
 
@@ -1988,13 +2034,14 @@ public class HermesNativePlugin extends Plugin {
                 JSObject result = new JSObject();
                 result.put("supported", true);
                 result.put("state", "listening");
-                result.put("provider", "openwakeword");
+                result.put("provider", provider);
+                result.put("modelId", modelId);
                 call.resolve(result);
             } catch (Exception error) {
                 pendingWakeWordSessionIds.remove(sessionId);
                 stopWakeWordInternal(sessionId, false);
                 call.reject(
-                    "Could not start local openWakeWord (" +
+                    "Could not start local " + provider + " wake word (" +
                     error.getClass().getSimpleName() +
                     ")"
                 );
@@ -2018,22 +2065,90 @@ public class HermesNativePlugin extends Plugin {
         });
     }
 
-    private OpenWakeWordEngine getWakeWordEngine() throws Exception {
+    private WakeWordDetector getWakeWordEngine(
+        String provider,
+        String modelId,
+        String sherpaKeywords
+    )
+        throws Exception {
         synchronized (wakeWordLock) {
-            if (wakeWordEngine != null) {
+            String engineKey = provider + "|" + modelId;
+            if ("sherpa".equals(provider)) {
+                engineKey += "|" + sherpaKeywords;
+            }
+            if (
+                wakeWordEngine != null &&
+                engineKey.equals(wakeWordEngineKey)
+            ) {
                 return wakeWordEngine;
             }
-        }
-        OpenWakeWordEngine created =
-            new OpenWakeWordEngine(getContext().getApplicationContext());
-        synchronized (wakeWordLock) {
-            if (wakeWordEngine == null) {
-                wakeWordEngine = created;
-                return created;
+            if (wakeWordEngine != null) {
+                wakeWordEngine.close();
+                wakeWordEngine = null;
+                wakeWordEngineKey = "";
             }
-        }
-        created.close();
-        synchronized (wakeWordLock) {
+            if ("sherpa".equals(provider)) {
+                String initializationMarker =
+                    SHERPA_RUNTIME_REVISION +
+                    ":" +
+                    SherpaWakeWordEngine.MODEL_ID;
+                SharedPreferences preferences = preferences();
+                if (
+                    initializationMarker.equals(
+                        preferences.getString(
+                            SHERPA_INITIALIZATION_PENDING,
+                            ""
+                        )
+                    )
+                ) {
+                    throw new IllegalStateException(
+                        "Sherpa was disabled after its previous native " +
+                        "initialization did not complete"
+                    );
+                }
+                if (
+                    !preferences
+                        .edit()
+                        .putString(
+                            SHERPA_INITIALIZATION_PENDING,
+                            initializationMarker
+                        )
+                        .commit()
+                ) {
+                    throw new IllegalStateException(
+                        "Could not arm the Sherpa startup safety guard"
+                    );
+                }
+                try {
+                    wakeWordEngine = new SherpaWakeWordEngine(
+                        getContext().getApplicationContext(),
+                        sherpaKeywords
+                    );
+                } catch (Throwable error) {
+                    throw new IllegalStateException(
+                        "Sherpa native initialization failed",
+                        error
+                    );
+                }
+                if (
+                    !preferences
+                        .edit()
+                        .remove(SHERPA_INITIALIZATION_PENDING)
+                        .commit()
+                ) {
+                    wakeWordEngine.close();
+                    wakeWordEngine = null;
+                    throw new IllegalStateException(
+                        "Could not disarm the Sherpa startup safety guard"
+                    );
+                }
+            } else {
+                wakeWordEngine = new OpenWakeWordEngine(
+                    getContext().getApplicationContext(),
+                    modelId
+                );
+            }
+            wakeWordEngineKey = engineKey;
             return wakeWordEngine;
         }
     }
@@ -2183,10 +2298,11 @@ public class HermesNativePlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         stopWakeWordInternal("", false);
-        OpenWakeWordEngine engine;
+        WakeWordDetector engine;
         synchronized (wakeWordLock) {
             engine = wakeWordEngine;
             wakeWordEngine = null;
+            wakeWordEngineKey = "";
         }
         if (engine != null) {
             try {

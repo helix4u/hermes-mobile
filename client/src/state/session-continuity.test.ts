@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, test } from 'vitest'
 import type { LiveSessionSummary, SessionSummary } from '../protocol/types'
 import {
+  eventTargetsSelectedSession,
   loadSelectedSession,
   persistSelectedSession,
+  selectedSessionForDisplay,
   sessionRestoreTarget,
 } from './session-continuity'
 
@@ -63,5 +65,58 @@ describe('connection-scoped session continuity', () => {
       kind: 'stored',
       session: { id: 'older-session' },
     })
+  })
+
+  test('uses the live runtime to resolve a compression-rotated durable row', () => {
+    const tip = { ...stored, id: 'stored-tip', title: 'Friendly greeting #8' }
+    const rotatedActive = {
+      ...active,
+      session_key: 'stored-tip',
+      title: 'Friendly greeting #8',
+    }
+
+    expect(
+      selectedSessionForDisplay(
+        'stored-parent',
+        'runtime-1',
+        [tip],
+        [rotatedActive],
+      ),
+    ).toMatchObject({
+      id: 'stored-tip',
+      title: 'Friendly greeting #8',
+    })
+  })
+
+  test('falls back to live metadata while the durable roster refreshes', () => {
+    expect(
+      selectedSessionForDisplay('stored-1', 'runtime-1', [], [
+        { ...active, title: 'Friendly greeting #8' },
+      ]),
+    ).toMatchObject({
+      id: 'stored-1',
+      title: 'Friendly greeting #8',
+    })
+  })
+
+  test('accepts only events for the selected runtime or durable conversation', () => {
+    expect(
+      eventTargetsSelectedSession('runtime-1', 'runtime-1', 'stored-1'),
+    ).toBe(true)
+    expect(
+      eventTargetsSelectedSession('stored-1', 'runtime-1', 'stored-1'),
+    ).toBe(true)
+    expect(
+      eventTargetsSelectedSession(
+        'runtime-rebuilt',
+        'runtime-1',
+        'stored-1',
+        'stored-1',
+      ),
+    ).toBe(true)
+    expect(
+      eventTargetsSelectedSession('runtime-other', 'runtime-1', 'stored-1'),
+    ).toBe(false)
+    expect(eventTargetsSelectedSession('', '', '')).toBe(false)
   })
 })

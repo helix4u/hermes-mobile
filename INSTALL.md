@@ -63,11 +63,13 @@ python scripts/mobile_host.py install --startup persistent
 python scripts/mobile_host.py install --startup manual
 ```
 
-`desktop` starts the backend, proxy, and supervisor only while the packaged
-Hermes Desktop process is running. All three exit after Desktop quits. A
-plugin-owned one-minute scheduled recovery trigger starts them again after
-Desktop reopens; its windowless launcher does not flash a terminal on idle
-checks, and duplicate ticks are ignored while the supervisor is healthy.
+`desktop` starts the backend and proxy only while the packaged Hermes Desktop
+process is running. Both listeners retire after Desktop quits, while one hidden
+idle supervisor waits for Desktop to return and rebinds them to its current
+backend within a few seconds. A plugin-owned one-minute scheduled recovery
+trigger restores the supervisor if it is killed independently; its windowless
+launcher does not flash a terminal, and duplicate ticks are ignored while the
+supervisor is healthy.
 `persistent` keeps Mobile reachable independently after Desktop quits.
 `manual` registers no automatic trigger and runs only after an explicit start.
 Re-running install with a different policy safely replaces the prior task and
@@ -85,11 +87,10 @@ python scripts/mobile_host.py status
 
 The verification must report the scheduled task, both listeners, authenticated
 health, and a compatible or explicitly degraded compatibility response.
-When a desktop-bound host is idle, status reports `waiting-for-desktop`; the
-scheduled task and both listeners are stopped instead of leaving a waiting
-wrapper process or pretending the service is uninstalled. Reconnection after
-Desktop opens can take up to one minute, matching Windows Task Scheduler's
-minimum native repetition interval.
+When a desktop-bound host is idle, status reports `waiting-for-desktop`; both
+listeners are stopped and only the windowless supervisor remains. Reconnection
+after Desktop opens normally takes one polling interval. The one-minute Task
+Scheduler interval is only the fallback when that supervisor was lost.
 
 ## Start, stop, restart, or remove the host
 

@@ -52,6 +52,24 @@ try {
     if ($null -ne $missingBackend) {
         throw 'Backend selection must fail closed when no candidate passes its Hermes probe'
     }
+
+    $healthyMobile = [pscustomobject]@{
+        status = 'ok'
+        contract_version = 1
+    }
+    if (-not (Test-HermesMobileHealthResponse -Health $healthyMobile)) {
+        throw 'A healthy authenticated Mobile contract must be accepted'
+    }
+
+    foreach ($unhealthyMobile in @(
+        [pscustomobject]@{ status = 'degraded'; contract_version = 1 },
+        [pscustomobject]@{ status = 'ok'; contract_version = 0 },
+        [pscustomobject]@{ status = 'ok' }
+    )) {
+        if (Test-HermesMobileHealthResponse -Health $unhealthyMobile) {
+            throw 'An unhealthy or invalid Mobile contract must fail closed'
+        }
+    }
 } finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force
 }

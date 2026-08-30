@@ -23,7 +23,7 @@ final class WakeWordAudioLoop implements AutoCloseable {
         void onError(Exception error);
     }
 
-    private final OpenWakeWordEngine engine;
+    private final WakeWordDetector engine;
     private final Listener listener;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -33,14 +33,14 @@ final class WakeWordAudioLoop implements AutoCloseable {
     private Thread thread;
 
     WakeWordAudioLoop(
-        OpenWakeWordEngine engine,
+        WakeWordDetector engine,
         Listener listener
     ) {
         this.engine = engine;
         this.listener = listener;
     }
 
-    void start() {
+    void start() throws Exception {
         synchronized (lifecycleLock) {
             if (closed.get()) {
                 throw new IllegalStateException(
@@ -50,8 +50,10 @@ final class WakeWordAudioLoop implements AutoCloseable {
             if (running.get()) {
                 return;
             }
+            int sampleRate = engine.sampleRate();
+            int frameSamples = engine.frameSamples();
             int minimumBytes = AudioRecord.getMinBufferSize(
-                OpenWakeWordEngine.SAMPLE_RATE,
+                sampleRate,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT
             );
@@ -62,14 +64,14 @@ final class WakeWordAudioLoop implements AutoCloseable {
             }
             int bufferBytes = Math.max(
                 minimumBytes,
-                OpenWakeWordEngine.FRAME_SAMPLES * 2 * 4
+                frameSamples * 2 * 4
             );
             AudioRecord nextRecorder = new AudioRecord.Builder()
                 .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 .setAudioFormat(
                     new AudioFormat.Builder()
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(OpenWakeWordEngine.SAMPLE_RATE)
+                        .setSampleRate(sampleRate)
                         .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
                         .build()
                 )
@@ -97,7 +99,7 @@ final class WakeWordAudioLoop implements AutoCloseable {
             }
             recorder = nextRecorder;
             running.set(true);
-            thread = new Thread(this::run, "hermes-openwakeword");
+            thread = new Thread(this::run, "hermes-wakeword");
             thread.setDaemon(true);
             thread.start();
         }
@@ -105,7 +107,8 @@ final class WakeWordAudioLoop implements AutoCloseable {
     }
 
     private void run() {
-        short[] frame = new short[OpenWakeWordEngine.FRAME_SAMPLES];
+        int sampleRate = engine.sampleRate();
+        short[] frame = new short[engine.frameSamples()];
         ArrayDeque<short[]> preRoll = new ArrayDeque<>();
         ByteArrayOutputStream utterancePcm = null;
         WakeWordEndDetector endDetector = null;
@@ -161,7 +164,7 @@ final class WakeWordAudioLoop implements AutoCloseable {
                                     toWave(pcm, utteranceSamples),
                                     Math.round(
                                         utteranceSamples * 1_000.0 /
-                                        OpenWakeWordEngine.SAMPLE_RATE
+                                        sampleRate
                                     ),
                                     result.value
                                 );
@@ -212,7 +215,8 @@ final class WakeWordAudioLoop implements AutoCloseable {
         }
     }
 
-    private static byte[] toWave(byte[] pcm, int sampleCount) {
+    private byte[] toWave(byte[] pcm, int sampleCount) {
+        int sampleRate = engine.sampleRate();
         ByteArrayOutputStream output =
             new ByteArrayOutputStream(44 + pcm.length);
         writeAscii(output, "RIFF");
@@ -222,8 +226,8 @@ final class WakeWordAudioLoop implements AutoCloseable {
         writeInt32(output, 16);
         writeInt16(output, 1);
         writeInt16(output, 1);
-        writeInt32(output, OpenWakeWordEngine.SAMPLE_RATE);
-        writeInt32(output, OpenWakeWordEngine.SAMPLE_RATE * 2);
+        writeInt32(output, sampleRate);
+        writeInt32(output, sampleRate * 2);
         writeInt16(output, 2);
         writeInt16(output, 16);
         writeAscii(output, "data");

@@ -26,6 +26,63 @@ export type SessionRestoreTarget =
   | { kind: 'stored'; session: SessionSummary }
   | null
 
+export function selectedSessionForDisplay(
+  selectedStoredId: string,
+  runtimeSessionId: string,
+  sessions: SessionSummary[],
+  activeSessions: LiveSessionSummary[],
+): SessionSummary | null {
+  const selected = selectedStoredId.trim()
+  const runtime = runtimeSessionId.trim()
+  const active = activeSessions.find(
+    session =>
+      (runtime && session.id === runtime) ||
+      (selected && (session.session_key === selected || session.id === selected)),
+  )
+  const durable = sessions.find(
+    session =>
+      (selected && session.id === selected) ||
+      (active?.session_key && session.id === active.session_key),
+  )
+
+  if (durable) {
+    return {
+      ...durable,
+      title: durable.title || active?.title || null,
+      preview: durable.preview || active?.preview || null,
+    }
+  }
+  if (!active) return null
+
+  return {
+    id: active.session_key || selected || active.id,
+    title: active.title ?? null,
+    preview: active.preview ?? null,
+    started_at: active.started_at ?? 0,
+    last_active: active.last_active,
+    message_count: active.message_count ?? 0,
+    source: 'hermes-mobile',
+    model: active.model,
+  }
+}
+
+export function eventTargetsSelectedSession(
+  eventSessionId: string,
+  runtimeSessionId: string,
+  selectedStoredId: string,
+  payloadStoredSessionId = '',
+): boolean {
+  const eventId = eventSessionId.trim()
+  const runtimeId = runtimeSessionId.trim()
+  const storedId = selectedStoredId.trim()
+  const payloadStoredId = payloadStoredSessionId.trim()
+
+  if (!runtimeId && !storedId) return false
+  if (!eventId) return true
+  if (eventId === runtimeId || eventId === storedId) return true
+  return Boolean(storedId && payloadStoredId === storedId)
+}
+
 export function sessionRestoreTarget(
   selectedStoredId: string,
   sessions: SessionSummary[],

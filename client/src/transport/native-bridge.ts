@@ -207,7 +207,10 @@ interface HermesNativePlugin {
   openWirelessDebuggingSettings(): Promise<WirelessDebuggingSettingsResult>
   openExternalUrl(options: { url: string }): Promise<{ opened: boolean }>
   startWakeWord(options: {
+    modelId: string
     phrase: string
+    provider: 'openwakeword' | 'sherpa'
+    sherpaKeywords?: string
     sessionId: string
   }): Promise<{ state: 'listening' | 'unsupported'; supported: boolean }>
   stopWakeWord(options: { sessionId: string }): Promise<void>

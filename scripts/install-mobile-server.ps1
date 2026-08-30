@@ -128,11 +128,11 @@ if ($StartupMode -in @('desktop', 'persistent')) {
     $triggers += New-ScheduledTaskTrigger -AtLogOn -User $identity
 }
 if ($StartupMode -eq 'desktop') {
-    # A desktop-bound runner exits completely when Desktop closes, so no
-    # listener or waiting wrapper survives. Task Scheduler's one-minute
-    # recurring trigger is the plugin-owned launch seam when Desktop later
-    # opens. MultipleInstances=IgnoreNew makes each tick a no-op while the
-    # healthy runner is already supervising the backend and proxy.
+    # The desktop-bound runner keeps only one hidden idle supervisor while
+    # Desktop is closed; both loopback listeners still retire. This recurring
+    # trigger recovers the supervisor if it is killed independently.
+    # MultipleInstances=IgnoreNew makes each tick a no-op while the healthy
+    # runner is either idle or supervising the backend and proxy.
     $triggers += New-ScheduledTaskTrigger `
         -Once `
         -At (Get-Date).AddMinutes(1) `
