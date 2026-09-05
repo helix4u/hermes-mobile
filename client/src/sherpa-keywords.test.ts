@@ -17,4 +17,14 @@ describe('Sherpa keyword formatting', () => {
       formatSherpaKeywordDefinition(['▁BAD'], '../bad'),
     ).toThrow()
   })
+
+
+  test('formats definitions that can share one Sherpa stream', () => {
+    expect(
+      [
+        formatSherpaKeywordDefinition(['▁HEY', '▁HERMES'], 'hey hermes'),
+        formatSherpaKeywordDefinition(['▁HEY', '▁PET'], 'hey pet'),
+      ].join('\n'),
+    ).toBe('▁HEY ▁HERMES @HEY_HERMES\n▁HEY ▁PET @HEY_PET')
+  })
 })

@@ -35,7 +35,7 @@ public class OpenWakeWordEngineTest {
     }
 
     @Test
-    public void validatesOnlyOneBoundedSherpaKeywordDefinition() {
+    public void validatesBoundedSherpaKeywordDefinitionsForOneRecognizer() {
         assertTrue(
             SherpaWakeWordEngine.isValidKeywords(
                 "▁COMP U TER @COMPUTER"
@@ -47,10 +47,12 @@ public class OpenWakeWordEngineTest {
                 "▁COMP U TER @computer"
             )
         );
-        assertFalse(
+        assertTrue(
             SherpaWakeWordEngine.isValidKeywords(
                 "▁ONE @ONE\n▁TWO @TWO"
             )
         );
+        assertTrue(SherpaWakeWordEngine.isValidKeywords("▁ONE @ONE\n▁TWO @TWO\n▁THREE @THREE"));
+        assertFalse(SherpaWakeWordEngine.isValidKeywords("▁ONE @ONE\n▁TWO @TWO\n▁THREE @THREE\n▁FOUR @FOUR"));
     }
 }

@@ -14,7 +14,7 @@ final class WakeWordAudioLoop implements AutoCloseable {
 
     interface Listener {
         void onListening();
-        void onDetected();
+        void onDetected(String keyword);
         void onUtterance(
             byte[] wavBytes,
             long durationMs,
@@ -150,7 +150,7 @@ final class WakeWordAudioLoop implements AutoCloseable {
                                     utteranceSamples += bufferedFrame.length;
                                 }
                                 preRoll.clear();
-                                listener.onDetected();
+                                listener.onDetected(engine.detectedKeyword());
                             }
                         } else {
                             writePcm16(utterancePcm, completedFrame);

@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
+import { pollSupportAvailability } from './support-availability-poller'
 import { hostConnectionPresentation } from './connection-presentation'
 import { EmbedPreferencesProvider } from './embeds'
 import { ConnectionSheet } from './components/ConnectionSheet'
@@ -21,6 +22,10 @@ import { SessionsView } from './components/SessionsView'
 import { SupportOpsView } from './components/SupportOpsView'
 import { WorkspaceSheet } from './components/WorkspaceSheet'
 import { Transcript, type ToolDetailMode } from './components/Transcript'
+import { WorkStatus } from './components/WorkStatus'
+import { SessionVoiceControls } from './components/SessionVoiceControls'
+import { realtimePersonality } from './realtime-continuity'
+import { VoiceReviewNotice } from './components/VoiceReviewNotice'
 import type {
   ActiveSessionListResult,
   GatewayConnectionState,
@@ -67,6 +72,7 @@ import {
   resolveNousCloudAgent,
 } from './state/cloud'
 import { projectSessionRows } from './state/sessions'
+import { LiveVoiceMicrophoneButton } from './components/LiveVoiceMicrophoneButton'
 import {
   eventTargetsSelectedSession,
   loadSelectedSession,
@@ -134,11 +140,15 @@ import {
 } from './voice'
 import {
   loadActiveTurnInputMode,
+  loadSherpaPetWakePhrase,
+  loadSherpaVoiceWakePhrase,
   loadSherpaWakePhrase,
   loadWakeWordMode,
   loadWakeWordModelId,
   loadWakeWordProvider,
   persistActiveTurnInputMode,
+  persistSherpaPetWakePhrase,
+  persistSherpaVoiceWakePhrase,
   persistSherpaWakePhrase,
   persistWakeWordMode,
   persistWakeWordModelId,
@@ -147,19 +157,54 @@ import {
   type WakeWordMode,
   type WakeWordModelId,
   type WakeWordProvider,
+  type WakeWordRoute,
+  type WakeWordStatus,
   useWakeWord,
   wakeWordLabel,
 } from './wake-word'
 import { markdownToSpeechText } from './markdown'
-import { petSidechatTranscriptPrompt, petTurnActiveAfterEvent } from './pet'
-import { probeSupportOps, type SupportOpsAvailability } from './support-ops'
+import {
+  petContextFromTranscript,
+  petSidechatTranscriptPrompt,
+  petTurnActiveAfterEvent,
+} from './pet'
+import {
+  probeSupportOps,
+  supportInvestigationPrompt,
+  type SupportOpsAvailability,
+} from './support-ops'
 import {
   pinTranscriptToBottom,
   shouldFollowTranscriptAfterScroll,
 } from './transcript-follow'
 import { usePetCompanion } from './usePetCompanion'
+import { usePetRealtime } from './usePetRealtime'
+import {
+  emptyWorkStatus,
+  reconcileDelegationStatus,
+  reduceWorkStatusEvent,
+  restoreWorkStatusSnapshot,
+  type DelegationStatusResult,
+} from './work-status'
 
 type AppTab = 'chat' | 'sessions' | 'reader' | 'files' | 'support' | 'control'
+
+function wakeWordPresentation(status: WakeWordStatus): {
+  label: string
+  tone: string
+} {
+  const presentations: Record<WakeWordStatus, { label: string; tone: string }> = {
+    capturing: { label: 'Wake heard', tone: 'active' },
+    error: { label: 'Wake error', tone: 'error' },
+    listening: { label: 'Wake ready', tone: 'ready' },
+    off: { label: 'Wake off', tone: 'off' },
+    paused: { label: 'Wake paused', tone: 'paused' },
+    starting: { label: 'Wake loading', tone: 'loading' },
+    transcribing: { label: 'Wake working', tone: 'active' },
+    unsupported: { label: 'Wake unavailable', tone: 'error' },
+  }
+  return presentations[status]
+}
 
 function normalizeToolDetailMode(value: unknown): ToolDetailMode {
   return value === 'expanded' || value === 'hidden' ? value : 'collapsed'
@@ -313,6 +358,7 @@ export function App() {
     typeof window === 'undefined' ? '' : loadDraft(initialConnection.id),
   )
   const [transcript, setTranscript] = useState<TranscriptItem[]>([])
+  const [workStatus, setWorkStatus] = useState(emptyWorkStatus)
   const [toolDetailMode, setToolDetailMode] =
     useState<ToolDetailMode>('collapsed')
   const [error, setError] = useState('')
@@ -320,6 +366,7 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const [turnActive, setTurnActive] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('chat')
+  const [threadActionsOpen, setThreadActionsOpen] = useState(false)
   const [controlVisit, setControlVisit] = useState(0)
   const [connectionOpen, setConnectionOpen] = useState(
     !nativeClient || !initialConnection.baseUrl,
@@ -370,6 +417,12 @@ export function App() {
       ? 'hey hermes'
       : loadSherpaWakePhrase(initialConnection.id),
   )
+  const [sherpaPetWakePhrase, setSherpaPetWakePhrase] = useState(() =>
+    typeof window === 'undefined'
+      ? 'hey pet'
+      : loadSherpaPetWakePhrase(initialConnection.id),
+  )
+  const [sherpaVoiceWakePhrase, setSherpaVoiceWakePhrase] = useState(() => loadSherpaVoiceWakePhrase(initialConnection.id))
   const [activeTurnInputMode, setActiveTurnInputMode] =
     useState<ActiveTurnInputMode>(() =>
       typeof window === 'undefined'
@@ -378,6 +431,8 @@ export function App() {
     )
   const [wakeReviewPending, setWakeReviewPending] = useState(false)
   const [appIsActive, setAppIsActive] = useState(true)
+  const [realtimeVoiceOwnsMicrophone, setRealtimeVoiceOwnsMicrophone] =
+    useState(false)
   const [voiceSelection, setVoiceSelection] = useState<VoiceSelection>(() =>
     typeof window === 'undefined'
       ? { provider: '', voice: '', speed: 1 }
@@ -394,6 +449,7 @@ export function App() {
   const transcriptPinRecoveryRef = useRef<number | null>(null)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const autoConnectStartedRef = useRef(false)
+  const directConnectAbortRef = useRef<AbortController | null>(null)
   const autoSpeakRef = useRef(autoSpeak)
   const wakeWordModeRef = useRef(wakeWordMode)
   const connectionRef = useRef(connection)
@@ -552,7 +608,7 @@ export function App() {
       // Wake capture is useful during a live turn: pet-prefixed transcripts route
       // to sidechat first, while ordinary requests use the per-connection active
       // turn preference below.
-      available: !wakeReviewPending,
+      available: !wakeReviewPending && !realtimeVoiceOwnsMicrophone,
       connected,
       connectionId: connection.id,
       enabled: wakeWordMode !== 'off',
@@ -560,15 +616,40 @@ export function App() {
       modelId: wakeWordModelId,
       nativeClient,
       provider: wakeWordProvider,
+      sherpaPetPhrase: sherpaPetWakePhrase,
+      sherpaVoicePhrase: sherpaVoiceWakePhrase,
       sherpaPhrase: sherpaWakePhrase,
-      onDetected: () => {
+      onDetected: (route: WakeWordRoute) => {
+        if (route === 'voice') {
+          setActiveTab('chat')
+          setPetSidechatOpen(true)
+          setNotice('Live voice starting for the selected Hermes chat. Wait for the greeting before speaking.')
+          void petRealtime.start()
+          return
+        }
         setNotice(
-          `${wakeWordLabel(wakeWordProvider, wakeWordModelId, sherpaWakePhrase)} heard. Say your request, then pause.`,
+          `${
+            route === 'pet'
+              ? sherpaPetWakePhrase.replace(/\b\w/g, character => character.toUpperCase())
+              : wakeWordLabel(wakeWordProvider, wakeWordModelId, sherpaWakePhrase)
+          } heard. Say your request, then pause.`,
         )
       },
       onError: setError,
       onNotice: setNotice,
-      onTranscript: (text) => {
+      onTranscript: (text, route) => {
+        if (route === 'pet') {
+          setActiveTab('chat')
+          setPetSidechatOpen(true)
+          if (!pet.hostCapabilities.sidechat) {
+            setError('Pet sidechat is not available on this Hermes host.')
+            return
+          }
+          void pet.sidechat.send(text).then(sent => {
+            if (sent) setNotice(`Sent to ${pet.info.displayName || 'Pet'} sidechat.`)
+          })
+          return
+        }
         if (petSidechatIntentRouterRef.current(text)) return
         setActiveTab('chat')
         if (wakeWordModeRef.current === 'send') {
@@ -593,6 +674,62 @@ export function App() {
     transcript,
     transport: transportRef.current,
     turnActive,
+  })
+  const petRealtime = usePetRealtime({
+    uiContext: { page: petSidechatOpen ? 'voice' : activeTab, underlyingPage: activeTab,
+      focusedSessionId: runtimeSessionId || undefined, focusedSessionTitle: activeSession?.title || undefined },
+    sessionTitle: activeSession?.title || 'New conversation',
+    connectionId: connection.id,
+    profile: connection.profile,
+    context: petContextFromTranscript(
+      transcript,
+      Math.max(6, pet.preferences.contextTurns),
+      Math.max(8, pet.preferences.toolTurns),
+    ),
+    ensureSession: () => ensureSession(),
+    gateway: transportRef.current?.gateway ?? null,
+    onAskHermes: async ({ displayText, promptText, sessionId, maxWorkers }) => {
+      if (!sessionId || sessionId !== runtimeSessionIdRef.current) {
+        throw new Error('The attached Hermes session changed. Reopen live voice and try again.')
+      }
+      setActiveTab('chat')
+      transcriptFollowRef.current = true
+      beginIncrementalSpeechTurn()
+      const handoffId = `pet-handoff-${Date.now()}`
+      setTranscript(current => [
+        ...current,
+        {
+          id: handoffId,
+          kind: 'user',
+          text: displayText,
+        },
+      ])
+      try {
+        await submitPrompt(promptText, sessionId, {
+          pet_realtime_handoff: true,
+          ...(maxWorkers !== undefined ? { delegation_limit: maxWorkers } : {}),
+          reject_if_busy: true,
+          surface: 'app',
+        })
+        setNotice('Pet request sent to Hermes in this session.')
+      } catch (handoffError) {
+        setTranscript(current => current.filter(item => item.id !== handoffId))
+        throw handoffError
+      }
+    },
+    onMessages: pet.sidechat.replace,
+    onMicrophoneOwnershipChange: owned => {
+      pet.setVoiceActive(owned)
+      if (owned) stopPlayback()
+      setRealtimeVoiceOwnsMicrophone(owned)
+    },
+    onReply: pet.receiveRealtimeReply,
+    personalityId: pet.personality?.id || pet.preferences.personalitySlug,
+    personalityName:
+      pet.personality?.displayName || pet.info.displayName || 'Pet',
+    prompt: realtimePersonality(pet.personality, pet.info.displayName),
+    runtimeSessionId,
+    sessionRunning: turnActive,
   })
   petSidechatIntentRouterRef.current = (text) => {
     const displayName =
@@ -702,6 +839,7 @@ export function App() {
       turnActiveRef.current = nextTurnActive
       setTurnActive(nextTurnActive)
       setTranscript((current) => reduceGatewayEvent(current, event))
+      setWorkStatus((current) => reduceWorkStatusEvent(current, event))
       const text = completedAssistantText(event)
       if (
         nativeClient &&
@@ -750,7 +888,53 @@ export function App() {
     if (error) supportOpsTranscriptRef.current = null
   }, [error])
 
+  const activeSubagentCount = workStatus.subagents.filter(
+    (item) => item.status === 'queued' || item.status === 'running',
+  ).length
+  useEffect(() => {
+    const sessionId = runtimeSessionId
+    if (!connected || !sessionId) return
+    let disposed = false
+
+    const reconcile = async () => {
+      const transport = transportRef.current
+      if (!transport || runtimeSessionIdRef.current !== sessionId) return
+      try {
+        const result = await transport.gateway.request<DelegationStatusResult>(
+          'delegation.status',
+          { session_id: sessionId },
+        )
+        if (
+          disposed ||
+          runtimeSessionIdRef.current !== sessionId ||
+          result.scope_session_id !== sessionId
+        ) {
+          return
+        }
+        setWorkStatus((current) => reconcileDelegationStatus(current, result))
+      } catch {
+        // Older gateways do not provide a scoped status snapshot. Live
+        // subagent events still render without borrowing another session.
+      }
+    }
+
+    void reconcile()
+    if (!turnActive && activeSubagentCount === 0) {
+      return () => {
+        disposed = true
+      }
+    }
+    const timer = window.setInterval(() => void reconcile(), 5_000)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [activeSubagentCount, connected, runtimeSessionId, turnActive])
+
   const disconnect = useCallback(() => {
+    directConnectAbortRef.current?.abort()
+    directConnectAbortRef.current = null
+    setBusy(false)
     connectionEpochRef.current += 1
     desiredConnectedRef.current = false
     connectingRef.current = false
@@ -807,6 +991,8 @@ export function App() {
     setWakeWordModelId(loadWakeWordModelId(connection.id))
     setWakeWordProvider(loadWakeWordProvider(connection.id))
     setSherpaWakePhrase(loadSherpaWakePhrase(connection.id))
+    setSherpaPetWakePhrase(loadSherpaPetWakePhrase(connection.id))
+    setSherpaVoiceWakePhrase(loadSherpaVoiceWakePhrase(connection.id))
     setActiveTurnInputMode(loadActiveTurnInputMode(connection.id))
     setWakeReviewPending(false)
     setVoiceSelection(loadVoiceSelection(connection.id))
@@ -1188,12 +1374,13 @@ export function App() {
         setTranscript((current) =>
           mergeResumedTranscript(current, result.messages ?? []),
         )
-        if (result.activated) {
-          commitTurnActive(
-            Boolean(result.activated.running) ||
-            ['starting', 'working', 'waiting'].includes(result.activated.status || ''),
-          )
-        }
+        const running =
+          Boolean(restored.running) ||
+          ['starting', 'working', 'waiting'].includes(restored.status || '')
+        commitTurnActive(running)
+        setWorkStatus((current) =>
+          restoreWorkStatusSnapshot(current, restored.todo_state, running),
+        )
       }
 
       if (result.reconnected) {
@@ -1201,9 +1388,6 @@ export function App() {
           refreshSessions(transport, activeConnection.profile),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
-          probeSupportOps(transport).then((result) => {
-            if (result !== 'unknown') setSupportOpsAvailability(result)
-          }),
         ])
         setError('')
         setNotice(`Reconnected to ${activeConnection.name || 'Hermes'}`)
@@ -1253,7 +1437,11 @@ export function App() {
       return connectNousCloudUrl(target.baseUrl)
     }
 
+    const controller = new AbortController()
+    directConnectAbortRef.current = controller
+    const isCurrent = () => directConnectAbortRef.current === controller && !controller.signal.aborted
     setBusy(true)
+    setConnectionState('connecting')
     setError('')
     setCapabilities(null)
     setToolDetailMode('collapsed')
@@ -1263,7 +1451,14 @@ export function App() {
         target,
         nativeClient,
         HermesNative,
+        {
+          signal: controller.signal,
+          onRetry: () => {
+            if (isCurrent()) setNotice('Waiting for the Hermes host to become available...')
+          },
+        },
       )
+      if (!isCurrent()) return false
       connectionRef.current = activeTarget
       setConnection(activeTarget)
       persistConnection(activeTarget)
@@ -1302,6 +1497,7 @@ export function App() {
 
       try {
         const nextCapabilities = await transport.capabilities()
+        if (!isCurrent()) return false
         setCapabilities(nextCapabilities)
         if (nextCapabilities.status === 'incompatible') {
           throw new Error(
@@ -1314,8 +1510,9 @@ export function App() {
         try {
           await transport.connect()
         } finally {
-          connectingRef.current = false
+          if (isCurrent()) connectingRef.current = false
         }
+        if (!isCurrent()) return false
         clearReconnectTimer()
         reconnectAttemptRef.current = 0
         if (transport.kind === 'native' && activeTarget.token) {
@@ -1330,6 +1527,7 @@ export function App() {
           activeTarget.id,
           cachedSnapshot ?? { sessions: [], activeSessions: [] },
         )
+        if (!isCurrent()) return false
         setConnectionOpen(false)
         setNotice(`Connected to ${activeTarget.name || 'Hermes'}`)
         void Promise.allSettled([
@@ -1340,15 +1538,14 @@ export function App() {
           }),
           refreshCommands(transport),
           refreshToolDetailMode(transport),
-          probeSupportOps(transport).then((result) => {
-            if (result !== 'unknown') setSupportOpsAvailability(result)
-          }),
         ])
         return true
       } catch (connectError) {
         throw connectError
       }
     } catch (connectError) {
+      if (!isCurrent()) return false
+      setBusy(false)
       disconnect()
       setError(
         connectError instanceof Error
@@ -1357,7 +1554,7 @@ export function App() {
       )
       return false
     } finally {
-      setBusy(false)
+      if (isCurrent()) setBusy(false)
     }
   }
 
@@ -1679,6 +1876,7 @@ export function App() {
     setDraft(loadDraft(nextConnection.id))
     setSelectedStoredId(selectedSessionId)
     setRuntimeSessionId('')
+    setWorkStatus(emptyWorkStatus())
     setPreferredWorkspace(loadPreferredWorkspace(nextConnection.id))
     setSessionCwd('')
     setWorkspaceOpen(false)
@@ -1824,6 +2022,13 @@ export function App() {
       commitSelectedStoredSession(storedId, connectionId)
       runtimeSessionIdRef.current = resumed.session_id
       setRuntimeSessionId(resumed.session_id)
+      const running =
+        Boolean(resumed.running) ||
+        ['starting', 'working', 'waiting'].includes(resumed.status || '')
+      commitTurnActive(running)
+      setWorkStatus((current) =>
+        restoreWorkStatusSnapshot(emptyWorkStatus(), resumed.todo_state, running),
+      )
       setSessionCwd(
         resumed.info?.cwd ||
           session.cwd ||
@@ -1895,6 +2100,13 @@ export function App() {
       runtimeSessionIdRef.current = resumed.session_id
       commitSelectedStoredSession(storedId)
       setRuntimeSessionId(resumed.session_id)
+      const running =
+        Boolean(resumed.running) ||
+        ['starting', 'working', 'waiting'].includes(resumed.status || '')
+      commitTurnActive(running)
+      setWorkStatus((current) =>
+        restoreWorkStatusSnapshot(current, resumed.todo_state, running),
+      )
       setSessionCwd(resumed.info?.cwd || preferredWorkspace)
       if (resumed.messages?.length) {
         setTranscript((current) =>
@@ -1914,6 +2126,7 @@ export function App() {
     runtimeSessionIdRef.current = created.session_id
     commitSelectedStoredSession(created.stored_session_id)
     setRuntimeSessionId(created.session_id)
+    setWorkStatus(emptyWorkStatus())
     setSessionCwd(created.info?.cwd || preferredWorkspace)
     return created.session_id
   }
@@ -1930,13 +2143,18 @@ export function App() {
     ])
   }
 
-  async function submitPrompt(text: string, sessionId: string) {
+  async function submitPrompt(
+    text: string,
+    sessionId: string,
+    extra: Record<string, unknown> = {},
+  ) {
     const transport = transportRef.current
     if (!transport) throw new Error('Connect to Hermes first')
     commitTurnActive(true)
     try {
       await transport.gateway.request('prompt.submit', {
         busy_mode: activeTurnInputMode,
+        ...extra,
         session_id: sessionId,
         text,
       })
@@ -2112,15 +2330,23 @@ export function App() {
   async function stop() {
     stopPlayback()
     pet.cancelCommentary(true)
-    commitTurnActive(false)
     const transport = transportRef.current
-    if (!transport || !runtimeSessionId) return
+    const targetSessionId = runtimeSessionIdRef.current
+    if (!transport || !targetSessionId) {
+      setError('Cannot stop the turn until its live session is connected. Reconnect and try Stop again.')
+      return
+    }
     try {
       await transport.gateway.request('session.interrupt', {
-        session_id: runtimeSessionId,
+        session_id: targetSessionId,
       })
-      appendSystem('Interrupt requested.')
+      if (transportRef.current === transport && runtimeSessionIdRef.current === targetSessionId) {
+        // The backend's terminal event owns the idle transition. Acknowledging
+        // the request does not mean a blocking tool has already stopped.
+        appendSystem('Interrupt requested.')
+      }
     } catch (stopError) {
+      if (transportRef.current !== transport || runtimeSessionIdRef.current !== targetSessionId) return
       setError(
         stopError instanceof Error ? stopError.message : String(stopError),
       )
@@ -2172,6 +2398,7 @@ export function App() {
     commitSelectedStoredSession('')
     runtimeSessionIdRef.current = ''
     setRuntimeSessionId('')
+    setWorkStatus(emptyWorkStatus())
     commitTurnActive(false)
     setBusy(false)
     setWakeReviewPending(false)
@@ -2211,12 +2438,43 @@ export function App() {
   }
 
   function changeSherpaWakePhrase(phrase: string) {
+    if (phrase.trim() && phrase.trim().toLowerCase() === sherpaVoiceWakePhrase) {
+      setError('Use a different phrase from live voice.')
+      return
+    }
     if (!persistSherpaWakePhrase(connection.id, phrase)) {
       setError('Use a 2-48 character English wake phrase.')
       return
     }
     setSherpaWakePhrase(loadSherpaWakePhrase(connection.id))
     setWakeReviewPending(false)
+    setError('')
+  }
+
+  function changeSherpaPetWakePhrase(phrase: string) {
+    if (phrase.trim() && phrase.trim().toLowerCase() === sherpaVoiceWakePhrase) {
+      setError('Use a different phrase from live voice.')
+      return
+    }
+    if (!persistSherpaPetWakePhrase(connection.id, phrase)) {
+      setError('Use a 2-48 character English pet wake phrase, or leave it blank.')
+      return
+    }
+    setSherpaPetWakePhrase(loadSherpaPetWakePhrase(connection.id))
+    setWakeReviewPending(false)
+    setError('')
+  }
+
+  function changeSherpaVoiceWakePhrase(phrase: string) {
+    if (phrase.trim() && [sherpaWakePhrase, sherpaPetWakePhrase].some(value => value.toLowerCase() === phrase.trim().toLowerCase())) {
+      setError('Use a different phrase for live voice so each wake action is unambiguous.')
+      return
+    }
+    if (!persistSherpaVoiceWakePhrase(connection.id, phrase)) {
+      setError('Use a 2-48 character English live voice phrase, or leave it blank.')
+      return
+    }
+    setSherpaVoiceWakePhrase(loadSherpaVoiceWakePhrase(connection.id))
     setError('')
   }
 
@@ -2279,11 +2537,14 @@ export function App() {
             ? mergeResumedTranscript(current, activated.messages ?? [])
             : historyToTranscript(activated.messages ?? []),
       )
-      commitTurnActive(
+      const running =
         Boolean(activated.running) ||
         ['starting', 'working', 'waiting'].includes(
           activated.status || session.status,
-        ),
+        )
+      commitTurnActive(running)
+      setWorkStatus((current) =>
+        restoreWorkStatusSnapshot(emptyWorkStatus(), activated.todo_state, running),
       )
       setActiveTab('chat')
       void refreshSessions(transport, connectionRef.current.profile)
@@ -2484,6 +2745,7 @@ export function App() {
         runtimeSessionIdRef.current = sessionId
         commitSelectedStoredSession(created.stored_session_id)
         setRuntimeSessionId(sessionId)
+        setWorkStatus(emptyWorkStatus())
         setSessionCwd(created.info?.cwd || destination.cwd)
         setTranscript(historyToTranscript(created.messages ?? []))
       } else {
@@ -2543,6 +2805,8 @@ export function App() {
 
   const wakeCaptureActive = wakeWordStatus === 'capturing'
   const wakeTranscribing = wakeWordStatus === 'transcribing'
+  const wakePresentation = wakeWordPresentation(wakeWordStatus)
+  const petRealtimeActive = petRealtime.snapshot.active || petRealtime.snapshot.status === 'connecting'
   const hostConnection = hostConnectionPresentation(
     connectionState,
     capabilities?.status,
@@ -2555,18 +2819,14 @@ export function App() {
     if (!connected) return
     const transport = transportRef.current
     if (!transport) return
-    const refresh = async () => {
-      const result = await probeSupportOps(transport)
-      if (transportRef.current !== transport || result === 'unknown') return
-      setSupportOpsAvailability(result)
-    }
-    const timer = window.setInterval(() => void refresh(), 60_000)
-    return () => window.clearInterval(timer)
+    return pollSupportAvailability(() => probeSupportOps(transport), result => {
+      if (transportRef.current === transport) setSupportOpsAvailability(result)
+    })
   }, [connected, connection.id])
 
   useEffect(() => {
-    if (activeTab === 'support' && !supportOpsAvailable) setActiveTab('chat')
-  }, [activeTab, supportOpsAvailable])
+    if (activeTab === 'support' && supportOpsAvailability === 'missing') setActiveTab('chat')
+  }, [activeTab, supportOpsAvailability])
 
   useEffect(() => {
     if (!connected || activeTab !== 'sessions') return
@@ -2580,32 +2840,61 @@ export function App() {
     return () => window.clearInterval(timer)
   }, [activeTab, connected, connection.id])
 
+  const [voiceSettingsRequest, setVoiceSettingsRequest] = useState(0)
+  const [supportReviewPending, setSupportReviewPending] = useState(false)
+  const openVoiceSettings = () => { setPetSidechatOpen(true); setVoiceSettingsRequest(value => value + 1) }
+
   return (
     <EmbedPreferencesProvider connectionId={connection.id}>
       <main className="app-shell">
         <header className="topbar">
           <button className="brand-button" onClick={() => setActiveTab('chat')}>
-            <img
-              alt=""
-              aria-hidden="true"
-              className="brand-mark"
-              src="./nous-sidecar-128.png"
-            />
+            <span className="brand-mark-shell">
+              <img
+                alt=""
+                aria-hidden="true"
+                className="brand-mark"
+                src="./nous-sidecar-128.png"
+              />
+              <span className="brand-exp-badge">EXP</span>
+            </span>
             <span>
               <small>Hermes</small>
               <strong>Mobile</strong>
             </span>
           </button>
-          <button
-            aria-label={`Connection: ${hostConnection.label}`}
-            className={`host-pill state-${hostConnection.tone}`}
-            onClick={() => setConnectionOpen(true)}
-          >
-            <span className="host-dot" />
-            <span>{hostConnection.label}</span>
-            <span className="host-chevron">⌄</span>
-          </button>
+          <div className="topbar-statuses">
+            <button type="button" className="quiet-button voice-settings-shortcut" aria-label="Open voice conversation" onClick={() => setPetSidechatOpen(true)}>Voice</button>
+            {petRealtimeActive && petRealtime.snapshot.status !== 'testing' && (
+              <LiveVoiceMicrophoneButton
+                muted={!!petRealtime.snapshot.microphoneMuted}
+                onChange={petRealtime.setMicrophoneMuted}
+              />
+            )}
+            {(!petRealtimeActive || petRealtime.snapshot.status === 'error') && <button
+              aria-label={`${wakePresentation.label}. Open voice settings.`}
+              className={`wake-status-pill state-${wakePresentation.tone}`}
+              onClick={() => setActiveTab('control')}
+              type="button"
+            >
+              <span className="wake-status-dot" />
+              <span>{wakePresentation.label}</span>
+            </button>}
+            <button
+              aria-label={`Connection: ${hostConnection.label}`}
+              className={`host-pill state-${hostConnection.tone}`}
+              onClick={() => setConnectionOpen(true)}
+            >
+              <span className="host-dot" />
+              <span>{hostConnection.label}</span>
+              <span className="host-chevron">⌄</span>
+            </button>
+          </div>
         </header>
+        <VoiceReviewNotice pending={!petSidechatOpen && ['pending', 'error', 'submitting'].includes(petRealtime.snapshot.hermesDraftStatus)}
+          supportPending={supportReviewPending && (activeTab !== 'support' || petSidechatOpen)}
+          onReview={() => setPetSidechatOpen(true)}
+          onSupportReview={() => { setPetSidechatOpen(false); setActiveTab('support') }} />
 
         {(error || notice) && (
           <div className={`toast ${error ? 'toast-error' : 'toast-success'}`}>
@@ -2627,30 +2916,93 @@ export function App() {
             className={`app-view chat-view ${activeTab === 'chat' ? 'active' : ''}`}
           >
             <div className="thread-heading">
-              <div>
+              <div className="thread-heading-copy">
                 <p className="eyebrow">
-                  {runtimeSessionId ? 'Live session' : 'Ready when you are'}
+                  {runtimeSessionId ? 'Live' : 'Draft'}
                 </p>
-                <h1>{activeSession?.title || 'New conversation'}</h1>
+                <h1 title={activeSession?.title || 'New conversation'}>
+                  {activeSession?.title || 'New conversation'}
+                </h1>
               </div>
               <div className="thread-actions">
                 <button
-                  className="thread-new-button quiet-button"
-                  disabled={!connected || busy || turnActive}
-                  onClick={startDraft}
+                  aria-expanded={threadActionsOpen}
+                  aria-controls="session-options"
+                  className="thread-actions-trigger quiet-button"
+                  onClick={() => setThreadActionsOpen(open => !open)}
                   type="button"
                 >
-                  <span aria-hidden="true">＋</span>
-                  New
+                  <span>Options</span>
+                  {(petRealtimeActive || turnActive) && (
+                    <span aria-hidden="true" className="thread-actions-active-dot" />
+                  )}
+                  <span aria-hidden="true">{threadActionsOpen ? '⌃' : '⌄'}</span>
                 </button>
-                {runtimeSessionId && (
-                  <button className="stop-button" onClick={() => void stop()}>
-                    <span className="stop-square" />
-                    Stop
-                  </button>
+                {threadActionsOpen && (
+                  <div className="thread-actions-popover" id="session-options"
+                    role="region" aria-label="Session options"
+                    onKeyDown={event => { if (event.key === 'Escape') { setThreadActionsOpen(false); event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('.thread-actions-trigger')?.focus() } }}>
+                    <button
+                      aria-pressed={petRealtimeActive}
+                      className={`thread-menu-action ${petRealtimeActive ? 'active' : ''}`}
+                      disabled={!connected && !petRealtimeActive}
+                      onClick={() => {
+                        setThreadActionsOpen(false)
+                        if (petRealtimeActive) petRealtime.stop()
+                        else void petRealtime.start()
+                      }}
+                      type="button"
+                    >
+                      <span className="pet-live-main-dot" />
+                      <span>
+                        {petRealtime.snapshot.status === 'connecting'
+                          ? 'Pet voice connecting'
+                          : petRealtime.snapshot.status === 'testing' ? 'Stop mic test'
+                          : petRealtimeActive
+                            ? 'Stop Pet voice'
+                            : 'Start Pet voice'}
+                      </span>
+                    </button>
+                    <button
+                      className="thread-menu-action"
+                      disabled={!connected || busy || turnActive}
+                      onClick={() => {
+                        setThreadActionsOpen(false)
+                        startDraft()
+                      }}
+                      type="button"
+                    >
+                      <span aria-hidden="true">＋</span>
+                      <span>New session</span>
+                    </button>
+                    {turnActive && (
+                      <button
+                        className="thread-menu-action danger"
+                        onClick={() => {
+                          setThreadActionsOpen(false)
+                          void stop()
+                        }}
+                        type="button"
+                      >
+                        <span className="stop-square" />
+                        <span>Stop running turn</span>
+                      </button>
+                    )}
+                    <SessionVoiceControls nativeClient={nativeClient} wakeWordMode={wakeWordMode}
+                      autoSpeak={autoSpeak} activeTurnInputMode={activeTurnInputMode}
+                      onWakeChange={changeWakeWordMode} onAutoSpeakChange={changeAutoSpeak}
+                      onInputModeChange={changeActiveTurnInputMode} />
+                    <button type="button" className="thread-menu-action" onClick={() => { setThreadActionsOpen(false); openVoiceSettings() }}>Live voice settings</button>
+                  </div>
                 )}
               </div>
             </div>
+            {petRealtime.snapshot.error && !petSidechatOpen && (
+              <div className="pet-sidechat-error" role="alert">
+                {petRealtime.snapshot.error}
+                <button type="button" className="quiet-button" onClick={() => setPetSidechatOpen(true)}>Voice settings</button>
+              </div>
+            )}
             <button
               className="session-workspace-button"
               disabled={!connected || busy}
@@ -2662,55 +3014,6 @@ export function App() {
               </strong>
               <small>Change</small>
             </button>
-            <div
-              aria-label="Session voice controls"
-              className="chat-voice-controls"
-            >
-              <label>
-                <span>Wake</span>
-                <select
-                  aria-label="Wake word behavior"
-                  disabled={!nativeClient}
-                  value={wakeWordMode}
-                  onChange={(event) =>
-                    changeWakeWordMode(event.target.value as WakeWordMode)
-                  }
-                >
-                  <option value="off">Off</option>
-                  <option value="review">Review</option>
-                  <option value="send">Auto-send</option>
-                </select>
-              </label>
-              <label>
-                <span>Replies</span>
-                <select
-                  aria-label="Automatic reply playback"
-                  value={autoSpeak ? 'auto' : 'manual'}
-                  onChange={(event) =>
-                    changeAutoSpeak(event.target.value === 'auto')
-                  }
-                >
-                  <option value="manual">Manual</option>
-                  <option value="auto">Auto-play</option>
-                </select>
-              </label>
-              <label>
-                <span>During turn</span>
-                <select
-                  aria-label="Active turn input behavior"
-                  value={activeTurnInputMode}
-                  onChange={(event) =>
-                    changeActiveTurnInputMode(
-                      event.target.value as ActiveTurnInputMode,
-                    )
-                  }
-                >
-                  <option value="interrupt">Interrupt</option>
-                  <option value="steer">Steer</option>
-                </select>
-              </label>
-            </div>
-
             <div
               className="transcript"
               aria-live="polite"
@@ -2768,6 +3071,7 @@ export function App() {
               data-pet-perch
               onSubmit={(event) => void submit(event)}
             >
+              <WorkStatus key={runtimeSessionId || selectedStoredId || 'draft'} status={workStatus} />
               {wakeReviewPending && (
                 <div className="wake-review" role="status">
                   <div>
@@ -2862,16 +3166,25 @@ export function App() {
                     }
                   }}
                 />
-                <button
-                  aria-label="Send"
-                  className="send-button"
-                  disabled={
-                    !canSubmitComposer(connected, busy, turnActive, draft)
-                  }
-                  type="submit"
-                >
-                  <SendIcon />
-                </button>
+                {turnActive && draft.trim() && (
+                  <button className="send-button composer-followup" type="submit"
+                    aria-label={activeTurnInputMode === 'steer' ? 'Send steering message' : 'Interrupt with message'}
+                    title={activeTurnInputMode === 'steer' ? 'Send steering message' : 'Interrupt with message'}
+                    disabled={!canSubmitComposer(connected, busy, turnActive, draft)}>
+                    <SendIcon />
+                  </button>
+                )}
+                {turnActive ? (
+                  <button aria-label="Stop running turn" title="Stop running turn"
+                    className="send-button stop-turn-button" type="button" onClick={() => void stop()}>
+                    <span className="stop-square" aria-hidden="true" />
+                  </button>
+                ) : (
+                  <button aria-label="Send" className="send-button" type="submit"
+                    disabled={!canSubmitComposer(connected, busy, turnActive, draft)}>
+                    <SendIcon />
+                  </button>
+                )}
               </div>
               <div className="composer-meta">
                 <span>
@@ -3005,6 +3318,8 @@ export function App() {
               }`}
             >
               <SupportOpsView
+                onVoiceReviewPending={setSupportReviewPending}
+                onVoiceReceipt={petRealtime.notifyReceipt}
                 active={activeTab === 'support'}
                 connected={connected}
                 connectionId={connection.id}
@@ -3020,12 +3335,11 @@ export function App() {
                   if (!sent)
                     throw new Error('Could not start the investigation session')
                 }}
-                onStartVoiceSession={async (prompt) => {
-                  startDraft()
-                  const sent = await sendTextToHermes(prompt)
-                  if (!sent)
-                    throw new Error('Could not start the investigation session')
-                  window.setTimeout(() => toggleRecording(), 120)
+                onStartVoiceSession={async (target) => {
+                  pet.sidechat.replace([])
+                  const started = await petRealtime.startContext(target)
+                  setPetSidechatOpen(true)
+                  if (!started) throw new Error('Could not open support live voice. See the voice controls for details.')
                 }}
                 onStopSpeech={stopPlayback}
                 onVoiceInput={(target) => {
@@ -3060,6 +3374,10 @@ export function App() {
             }`}
           >
             <ControlPanel
+              realtimeInput={{ selected: petRealtime.settings.microphoneId || '', disabled: petRealtimeActive,
+                onChange: microphoneId => petRealtime.setSettings({ ...petRealtime.settings, microphoneId }),
+                onTest: petRealtime.testMicrophone, status: petRealtime.snapshot.inputStatus, level: petRealtime.snapshot.inputLevel,
+                onStopTest: petRealtime.snapshot.status === 'testing' ? petRealtime.stop : undefined }}
               key={controlVisit}
               connected={connected}
               gateway={transportRef.current?.gateway ?? null}
@@ -3074,6 +3392,9 @@ export function App() {
               wakeWordMode={wakeWordMode}
               wakeWordModelId={wakeWordModelId}
               wakeWordProvider={wakeWordProvider}
+              sherpaPetWakePhrase={sherpaPetWakePhrase}
+              sherpaVoiceWakePhrase={sherpaVoiceWakePhrase}
+              onSherpaVoiceWakePhraseChange={changeSherpaVoiceWakePhrase}
               sherpaWakePhrase={sherpaWakePhrase}
               wakeWordStatus={wakeWordStatus}
               transport={transportRef.current}
@@ -3102,6 +3423,7 @@ export function App() {
               onWakeWordModeChange={changeWakeWordMode}
               onWakeWordModelChange={changeWakeWordModel}
               onWakeWordProviderChange={changeWakeWordProvider}
+              onSherpaPetWakePhraseChange={changeSherpaPetWakePhrase}
               onSherpaWakePhraseChange={changeSherpaWakePhrase}
               onThemeSelectionChange={changeThemeSelection}
               onNotice={setNotice}
@@ -3230,15 +3552,22 @@ export function App() {
             await switchSavedConnection(saved)
           }}
         />
-      </main>
       <PetSidechatSheet
+        settingsRequest={voiceSettingsRequest}
         busy={pet.sidechat.busy}
         error={pet.sidechat.error}
         messages={pet.sidechat.messages}
         name={pet.personality?.displayName || pet.info.displayName || 'Pet'}
         open={petSidechatOpen}
         onClose={() => setPetSidechatOpen(false)}
-        onLoad={pet.sidechat.load}
+        onLoad={() => {
+          if (!petRealtime.snapshot.attachedContextId.startsWith('support:')) {
+            void pet.sidechat.load()
+          }
+        }}
+        onPersonalityChange={(personalitySlug) => {
+          pet.updatePreferences({ personalitySlug })
+        }}
         onReset={pet.sidechat.reset}
         onSend={pet.sidechat.send}
         onSendToHermes={(text) => setDraft(text)}
@@ -3246,9 +3575,13 @@ export function App() {
         onTranscriptTarget={(target) => {
           petSidechatTranscriptRef.current = target
         }}
+        personalities={pet.catalog}
+        personalitySlug={pet.preferences.personalitySlug}
         voicePhase={voicePhase}
         voiceRecordingAvailable={voiceRecordingAvailable}
+        realtime={petRealtime}
       />
+      </main>
     </EmbedPreferencesProvider>
   )
 }

@@ -30,6 +30,7 @@ import { MobilePluginInstaller } from './MobilePluginInstaller'
 import { PetSettings } from './PetSettings'
 import { ProviderSetup } from './ProviderSetup'
 import { VoiceSettings } from './VoiceSettings'
+import { RealtimeInputSettings, type RealtimeInputSettingsProps } from './RealtimeInputSettings'
 
 interface ModelProvider {
   slug: string
@@ -65,6 +66,7 @@ interface CronJob {
 }
 
 interface ControlPanelProps {
+  realtimeInput?: RealtimeInputSettingsProps
   gateway: JsonRpcGatewayClient | null
   connected: boolean
   runtimeSessionId: string
@@ -78,6 +80,9 @@ interface ControlPanelProps {
   wakeWordMode: WakeWordMode
   wakeWordModelId: WakeWordModelId
   wakeWordProvider: WakeWordProvider
+  sherpaPetWakePhrase: string
+  sherpaVoiceWakePhrase?: string
+  onSherpaVoiceWakePhraseChange?: (phrase: string) => void
   sherpaWakePhrase: string
   wakeWordStatus: WakeWordStatus
   transport: HermesTransport | null
@@ -106,6 +111,7 @@ interface ControlPanelProps {
   onWakeWordModeChange: (mode: WakeWordMode) => void
   onWakeWordModelChange: (modelId: WakeWordModelId) => void
   onWakeWordProviderChange: (provider: WakeWordProvider) => void
+  onSherpaPetWakePhraseChange: (phrase: string) => void
   onSherpaWakePhraseChange: (phrase: string) => void
   onThemeSelectionChange: (selection: MobileThemeSelection) => void
   onNotice: (message: string) => void
@@ -218,6 +224,7 @@ function AppearanceSettings({
 }
 
 export function ControlPanel({
+  realtimeInput,
   activeSkinName,
   autoSpeak,
   connected,
@@ -226,6 +233,7 @@ export function ControlPanel({
   onWakeWordModeChange,
   onWakeWordModelChange,
   onWakeWordProviderChange,
+  onSherpaPetWakePhraseChange,
   onSherpaWakePhraseChange,
   onNotice,
   onOpenWorkspace,
@@ -246,13 +254,20 @@ export function ControlPanel({
   wakeWordMode,
   wakeWordModelId,
   wakeWordProvider,
+  sherpaPetWakePhrase,
+  sherpaVoiceWakePhrase = '',
+  onSherpaVoiceWakePhraseChange,
   sherpaWakePhrase,
   wakeWordStatus,
 }: ControlPanelProps) {
   const [loading, setLoading] = useState(false)
   const [sherpaPhraseDraft, setSherpaPhraseDraft] = useState(sherpaWakePhrase)
+  const [sherpaPetPhraseDraft, setSherpaPetPhraseDraft] = useState(sherpaPetWakePhrase)
+  const [sherpaVoicePhraseDraft, setSherpaVoicePhraseDraft] = useState(sherpaVoiceWakePhrase)
+  useEffect(() => setSherpaVoicePhraseDraft(sherpaVoiceWakePhrase), [sherpaVoiceWakePhrase])
 
   useEffect(() => setSherpaPhraseDraft(sherpaWakePhrase), [sherpaWakePhrase])
+  useEffect(() => setSherpaPetPhraseDraft(sherpaPetWakePhrase), [sherpaPetWakePhrase])
   const [error, setError] = useState('')
   const [models, setModels] = useState<ModelOptions>({})
   const [provider, setProvider] = useState('')
@@ -922,26 +937,54 @@ export function ControlPanel({
               </select>
             </label>
           ) : (
-            <label>
-              <span>Sherpa wake phrase</span>
-              <input
-                disabled={!wakeWordAvailable}
-                maxLength={48}
-                spellCheck={false}
-                value={sherpaPhraseDraft}
-                onBlur={() => onSherpaWakePhraseChange(sherpaPhraseDraft)}
-                onChange={event => setSherpaPhraseDraft(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'Enter') event.currentTarget.blur()
-                }}
-              />
-            </label>
+            <>
+              <label>
+                <span>Hermes wake phrase</span>
+                <input
+                  disabled={!wakeWordAvailable}
+                  maxLength={48}
+                  spellCheck={false}
+                  value={sherpaPhraseDraft}
+                  onBlur={() => onSherpaWakePhraseChange(sherpaPhraseDraft)}
+                  onChange={event => setSherpaPhraseDraft(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                  }}
+                />
+              </label>
+              <label>
+                <span>Pet wake phrase</span>
+                <input
+                  disabled={!wakeWordAvailable}
+                  maxLength={48}
+                  placeholder="Leave blank to disable"
+                  spellCheck={false}
+                  value={sherpaPetPhraseDraft}
+                  onBlur={() => onSherpaPetWakePhraseChange(sherpaPetPhraseDraft)}
+                  onChange={event => setSherpaPetPhraseDraft(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                  }}
+                />
+              </label>
+              <label>
+                <span>Live voice wake phrase</span>
+                <input disabled={!wakeWordAvailable} maxLength={48} spellCheck={false}
+                  placeholder="Leave blank to disable" value={sherpaVoicePhraseDraft}
+                  onChange={event => setSherpaVoicePhraseDraft(event.target.value)}
+                  onBlur={() => onSherpaVoiceWakePhraseChange?.(sherpaVoicePhraseDraft)}
+                  onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
+              </label>
+              <p className="advanced-copy">The live voice phrase starts a microphone session with the selected session context. Wait for its greeting, then talk. All three phrases share one local recognizer. Blank disables this shortcut.</p>
+            </>
           )}
           <p className="advanced-copy">
             {wakeWordStatus === 'listening'
-              ? `Listening locally for “${wakeWordLabel(wakeWordProvider, wakeWordModelId, sherpaWakePhrase)}” with ${wakeWordProvider === 'sherpa' ? 'Sherpa' : 'a bundled openWakeWord model'}. Begin the captured request with “${pet.preferences.sidechatCommands[0] || 'Pet'} …” or another configured alias to route it to private pet sidechat. Ambient audio is not sent to Hermes.`
+              ? wakeWordProvider === 'sherpa'
+                ? `Wake ready. One local Sherpa recognizer: ${sherpaWakePhrase} (Hermes), ${sherpaPetWakePhrase || 'off'} (pet message), ${sherpaVoiceWakePhrase || 'off'} (live voice). Ambient audio stays local until a wake phrase activates capture.`
+                : `Wake ready. Listening locally for “${wakeWordLabel(wakeWordProvider, wakeWordModelId, sherpaWakePhrase)}” with a bundled openWakeWord model. Begin the captured request with “${pet.preferences.sidechatCommands[0] || 'Pet'} …” or another configured alias to route it to private pet sidechat. Ambient audio is not sent to Hermes.`
               : wakeWordStatus === 'capturing'
-                ? `${wakeWordLabel(wakeWordProvider, wakeWordModelId, sherpaWakePhrase)} heard. Listening locally until you pause; begin with “${pet.preferences.sidechatCommands[0] || 'Pet'}” or another configured alias for private pet sidechat.`
+                ? 'Wake phrase heard. Listening locally until you pause.'
                 : wakeWordStatus === 'transcribing'
                   ? 'Request ended. Transcribing it with the connected Hermes host…'
               : wakeWordStatus === 'starting'
@@ -962,6 +1005,7 @@ export function ControlPanel({
             transport={transport}
             onChange={onVoiceSelectionChange}
           />
+          {realtimeInput && <RealtimeInputSettings {...realtimeInput} />}
           {(voicePhase === 'speaking' || voicePhase === 'synthesizing') && (
             <button className="quiet-button" onClick={onStopSpeech}>
               Stop reply audio

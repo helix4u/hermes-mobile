@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { writeClipboardText } from '../clipboard'
 import type {
   LiveSessionSummary,
   ProjectTree,
@@ -70,34 +71,46 @@ function LiveSessionRow({
   session,
   selected,
   onActiveSession,
+  onInspect,
 }: {
   session: LiveSessionSummary
   selected: boolean
   onActiveSession: SessionsViewProps['onActiveSession']
+  onInspect: (session: LiveSessionSummary) => void
 }) {
   return (
-    <button
-      className={`session-row live-session-row status-${session.status} ${selected ? 'selected' : ''}`}
-      onClick={() => void onActiveSession(session)}
-      type="button"
-    >
-      <span className="session-live-indicator" aria-hidden="true" />
-      <span className="session-copy">
-        <strong>{session.title || 'Live conversation'}</strong>
-        <small>{session.preview || liveStatusLabel(session.status)}</small>
-        <span className="session-metadata">
-          {[
-            liveStatusLabel(session.status),
-            session.model,
-            `${session.message_count ?? 0} messages`,
-            relativeSessionTime(session.last_active || session.started_at),
-          ]
-            .filter(Boolean)
-            .join(' · ')}
+    <div className="session-row-shell">
+      <button
+        className={`session-row live-session-row status-${session.status} ${selected ? 'selected' : ''}`}
+        onClick={() => void onActiveSession(session)}
+        type="button"
+      >
+        <span className="session-live-indicator" aria-hidden="true" />
+        <span className="session-copy">
+          <strong>{session.title || 'Live conversation'}</strong>
+          <small>{session.preview || liveStatusLabel(session.status)}</small>
+          <span className="session-metadata">
+            {[
+              liveStatusLabel(session.status),
+              session.model,
+              `${session.message_count ?? 0} messages`,
+              relativeSessionTime(session.last_active || session.started_at),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
         </span>
-      </span>
-      <span className="session-live-action">Resume</span>
-    </button>
+        <span className="session-live-action">Resume</span>
+      </button>
+      <button
+        aria-label={`Preview ${session.title || 'live conversation'} data`}
+        className="session-inspect-button"
+        onClick={() => onInspect(session)}
+        type="button"
+      >
+        i
+      </button>
+    </div>
   )
 }
 
@@ -105,24 +118,37 @@ function SessionRow({
   selected,
   session,
   onSession,
+  onInspect,
 }: {
   selected: boolean
   session: SessionSummary
   onSession: SessionsViewProps['onSession']
+  onInspect: (session: SessionSummary) => void
 }) {
   return (
-    <button
-      className={`session-row ${selected ? 'selected' : ''}`}
-      onClick={() => void onSession(session)}
-    >
-      <span className="session-icon">✦</span>
-      <span className="session-copy">
-        <strong>{session.title || 'Untitled session'}</strong>
-        <small>{session.preview || metadata(session)}</small>
-        <span className="session-metadata">{metadata(session)}</span>
-      </span>
-      <span className="session-chevron">›</span>
-    </button>
+    <div className="session-row-shell">
+      <button
+        className={`session-row ${selected ? 'selected' : ''}`}
+        onClick={() => void onSession(session)}
+        type="button"
+      >
+        <span className="session-icon">✦</span>
+        <span className="session-copy">
+          <strong>{session.title || 'Untitled session'}</strong>
+          <small>{session.preview || metadata(session)}</small>
+          <span className="session-metadata">{metadata(session)}</span>
+        </span>
+        <span className="session-chevron">›</span>
+      </button>
+      <button
+        aria-label={`Preview ${session.title || 'untitled session'} data`}
+        className="session-inspect-button"
+        onClick={() => onInspect(session)}
+        type="button"
+      >
+        i
+      </button>
+    </div>
   )
 }
 
@@ -144,6 +170,11 @@ export function SessionsView({
 }: SessionsViewProps) {
   const [query, setQuery] = useState('')
   const [showCompacted, setShowCompacted] = useState(false)
+  const [inspected, setInspected] = useState<{
+    kind: 'live' | 'stored'
+    value: LiveSessionSummary | SessionSummary
+  } | null>(null)
+  const [copyState, setCopyState] = useState('')
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => new Set(),
   )
@@ -294,6 +325,10 @@ export function SessionsView({
                   Boolean(session.session_key && session.session_key === selectedSessionId)
                 }
                 session={session}
+                onInspect={value => {
+                  setCopyState('')
+                  setInspected({ kind: 'live', value })
+                }}
               />
             ))}
           </div>
@@ -356,6 +391,10 @@ export function SessionsView({
                               selected={selectedSessionId === session.id}
                               session={session}
                               onSession={onSession}
+                              onInspect={value => {
+                                setCopyState('')
+                                setInspected({ kind: 'stored', value })
+                              }}
                             />
                           ))}
                         </div>
@@ -438,6 +477,10 @@ export function SessionsView({
                                   }
                                   session={row.session}
                                   onSession={onSession}
+                                  onInspect={value => {
+                                    setCopyState('')
+                                    setInspected({ kind: 'stored', value })
+                                  }}
                                 />
                               ))}
                             </div>
@@ -452,6 +495,54 @@ export function SessionsView({
           )
         })}
       </nav>
+      {inspected && (
+        <div className="session-inspector-backdrop" role="presentation">
+          <section
+            aria-label="Session data preview"
+            aria-modal="true"
+            className="session-inspector"
+            role="dialog"
+          >
+            <header>
+              <div>
+                <small>{inspected.kind === 'live' ? 'Live gateway record' : 'Stored session summary'}</small>
+                <strong>{inspected.value.title || 'Untitled session'}</strong>
+              </div>
+              <button onClick={() => setInspected(null)} type="button">Close</button>
+            </header>
+            <p>
+              This is the exact bounded record currently shown by the selector. It is not a full transcript.
+            </p>
+            <pre>{JSON.stringify(inspected.value, null, 2)}</pre>
+            <footer>
+              <button
+                onClick={async () => {
+                  try {
+                    await writeClipboardText(JSON.stringify(inspected.value, null, 2))
+                    setCopyState('Copied')
+                  } catch (error) {
+                    setCopyState(error instanceof Error ? error.message : String(error))
+                  }
+                }}
+                type="button"
+              >
+                Copy JSON
+              </button>
+              <button
+                onClick={() => {
+                  if (inspected.kind === 'live') void onActiveSession(inspected.value as LiveSessionSummary)
+                  else void onSession(inspected.value as SessionSummary)
+                  setInspected(null)
+                }}
+                type="button"
+              >
+                Open session
+              </button>
+              {copyState && <span role="status">{copyState}</span>}
+            </footer>
+          </section>
+        </div>
+      )}
     </>
   )
 }

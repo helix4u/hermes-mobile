@@ -150,6 +150,25 @@ describe('Transcript tool rows', () => {
 })
 
 describe('Transcript message actions', () => {
+  it('renders projected attachment URLs as safe clickable links', () => {
+    const html = renderToStaticMarkup(
+      <Transcript
+        {...commonProps}
+        items={[
+          {
+            id: 'user-link',
+            kind: 'user',
+            text: '<https://example.test/support/thread>',
+          },
+        ]}
+      />,
+    )
+
+    expect(html).toContain('href="https://example.test/support/thread"')
+    expect(html).toContain('rel="noopener noreferrer"')
+    expect(html).toContain('target="_blank"')
+  })
+
   it('adds a copy button to every completed chat message', () => {
     const html = renderToStaticMarkup(
       <Transcript

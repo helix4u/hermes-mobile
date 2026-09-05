@@ -37,6 +37,14 @@ try {
         [pscustomobject]@{ Url = 'http://127.0.0.1:60001'; Kind = 'unrelated' },
         [pscustomobject]@{ Url = 'http://127.0.0.1:60002'; Kind = 'hermes' }
     )
+    # Desktop publishes ownership before its socket is bound. An empty poll
+    # must keep the supervisor alive so the next ready poll can recover.
+    $startingBackend = Select-HermesDesktopBackendCandidate -Candidates @() -Probe {
+        throw 'An empty candidate list must not probe a backend'
+    }
+    if ($null -ne $startingBackend) {
+        throw 'An empty startup poll must wait without selecting a backend'
+    }
     $selected = Select-HermesDesktopBackendCandidate -Candidates $candidates -Probe {
         param($candidate)
         $candidate.Kind -eq 'hermes'
@@ -51,6 +59,32 @@ try {
     }
     if ($null -ne $missingBackend) {
         throw 'Backend selection must fail closed when no candidate passes its Hermes probe'
+    }
+
+    $listeners = @(
+        [pscustomobject]@{ OwningProcess = 40; LocalAddress = '127.0.0.1'; LocalPort = 60001 },
+        [pscustomobject]@{ OwningProcess = 41; LocalAddress = '::1'; LocalPort = 60002 },
+        [pscustomobject]@{ OwningProcess = 99; LocalAddress = '127.0.0.1'; LocalPort = 60003 },
+        [pscustomobject]@{ OwningProcess = 40; LocalAddress = '0.0.0.0'; LocalPort = 60004 },
+        [pscustomobject]@{ OwningProcess = 40; LocalAddress = '127.0.0.1'; LocalPort = 9130 }
+    )
+    if (@(Get-HermesDesktopLoopbackListeners -ProcessIds @(40) -Listeners @()).Count -ne 0) {
+        throw 'An empty listener snapshot must wait without terminating the supervisor'
+    }
+    if (@(Get-HermesDesktopLoopbackListeners -ProcessIds @() -Listeners $listeners).Count -ne 0) {
+        throw 'No verified process must yield no listeners'
+    }
+    $ownedListeners = @(
+        Get-HermesDesktopLoopbackListeners `
+            -ProcessIds @(40, 41) `
+            -Listeners $listeners `
+            -ExcludedPorts @(9129, 9130)
+    )
+    if (
+        $ownedListeners.Count -ne 2 -or
+        @($ownedListeners.LocalPort | Sort-Object) -join ',' -ne '60001,60002'
+    ) {
+        throw 'Listener discovery must retain only verified-process loopback ports'
     }
 
     $healthyMobile = [pscustomobject]@{

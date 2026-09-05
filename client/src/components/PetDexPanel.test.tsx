@@ -1,6 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { petHatchCancelToken, PetDexPanel, rankPetDexPets } from './PetDexPanel'
+import {
+  PETDEX_RENDER_LIMIT,
+  petHatchCancelToken,
+  PetDexPanel,
+  rankPetDexPets,
+  visiblePetDexPets,
+} from './PetDexPanel'
 
 describe('PetDexPanel', () => {
   it('keeps a disconnected host honest', () => {
@@ -43,5 +49,18 @@ describe('PetDexPanel', () => {
 
   it('uses a separate cancellation lane for hatching', () => {
     expect(petHatchCancelToken('draft-run')).toBe('draft-run-mobile-hatch')
+  })
+
+  it('bounds the rendered gallery while preserving targeted search', () => {
+    const pets = Array.from({ length: PETDEX_RENDER_LIMIT + 20 }, (_, index) => ({
+      slug: `pet-${index}`,
+      displayName: index === 79 ? 'Needle Moth' : `Pet ${index}`,
+      installed: false,
+    }))
+
+    expect(visiblePetDexPets(pets, '')).toHaveLength(PETDEX_RENDER_LIMIT)
+    expect(visiblePetDexPets(pets, 'needle').map((pet) => pet.slug)).toEqual([
+      'pet-79',
+    ])
   })
 })

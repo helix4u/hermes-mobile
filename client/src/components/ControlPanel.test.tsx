@@ -14,6 +14,7 @@ describe('mobile Control settings disclosures', () => {
           wakeWordMode="off"
           wakeWordModelId="hey_hermes"
           wakeWordProvider="openwakeword"
+          sherpaPetWakePhrase="hey pet"
           sherpaWakePhrase="hey hermes"
           wakeWordStatus="off"
           connected
@@ -73,6 +74,7 @@ describe('mobile Control settings disclosures', () => {
           onWakeWordModeChange={() => {}}
           onWakeWordModelChange={() => {}}
           onWakeWordProviderChange={() => {}}
+          onSherpaPetWakePhraseChange={() => {}}
           onSherpaWakePhraseChange={() => {}}
           onNotice={() => {}}
           onOpenWorkspace={() => {}}

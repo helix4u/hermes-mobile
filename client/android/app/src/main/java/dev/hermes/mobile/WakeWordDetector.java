@@ -8,4 +8,8 @@ interface WakeWordDetector extends AutoCloseable {
     void reset() throws Exception;
 
     boolean process(short[] samples) throws Exception;
+
+    default String detectedKeyword() {
+        return "";
+    }
 }

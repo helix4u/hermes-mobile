@@ -60,10 +60,13 @@ export type WakeWordModelId =
 export const DEFAULT_WAKE_WORD_MODEL_ID: WakeWordModelId = 'hey_hermes'
 export const DEFAULT_WAKE_WORD_PROVIDER: WakeWordProvider = 'openwakeword'
 export const DEFAULT_SHERPA_WAKE_PHRASE = 'hey hermes'
+export const DEFAULT_SHERPA_PET_WAKE_PHRASE = 'hey pet'
+export const DEFAULT_SHERPA_VOICE_WAKE_PHRASE = 'hey companion'
 export const SHERPA_WAKE_WORD_MODEL_ID = 'gigaspeech-3.3m-en'
 export const WAKE_WORD_PHRASE = 'hey hermes'
 
 export type WakeWordMode = 'off' | 'review' | 'send'
+export type WakeWordRoute = 'hermes' | 'pet' | 'voice'
 export type ActiveTurnInputMode = 'interrupt' | 'steer'
 export type WakeWordStatus =
   | 'capturing'
@@ -89,11 +92,13 @@ interface UseWakeWordOptions extends WakeWordConditions {
   getTransport: () => HermesTransport | null
   modelId: WakeWordModelId
   provider: WakeWordProvider
+  sherpaPetPhrase: string
+  sherpaVoicePhrase?: string
   sherpaPhrase: string
-  onDetected: () => void
+  onDetected: (route: WakeWordRoute) => void
   onError: (message: string) => void
   onNotice: (message: string) => void
-  onTranscript: (text: string) => void
+  onTranscript: (text: string, route: WakeWordRoute) => void
 }
 
 export interface WakeWordController {
@@ -123,6 +128,10 @@ export function wakeWordProviderPreferenceKey(connectionId: string): string {
 
 export function sherpaWakePhrasePreferenceKey(connectionId: string): string {
   return `hermes-mobile.wake-word.${connectionId}.sherpa-phrase`
+}
+
+export function sherpaPetWakePhrasePreferenceKey(connectionId: string): string {
+  return `hermes-mobile.wake-word.${connectionId}.sherpa-pet-phrase`
 }
 
 export function wakeWordModel(modelId: WakeWordModelId): WakeWordModel {
@@ -210,6 +219,58 @@ export function persistSherpaWakePhrase(
     normalized,
   )
   return true
+}
+
+export function loadSherpaPetWakePhrase(connectionId: string): string {
+  if (typeof window === 'undefined') return DEFAULT_SHERPA_PET_WAKE_PHRASE
+  const stored = window.localStorage.getItem(
+    sherpaPetWakePhrasePreferenceKey(connectionId),
+  )
+  if (stored === null) return DEFAULT_SHERPA_PET_WAKE_PHRASE
+  return normalizeSherpaWakePhrase(stored)
+}
+
+export function persistSherpaPetWakePhrase(
+  connectionId: string,
+  phrase: string,
+): boolean {
+  const normalized = phrase.trim() ? normalizeSherpaWakePhrase(phrase) : ''
+  if (phrase.trim() && !normalized) return false
+  if (typeof window === 'undefined') return false
+  window.localStorage.setItem(
+    sherpaPetWakePhrasePreferenceKey(connectionId),
+    normalized,
+  )
+  return true
+}
+
+export function sherpaKeywordLabel(phrase: string): string {
+  return normalizeSherpaWakePhrase(phrase).toUpperCase().replace(/ /g, '_')
+}
+
+export function loadSherpaVoiceWakePhrase(connectionId: string): string {
+  if (typeof window === 'undefined') return DEFAULT_SHERPA_VOICE_WAKE_PHRASE
+  const stored = window.localStorage.getItem(`hermes-mobile.sherpa-voice-phrase.v1:${connectionId}`)
+  return stored === null ? DEFAULT_SHERPA_VOICE_WAKE_PHRASE : normalizeSherpaWakePhrase(stored)
+}
+
+export function persistSherpaVoiceWakePhrase(connectionId: string, phrase: string): boolean {
+  const normalized = phrase.trim() ? normalizeSherpaWakePhrase(phrase) : ''
+  if ((phrase.trim() && !normalized) || typeof window === 'undefined') return false
+  window.localStorage.setItem(`hermes-mobile.sherpa-voice-phrase.v1:${connectionId}`, normalized)
+  return true
+}
+
+export function resolveSherpaWakeRoute(keyword: string, petPhrase: string, voicePhrase: string): WakeWordRoute {
+  const detected = keyword.trim().toUpperCase().replace(/[\s-]+/g, '_')
+  if (voicePhrase && detected === sherpaKeywordLabel(voicePhrase)) return 'voice'
+  if (petPhrase && detected === sherpaKeywordLabel(petPhrase)) return 'pet'
+  return 'hermes'
+}
+
+export async function releaseWakeForVoice(stop: () => Promise<unknown>, current: () => boolean, start: () => void): Promise<void> {
+  await stop()
+  if (current()) start()
 }
 
 export function wakeWordPhrase(
@@ -337,6 +398,8 @@ export function useWakeWord({
   modelId,
   nativeClient,
   provider,
+  sherpaPetPhrase,
+  sherpaVoicePhrase = '',
   sherpaPhrase,
   onDetected,
   onError,
@@ -350,6 +413,8 @@ export function useWakeWord({
   const [status, setStatus] = useState<WakeWordStatus>('off')
   const [cycle, setCycle] = useState(0)
   const activeSessionRef = useRef('')
+  const detectedRouteRef = useRef<WakeWordRoute>('hermes')
+  const detectedPhraseRef = useRef(phrase)
   const onDetectedRef = useRef(onDetected)
   const onErrorRef = useRef(onError)
   const onNoticeRef = useRef(onNotice)
@@ -394,16 +459,32 @@ export function useWakeWord({
     const sessionId = `wake:${connectionId}:${Date.now()}:${++wakeWordSessionSequence}`
     activeSessionRef.current = sessionId
     let disposed = false
+    let voiceHandoff = false
     const removeListeners: Array<() => Promise<void>> = []
     setStatus('starting')
 
     const detected = (event: WakeWordDetectedEvent) => {
       if (disposed || event.sessionId !== sessionId) return
+      const route: WakeWordRoute =
+        provider === 'sherpa' ? resolveSherpaWakeRoute(String(event.keyword || ''), sherpaPetPhrase, sherpaVoicePhrase) : 'hermes'
+      if (route === 'voice') {
+        if (voiceHandoff) return
+        voiceHandoff = true
+        setStatus('paused')
+        // Release the one native recorder before Realtime requests its mic.
+        // No post-wake recording or transcription is sent for this route.
+        void releaseWakeForVoice(() => HermesNative.stopWakeWord({ sessionId }),
+          () => !disposed, () => onDetectedRef.current('voice'))
+          .catch(error => { if (!disposed) onErrorRef.current(String(error)) })
+        return
+      }
+      detectedRouteRef.current = route
+      detectedPhraseRef.current = route === 'pet' ? sherpaPetPhrase : phrase
       setStatus('capturing')
-      onDetectedRef.current()
+      onDetectedRef.current(route)
     }
     const utterance = async (event: WakeWordUtteranceEvent) => {
-      if (disposed || event.sessionId !== sessionId) return
+      if (disposed || voiceHandoff || event.sessionId !== sessionId) return
       if (event.endReason === 'no_speech') {
         setStatus('paused')
         onNoticeRef.current(`${label} heard, but no request followed.`)
@@ -425,13 +506,13 @@ export function useWakeWord({
         const text = stripWakePhrase(
           String(result.transcript ?? ''),
           modelId,
-          provider === 'sherpa' ? phrase : '',
+          provider === 'sherpa' ? detectedPhraseRef.current : '',
         )
         if (!text) {
           onNoticeRef.current(`${label} heard, but no request followed.`)
           return
         }
-        onTranscriptRef.current(text)
+        onTranscriptRef.current(text, detectedRouteRef.current)
       } catch (error) {
         if (disposed) return
         onErrorRef.current(
@@ -458,6 +539,10 @@ export function useWakeWord({
     }
 
     const start = async () => {
+      if (provider === 'sherpa') {
+        const phrases = [phrase, sherpaPetPhrase, sherpaVoicePhrase].map(normalizeSherpaWakePhrase).filter(Boolean)
+        if (new Set(phrases).size !== phrases.length) throw new Error('Each Sherpa wake action needs a different phrase. Change it in Control > Voice settings.')
+      }
       const [detectedHandle, utteranceHandle, stateHandle] = await Promise.all([
         HermesNative.addListener('wakeWordDetected', detected),
         HermesNative.addListener('wakeWordUtterance', event => {
@@ -481,7 +566,9 @@ export function useWakeWord({
       const sherpaKeywords =
         provider === 'sherpa'
           ? await import('./sherpa-keywords').then(module =>
-              module.buildSherpaKeywordDefinition(phrase),
+              module.buildSherpaKeywordDefinitions(
+                [phrase, sherpaPetPhrase, sherpaVoicePhrase].filter(Boolean),
+              ),
             )
           : undefined
       const result = await HermesNative.startWakeWord({
@@ -523,6 +610,8 @@ export function useWakeWord({
     nativeClient,
     modelId,
     provider,
+    sherpaPetPhrase,
+    sherpaVoicePhrase,
     sherpaPhrase,
     voicePhase,
   ])

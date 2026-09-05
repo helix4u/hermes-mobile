@@ -57,3 +57,21 @@ export async function buildSherpaKeywordDefinition(
     normalized,
   )
 }
+
+export async function buildSherpaKeywordDefinitions(
+  phrases: readonly string[],
+): Promise<string> {
+  const normalized = [...new Set(phrases.map(normalizeSherpaWakePhrase).filter(Boolean))]
+  if (!normalized.length || normalized.length > 3) {
+    throw new Error('Sherpa supports up to three wake phrases in this app')
+  }
+  const processor = await loadProcessor()
+  return normalized
+    .map(phrase =>
+      formatSherpaKeywordDefinition(
+        processor.encodePieces(phrase.toUpperCase()),
+        phrase,
+      ),
+    )
+    .join('\n')
+}

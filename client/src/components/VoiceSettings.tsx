@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import {
   DEFAULT_XAI_TTS_SELECTION,
   type VoiceSelection,
@@ -37,37 +36,8 @@ export function VoiceSettings({
     provider => provider.id === selection.provider,
   )
 
-  useEffect(() => {
-    if (
-      catalogSupported === false &&
-      (selection.provider ||
-        selection.voice ||
-        selection.instruct ||
-        selection.language)
-    ) {
-      onChange({
-        ...selection,
-        provider: '',
-        voice: '',
-        instruct: '',
-        language: '',
-      })
-      return
-    }
-    if (
-      selection.provider &&
-      providers.length > 0 &&
-      !providers.includes(selection.provider)
-    ) {
-      onChange({
-        ...selection,
-        provider: '',
-        voice: '',
-        instruct: '',
-        language: '',
-      })
-    }
-  }, [catalogSupported, onChange, providers, selection])
+  // Discovery is read-only. A partial, late or older host catalog must never
+  // erase a saved provider, voice or instruction chosen by the user.
 
   return (
     <div className="voice-settings">
@@ -80,6 +50,7 @@ export function VoiceSettings({
         <label>
           Provider
           <select
+            aria-label="Read-aloud provider"
             disabled={!connected}
             value={selection.provider}
             onChange={event =>
@@ -97,6 +68,9 @@ export function VoiceSettings({
             }
           >
             <option value="">Host default</option>
+            {selection.provider && !providers.includes(selection.provider) && (
+              <option value={selection.provider}>{selection.provider} (saved, {loading ? 'loading' : 'not listed'})</option>
+            )}
             {providers.map(provider => (
               <option key={provider} value={provider}>
                 {catalog.find(item => item.id === provider)?.display ??
@@ -144,12 +118,16 @@ export function VoiceSettings({
           {selectedChoices.length > 0 ? (
             <select
               disabled={!connected || !selection.provider}
+              aria-label="Read-aloud voice"
               value={selection.voice}
               onChange={event =>
                 onChange({ ...selection, voice: event.target.value })
               }
             >
               <option value="">Provider default</option>
+              {selection.voice && !selectedChoices.some(choice => choice.voice === selection.voice) && (
+                <option value={selection.voice}>{selection.voice} (saved, not listed)</option>
+              )}
               {selectedChoices.map(choice => (
                 <option
                   key={`${choice.provider}:${choice.voice}`}
@@ -162,6 +140,7 @@ export function VoiceSettings({
           ) : (
             <input
               disabled={!connected || !selection.provider}
+              aria-label="Read-aloud voice"
               placeholder={
                 selection.provider
                   ? 'No catalog reported; enter a voice ID'

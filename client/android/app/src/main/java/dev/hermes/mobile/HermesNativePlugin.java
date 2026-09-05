@@ -247,6 +247,8 @@ public class HermesNativePlugin extends Plugin {
         ConcurrentHashMap.newKeySet();
     private final Set<String> retainedSocketIds =
         ConcurrentHashMap.newKeySet();
+    private final Set<String> retainedRealtimeVoiceIds =
+        ConcurrentHashMap.newKeySet();
     private final Set<String> cancelledWakeWordSessionIds =
         ConcurrentHashMap.newKeySet();
     private final Set<String> pendingWakeWordSessionIds =
@@ -739,6 +741,125 @@ public class HermesNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void requestMicrophoneAccess(PluginCall call) {
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            requestPermissionForAlias(
+                "microphone",
+                call,
+                "realtimeMicrophonePermissionCallback"
+            );
+            return;
+        }
+        resolveMicrophoneAccess(call);
+    }
+
+    /** Read-only inventory. Android device ids are not WebView media device ids. */
+    @PluginMethod
+    public void getAudioInputInventory(PluginCall call) {
+        try {
+            AudioManager manager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            JSONArray inputs = new JSONArray();
+            for (android.media.AudioDeviceInfo device : manager.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
+                JSObject row = new JSObject();
+                row.put("label", device.getProductName().toString());
+                row.put("type", device.getType());
+                row.put("channels", new JSONArray(device.getChannelCounts()));
+                row.put("sampleRates", new JSONArray(device.getSampleRates()));
+                inputs.put(row);
+            }
+            JSObject result = new JSObject();
+            result.put("inputs", inputs);
+            // The OS communication route is a separate fact from WebRTC's capture track.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                android.media.AudioDeviceInfo route = manager.getCommunicationDevice();
+                if (route != null) result.put("communicationRoute", route.getProductName().toString());
+            }
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Android audio input inventory is unavailable", error);
+        }
+    }
+
+    @PermissionCallback
+    private void realtimeMicrophonePermissionCallback(PluginCall call) {
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            call.reject("Microphone permission is required for live voice");
+            return;
+        }
+        resolveMicrophoneAccess(call);
+    }
+
+    private void resolveMicrophoneAccess(PluginCall call) {
+        stopWakeWordInternal("", true);
+        JSObject result = new JSObject();
+        result.put("granted", true);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void retainRealtimeVoice(PluginCall call) {
+        String leaseId = requireRealtimeVoiceLeaseId(call);
+        if (leaseId == null) {
+            return;
+        }
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            call.reject("Microphone permission is required for live voice");
+            return;
+        }
+        try {
+            // Reserve ownership before stopping wake capture. A queued wake start
+            // must not reopen AudioRecord after WebRTC takes the microphone.
+            synchronized (wakeWordLock) {
+                synchronized (recorderLock) {
+                    if (recorder != null) {
+                        call.reject("Finish dictation before starting live voice");
+                        return;
+                    }
+                    retainedRealtimeVoiceIds.add(leaseId);
+                }
+            }
+            stopWakeWordInternal("", true);
+            HermesConnectionService.retainRealtimeVoice(getContext(), leaseId);
+            JSObject result = new JSObject();
+            result.put("retained", true);
+            call.resolve(result);
+        } catch (RuntimeException error) {
+            retainedRealtimeVoiceIds.remove(leaseId);
+            call.reject(
+                "Could not retain live voice in the background (" +
+                error.getClass().getSimpleName() +
+                ")"
+            );
+        }
+    }
+
+    @PluginMethod
+    public void releaseRealtimeVoice(PluginCall call) {
+        String leaseId = requireRealtimeVoiceLeaseId(call);
+        if (leaseId == null) {
+            return;
+        }
+        releaseRealtimeVoiceLease(leaseId);
+        call.resolve();
+    }
+
+    /** Explicitly enabled metadata only. Never accept transcript, URL, or credential fields. */
+    @PluginMethod
+    public void traceRealtimeVoice(PluginCall call) {
+        String phase = call.getString("phase", "unknown");
+        if (!phase.matches("[a-z_.]{1,64}")) {
+            call.reject("Invalid voice diagnostic phase");
+            return;
+        }
+        android.util.Log.i("HermesRealtime", "phase=" + phase
+            + " elapsed_ms=" + Math.max(0, Math.min(120000, call.getInt("elapsedMs", 0)))
+            + " epoch=" + Math.max(0, call.getInt("epoch", 0))
+            + " muted=" + call.getBoolean("muted", false)
+            + " tracks=" + Math.max(0, Math.min(4, call.getInt("tracks", 0))));
+        call.resolve();
+    }
+
+    @PluginMethod
     public void startRecording(PluginCall call) {
         if (getPermissionState("microphone") != PermissionState.GRANTED) {
             requestPermissionForAlias(
@@ -763,6 +884,10 @@ public class HermesNativePlugin extends Plugin {
     private void startRecordingAfterPermission(PluginCall call) {
         stopWakeWordInternal("", true);
         synchronized (recorderLock) {
+            if (!retainedRealtimeVoiceIds.isEmpty()) {
+                call.reject("End live voice before starting dictation");
+                return;
+            }
             if (recorder != null) {
                 call.reject("A voice recording is already active");
                 return;
@@ -1867,6 +1992,11 @@ public class HermesNativePlugin extends Plugin {
 
     private void startWakeWordAfterPermission(PluginCall call) {
         String sessionId = call.getString("sessionId", "").trim();
+        if (!retainedRealtimeVoiceIds.isEmpty()) {
+            pendingWakeWordSessionIds.remove(sessionId);
+            call.reject("Microphone is reserved for live voice");
+            return;
+        }
         String phrase = normalizeWakeWords(
             call.getString("phrase", "hey hermes")
         );
@@ -1957,7 +2087,7 @@ public class HermesNativePlugin extends Plugin {
                         }
 
                         @Override
-                        public void onDetected() {
+                        public void onDetected(String keyword) {
                             if (!isActiveWakeWordSession(sessionId)) {
                                 return;
                             }
@@ -1970,6 +2100,7 @@ public class HermesNativePlugin extends Plugin {
                             JSObject event = new JSObject();
                             event.put("sessionId", sessionId);
                             event.put("phrase", phrase);
+                            event.put("keyword", keyword == null ? "" : keyword);
                             event.put("modelId", modelId);
                             event.put("transcript", phrase);
                             event.put("provider", provider);
@@ -2020,10 +2151,16 @@ public class HermesNativePlugin extends Plugin {
                     }
                 );
                 synchronized (wakeWordLock) {
+                    if (!retainedRealtimeVoiceIds.isEmpty() || cancelledWakeWordSessionIds.remove(sessionId)) {
+                        audioLoop.close();
+                        pendingWakeWordSessionIds.remove(sessionId);
+                        call.reject("Microphone is reserved for live voice");
+                        return;
+                    }
                     wakeWordAudioLoop = audioLoop;
                     wakeWordSessionId = sessionId;
+                    audioLoop.start();
                 }
-                audioLoop.start();
                 if (!isActiveWakeWordSession(sessionId)) {
                     audioLoop.close();
                     pendingWakeWordSessionIds.remove(sessionId);
@@ -2319,8 +2456,12 @@ public class HermesNativePlugin extends Plugin {
             releaseSocketLease(entry.getKey());
             entry.getValue().cancel();
         }
+        for (String leaseId : retainedRealtimeVoiceIds.toArray(new String[0])) {
+            releaseRealtimeVoiceLease(leaseId);
+        }
         sockets.clear();
         retainedSocketIds.clear();
+        retainedRealtimeVoiceIds.clear();
         cancelledSocketIds.clear();
         cancelledWakeWordSessionIds.clear();
         pendingWakeWordSessionIds.clear();
@@ -2809,6 +2950,21 @@ public class HermesNativePlugin extends Plugin {
         if (retainedSocketIds.remove(socketId)) {
             HermesConnectionService.release(getContext(), socketId);
         }
+    }
+
+    private void releaseRealtimeVoiceLease(String leaseId) {
+        if (retainedRealtimeVoiceIds.remove(leaseId)) {
+            HermesConnectionService.releaseRealtimeVoice(getContext(), leaseId);
+        }
+    }
+
+    private String requireRealtimeVoiceLeaseId(PluginCall call) {
+        String leaseId = call.getString("leaseId", "").trim();
+        if (!leaseId.matches("[A-Za-z0-9._:-]{1,192}")) {
+            call.reject("A valid live voice lease ID is required");
+            return null;
+        }
+        return leaseId;
     }
 
     private String requireSocketId(PluginCall call) {

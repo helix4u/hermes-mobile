@@ -115,9 +115,17 @@ def probe_hermes() -> CompatibilityReport:
 
     try:
         web_server = import_module("hermes_cli.web_server")
-        websocket_auth = getattr(web_server, "_ws_auth_ok", None)
+        # New Hermes releases own WS policy in web_server_chat. Older hosts
+        # keep it on web_server. Never substitute a permissive local guard.
+        try:
+            websocket_owner = import_module("hermes_cli.web_server_chat")
+        except ModuleNotFoundError as exc:
+            if exc.name != "hermes_cli.web_server_chat":
+                raise
+            websocket_owner = web_server
+        websocket_auth = getattr(websocket_owner, "_ws_auth_ok", None)
         websocket_request_guard = getattr(
-            web_server,
+            websocket_owner,
             "_ws_request_is_allowed",
             None,
         )

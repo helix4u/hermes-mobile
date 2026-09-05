@@ -54,6 +54,9 @@ import type {
 import { ImagePreview } from './ImageViewer'
 import { MarkdownContent } from './MarkdownContent'
 import { useVoiceCatalog } from './useVoiceCatalog'
+import { supportVoiceContext, type SupportVoiceReview as VoiceReview } from '../support-voice'
+import { SupportVoiceReview } from './SupportVoiceReview'
+import type { PetRealtimeContextTarget } from '../usePetRealtime'
 
 interface SupportOpsViewProps {
   active: boolean
@@ -65,7 +68,9 @@ interface SupportOpsViewProps {
   onOpenDocumentPreviewer?: (document: PreviewDocument) => void
   onOpenDocumentReader?: (document: PreviewDocument) => void
   onStartSession?: (prompt: string) => Promise<void>
-  onStartVoiceSession?: (prompt: string) => Promise<void>
+  onStartVoiceSession?: (target: PetRealtimeContextTarget) => Promise<void>
+  onVoiceReviewPending?: (pending: boolean) => void
+  onVoiceReceipt?: (targetId: string, action: string) => void
   onSpeak?: (
     items: SpeechSequenceItem[],
     options?: SpeechSequenceOptions,
@@ -1614,12 +1619,50 @@ export function SupportOpsView({
   onSpeak,
   onStartSession,
   onStartVoiceSession,
+  onVoiceReviewPending,
+  onVoiceReceipt,
   onStopSpeech,
   onVoiceInput,
   voicePhase = 'idle',
   voiceRecordingAvailable = false,
 }: SupportOpsViewProps) {
   const [queue, setQueue] = useState<SupportQueuePayload | null>(null)
+  const [voiceReview, setVoiceReview] = useState<VoiceReview | null>(null)
+  useEffect(() => { onVoiceReviewPending?.(Boolean(voiceReview)); return () => onVoiceReviewPending?.(false) }, [voiceReview, onVoiceReviewPending])
+  const voiceReviewRef = useRef(voiceReview)
+  const voiceGeneration = useRef(0)
+  voiceReviewRef.current = voiceReview
+  const voiceScope = useRef({ connected, transport, alive: true })
+  voiceScope.current.connected = connected
+  voiceScope.current.transport = transport
+  useEffect(() => {
+    voiceScope.current.alive = true
+    return () => { voiceScope.current.alive = false }
+  }, [])
+  const voiceRequest = async (path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    if (!voiceScope.current.alive || !voiceScope.current.connected || !transport || voiceScope.current.transport !== transport) {
+      throw new Error('The attached Support connection is unavailable. Reopen voice on the intended host.')
+    }
+    if (path === '/voice/propose' && voiceReviewRef.current) throw new Error('Review or cancel the current action first')
+    const result = await transport.requestJson<Record<string, unknown>>(supportOpsPath(path), body, { method: 'POST', timeoutMs: 30000 })
+    if (!voiceScope.current.alive || voiceScope.current.transport !== transport) throw new Error('Support connection changed')
+    return result
+  }
+  const startVoice = async (target?: SupportThreadDetail) => {
+    if (!onStartVoiceSession) return
+    const generation = ++voiceGeneration.current
+    const request = async (path: string, body: Record<string, unknown>) => {
+      if (generation !== voiceGeneration.current) throw new Error('Support voice target changed')
+      const result = await voiceRequest(path, body)
+      if (generation !== voiceGeneration.current) throw new Error('Support voice target changed')
+      return result
+    }
+    await onStartVoiceSession(supportVoiceContext(connectionId, target, request, review => {
+      voiceReviewRef.current = review
+      setVoiceReview(review)
+      onNotice?.('Action ready for review in Support Ops. Nothing has run.')
+    }))
+  }
   const [stats, setStats] = useState<SupportStatsPayload | null>(null)
   const [view, setView] = useState<'queue' | 'overview'>('queue')
   const [health, setHealth] = useState<SupportOpsHealth | null>(null)
@@ -2209,10 +2252,10 @@ export function SupportOpsView({
               disabled={Boolean(!connected || !detail || !onStartVoiceSession)}
               onClick={async () => {
                 if (!detail || !onStartVoiceSession) return
-                setBusy('Voice session')
+                setBusy('Live voice')
                 try {
-                  await onStartVoiceSession(supportInvestigationPrompt(detail))
-                  onNotice?.('Support voice session opened')
+                  await startVoice(detail)
+                  onNotice?.('Support Live Voice opened')
                 } catch (sessionError) {
                   fail(sessionError)
                 } finally {
@@ -2221,10 +2264,18 @@ export function SupportOpsView({
               }}
               type="button"
             >
-              {busy === 'Voice session' ? 'Opening…' : 'Voice session'}
+              {busy === 'Live voice' ? 'Opening…' : 'Live voice'}
             </button>
           </div>
         </header>
+        {voiceReview && <SupportVoiceReview key={voiceReview.id} review={voiceReview}
+          onCancel={() => setVoiceReview(null)} onApprove={async text => {
+            await voiceRequest(`/voice/reviews/${voiceReview.id}/approve`, { targetId: voiceReview.targetId, action: voiceReview.action, text })
+            onVoiceReceipt?.(voiceReview.targetId, voiceReview.action)
+            setVoiceReview(null)
+            await loadQueue()
+            if (selectedIdRef.current) await loadThread(selectedIdRef.current, true)
+          }} />}
 
         {localError && <div className="support-inline-error">{localError}</div>}
         {health && !targetedSyncAvailable && (
@@ -2705,6 +2756,10 @@ export function SupportOpsView({
           <small>No automatic Discord posting</small>
         </div>
         <div className="support-heading-actions">
+          {onStartVoiceSession && <button type="button" disabled={!connected || busy === 'Live voice'} onClick={async () => {
+            setBusy('Live voice')
+            try { await startVoice() } catch (reason) { fail(reason) } finally { setBusy('') }
+          }}>Queue voice</button>}
           {health?.capabilities?.backend_control === true && (
             <div className="support-view-toggle" role="group" aria-label="Support backend controls">
               <span
@@ -2788,6 +2843,13 @@ export function SupportOpsView({
           )}
         </div>
       </header>
+      {voiceReview && <SupportVoiceReview key={voiceReview.id} review={voiceReview}
+        onCancel={() => setVoiceReview(null)} onApprove={async text => {
+          await voiceRequest(`/voice/reviews/${voiceReview.id}/approve`, { targetId: voiceReview.targetId, action: voiceReview.action, text })
+          onVoiceReceipt?.(voiceReview.targetId, voiceReview.action)
+          setVoiceReview(null)
+          await loadQueue()
+        }} />}
       {localError && <div className="support-inline-error">{localError}</div>}
       {health && !targetedSyncAvailable && (
         <div className="support-inline-warning">

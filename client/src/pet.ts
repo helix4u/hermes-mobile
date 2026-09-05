@@ -477,6 +477,10 @@ function clippedText(value: unknown, maximum: number): string {
   return String(value ?? '').trim().slice(0, maximum)
 }
 
+function wholeText(value: unknown): string {
+  return String(value ?? '').trim()
+}
+
 function normalizedPersonalityOverride(
   value: Partial<PetPersonalityOverride> | null | undefined,
 ): PetPersonalityOverride {
@@ -490,8 +494,8 @@ function normalizedPersonalityOverride(
     displayName: clippedText(value?.displayName, 120),
     description: clippedText(value?.description, 500),
     clickLines,
-    commentaryPrompt: clippedText(value?.commentaryPrompt, 20_000),
-    sidechatPrompt: clippedText(value?.sidechatPrompt, 20_000),
+    commentaryPrompt: wholeText(value?.commentaryPrompt),
+    sidechatPrompt: wholeText(value?.sidechatPrompt),
   }
 }
 
@@ -892,58 +896,84 @@ export function petContextFromTranscript(
   transcript: TranscriptItem[],
   turns = 3,
   toolTurns = 0,
-): Array<{ role: 'assistant' | 'user'; content: string }> {
-  const conversation = transcript
-    .filter(
-      item =>
-        (item.kind === 'assistant' || item.kind === 'user') &&
-        Boolean(item.text?.trim()),
-    )
-    .slice(-Math.max(1, Math.min(10, Math.round(turns))) * 2)
-    .map(item => ({
-      role: item.kind as 'assistant' | 'user',
-      content: (item.text || '').slice(0, 4_000),
-    }))
-  const toolLimit = Math.max(0, Math.min(20, Math.round(toolTurns)))
-  const toolContext = toolLimit
-    ? transcript
-        .filter(
-          item =>
-            item.kind === 'tool' &&
-            item.tool &&
-            (item.tool.args !== undefined ||
-              item.tool.result !== undefined ||
-              Boolean(item.tool.summary?.trim()) ||
-              Boolean(item.tool.progress?.trim())),
-        )
-        .slice(-toolLimit)
-        .map(item => {
-          const args = clippedEvidence(item.tool?.args, 2_000)
-          const result = clippedEvidence(
-            item.tool?.result ?? item.tool?.summary ?? item.tool?.progress,
-            3_000,
-          )
-          return {
-            role: 'assistant' as const,
-            content: [
-              `Live tool activity: ${item.tool?.name || 'tool'} ${
-                item.tool?.status === 'complete'
-                  ? 'completed'
-                  : item.tool?.status
-              }.`,
-              args.text
-                ? `Arguments${args.truncated ? ' [clipped]' : ''}:\n${args.text}`
-                : '',
-              result.text
-                ? `Result${result.truncated ? ' [clipped]' : ''}:\n${result.text}`
-                : '',
-            ]
-              .filter(Boolean)
-              .join('\n'),
-          }
-        })
-    : []
-  return [...conversation, ...toolContext]
+): Array<{
+  id?: string
+  role: 'assistant' | 'user'
+  content: string
+  source?: 'conversation' | 'pet_commentary' | 'tool_activity'
+  truncated?: boolean
+}> {
+  let conversationRemaining = Math.max(1, Math.min(10, Math.round(turns))) * 2
+  let toolRemaining = Math.max(0, Math.min(20, Math.round(toolTurns)))
+  let commentaryRemaining = 8
+  const selected: Array<{
+    id?: string
+    role: 'assistant' | 'user'
+    content: string
+    source?: 'conversation' | 'pet_commentary' | 'tool_activity'
+    truncated?: boolean
+  }> = []
+
+  for (const item of [...transcript].reverse()) {
+    if (
+      conversationRemaining > 0 &&
+      (item.kind === 'assistant' || item.kind === 'user') &&
+      item.text?.trim()
+    ) {
+      selected.push({
+        id: item.id,
+        role: item.kind,
+        content: item.text,
+      })
+      conversationRemaining -= 1
+      continue
+    }
+    if (
+      commentaryRemaining > 0 &&
+      item.kind === 'pet' &&
+      item.pet?.source === 'generated' &&
+      item.text?.trim()
+    ) {
+      selected.push({
+        id: item.id,
+        role: 'assistant',
+        content: `Pet observation: ${item.text}`,
+        source: 'pet_commentary',
+      })
+      commentaryRemaining -= 1
+      continue
+    }
+    if (
+      toolRemaining > 0 &&
+      item.kind === 'tool' &&
+      item.tool &&
+      (item.tool.args !== undefined ||
+        item.tool.result !== undefined ||
+        Boolean(item.tool.summary?.trim()) ||
+        Boolean(item.tool.progress?.trim()))
+    ) {
+      const args = formatDisplayValue(item.tool.args)
+      const result = formatDisplayValue(
+        item.tool.result ?? item.tool.summary ?? item.tool.progress,
+      )
+      selected.push({
+        id: item.id,
+        role: 'assistant',
+        source: 'tool_activity',
+        content: [
+          `Live tool activity: ${item.tool.name || 'tool'} ${
+            item.tool.status === 'complete' ? 'completed' : item.tool.status
+          }.`,
+          args ? `Arguments:\n${args}` : '',
+          result ? `Result:\n${result}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      })
+      toolRemaining -= 1
+    }
+  }
+  return selected.reverse()
 }
 
 function observerStatus(item: TranscriptItem): string {
@@ -969,9 +999,14 @@ function clippedEvidence(value: unknown, limit: number): {
   truncated: boolean
 } {
   const text = formatDisplayValue(value)
+  if (text.length <= limit) return { text, truncated: false }
+  const marker = `\n[... truncated ${Math.max(0, text.length - limit).toLocaleString()} characters ...]\n`
+  const payload = Math.max(0, limit - marker.length)
+  const head = Math.floor(payload * 0.65)
+  const tail = payload - head
   return {
-    text: text.slice(0, limit),
-    truncated: text.length > limit,
+    text: `${text.slice(0, head)}${marker}${tail ? text.slice(-tail) : ''}`,
+    truncated: true,
   }
 }
 

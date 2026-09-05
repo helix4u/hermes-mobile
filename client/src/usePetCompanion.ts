@@ -101,6 +101,8 @@ export function usePetCompanion({
   transport,
   turnActive,
 }: UsePetCompanionOptions) {
+  const [voiceActive, setVoiceActiveState] = useState(false)
+  const voiceActiveRef = useRef(false)
   const [preferences, setPreferences] = useState(() =>
     loadPetPreferences(connectionId),
   )
@@ -226,6 +228,19 @@ export function usePetCompanion({
     },
     [clearCommentarySchedule],
   )
+
+  const setVoiceActive = useCallback((active: boolean) => {
+    // A runtime lease, never a persisted preference. Reject late completions
+    // synchronously, before React has painted the capture-state transition.
+    voiceActiveRef.current = active
+    setVoiceActiveState(active)
+    if (active) {
+      cancelCommentary(true)
+      deferredAutomaticCommentaryRef.current = false
+      activeSpeechBubbleRef.current = ''
+      setSpeaking(false)
+    }
+  }, [cancelCommentary])
 
   useLayoutEffect(() => {
     cancelCommentary(true)
@@ -371,6 +386,7 @@ export function usePetCompanion({
     ) => {
       const clean = text.trim()
       if (!clean) return
+      if (voiceActiveRef.current) return
       const releasePending = beginPendingPetWork()
       const bubbleOwner = eventId()
       let playbackStarted = false
@@ -409,7 +425,7 @@ export function usePetCompanion({
           activeSpeechBubbleRef.current = ''
           setSpeaking(false)
           setBubble('')
-        } else if (!playbackStarted) {
+        } else if (!playbackStarted && !voiceActiveRef.current) {
           showBubble(options.bubbleText || clean)
         }
         releasePending()
@@ -441,6 +457,7 @@ export function usePetCompanion({
       )
       if (!claim.accepted) return false
       presentedCommentaryIdsRef.current = claim.ids
+      if (voiceActiveRef.current) return true
       recentRef.current = [
         ...recentRef.current.filter(row => row !== clean),
         clean,
@@ -460,8 +477,9 @@ export function usePetCompanion({
 
   const publish = useCallback(
     (text: string, source: 'generated' | 'interaction') => {
+      if (voiceActiveRef.current) return
       const clean = text.trim()
-      if (!clean) return
+      if (!clean || voiceActiveRef.current) return
       const commentaryEventId = eventId()
       presentCommentary(commentaryEventId, clean, source)
       void record(commentaryEventId, clean, source)
@@ -666,6 +684,7 @@ export function usePetCompanion({
   ])
 
   const generateCommentary = useCallback(async (force = false) => {
+    if (voiceActiveRef.current) return
     if (
       !hostCapabilities.commentary ||
       !gateway ||
@@ -810,6 +829,7 @@ export function usePetCompanion({
 
   useEffect(() => {
     if (
+      voiceActive ||
       !turnActive ||
       !connected ||
       !preferences.commentary ||
@@ -838,10 +858,12 @@ export function usePetCompanion({
     status,
     turnActive,
     clearCommentarySchedule,
+    voiceActive,
   ])
 
   useEffect(() => {
     if (
+      voiceActive ||
       !turnActive ||
       !connected ||
       !preferences.commentary ||
@@ -871,6 +893,7 @@ export function usePetCompanion({
     status,
     transcript,
     turnActive,
+    voiceActive,
   ])
 
   useEffect(() => {
@@ -985,7 +1008,7 @@ export function usePetCompanion({
     const bubbleOwner = eventId()
     let sidechatBubbleText = ''
     let sidechatStreamedText = ''
-    const preparedSpeech = preferencesRef.current.speakCommentary
+    const preparedSpeech = preferencesRef.current.speakCommentary && !voiceActiveRef.current
       ? prepareSpeechSequence(speechId, speechRef.current.config, {
           maxConcurrentSynthesis: 2,
           maxSegmentChars: 360,
@@ -1142,6 +1165,24 @@ export function usePetCompanion({
     }
   }, [gateway, hostCapabilities.sidechat, profile, runtimeSessionId])
 
+  const replaceSidechatMessages = useCallback(
+    (messages: Array<{
+      id: string
+      role: 'assistant' | 'user'
+      text: string
+      timestamp?: number
+    }>) => {
+      setSidechatMessages(messages)
+      setSidechatError('')
+    },
+    [],
+  )
+
+  const receiveRealtimeReply = useCallback(
+    (text: string) => showBubble(compactPetBubbleText(text)),
+    [showBubble],
+  )
+
   useEffect(
     () => () => {
       if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
@@ -1154,6 +1195,7 @@ export function usePetCompanion({
 
   return {
     bubble,
+    setVoiceActive,
     cancelCommentary,
     catalog,
     desktopSpeech,
@@ -1182,8 +1224,10 @@ export function usePetCompanion({
       load: loadSidechat,
       messages: sidechatMessages,
       reset: resetSidechat,
+      replace: replaceSidechatMessages,
       send: sendSidechat,
     },
+    receiveRealtimeReply,
     speaking,
     state,
     status,

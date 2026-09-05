@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  applyPetPersonalityOverride,
   BUILTIN_ALIEN_CHILD_INFO,
   BUILTIN_ALIEN_CHILD_PERSONALITY,
   BUILTIN_MOBILE_PET_CATALOG,
@@ -140,6 +141,24 @@ describe('mobile pet companion state', () => {
     })
     expect(loadPetPersonalityOverrides('cloud')).toEqual({})
     vi.unstubAllGlobals()
+  })
+
+  it('preserves complete user-authored personality prompts', () => {
+    const commentaryPrompt = `commentary-start\n${'c'.repeat(20_100)}\ncommentary-tail`
+    const sidechatPrompt = `sidechat-start\n${'s'.repeat(20_100)}\nsidechat-tail`
+    const override = {
+      ...petPersonalityOverrideFromData(BUILTIN_ALIEN_CHILD_PERSONALITY),
+      commentaryPrompt,
+      sidechatPrompt,
+    }
+
+    const applied = applyPetPersonalityOverride(
+      BUILTIN_ALIEN_CHILD_PERSONALITY,
+      override,
+    )
+
+    expect(applied.commentary?.prompt).toBe(commentaryPrompt)
+    expect(applied.sidechat?.prompt).toBe(sidechatPrompt)
   })
 
   it('inherits the shared Desktop pet provider, voice, and pitch curve', () => {
@@ -386,7 +405,7 @@ describe('mobile pet companion state', () => {
     expect(petShouldTravel(true, 'waiting')).toBe(false)
   })
 
-  it('bounds commentary context to visible user and assistant turns', () => {
+  it('selects whole visible user and assistant turns with stable ids', () => {
     const context = petContextFromTranscript(
       [
         { id: 'u', kind: 'user', text: 'hello' },
@@ -401,9 +420,44 @@ describe('mobile pet companion state', () => {
       4,
     )
     expect(context).toEqual([
-      { role: 'user', content: 'hello' },
-      { role: 'assistant', content: 'hi back' },
+      { id: 'u', role: 'user', content: 'hello' },
+      { id: 'a', role: 'assistant', content: 'hi back' },
     ])
+  })
+
+  it('does not clip selected conversation, commentary, or tool records', () => {
+    const userText = `user-${'u'.repeat(9_000)}`
+    const commentaryText = `commentary-${'c'.repeat(1_200)}`
+    const toolResult = `result-${'r'.repeat(2_200)}`
+    const context = petContextFromTranscript(
+      [
+        { id: 'u-long', kind: 'user', text: userText },
+        {
+          id: 'pet-long',
+          kind: 'pet',
+          pet: { source: 'generated' },
+          text: commentaryText,
+        },
+        {
+          id: 'tool-long',
+          kind: 'tool',
+          tool: {
+            args: { command: `echo ${'a'.repeat(1_200)}` },
+            name: 'terminal',
+            result: toolResult,
+            status: 'complete',
+            toolId: 'tool-long',
+          },
+        },
+      ],
+      2,
+      2,
+    )
+
+    expect(context[0]).toMatchObject({ id: 'u-long', content: userText })
+    expect(context[1].content).toBe(`Pet observation: ${commentaryText}`)
+    expect(context[2].content).toContain(toolResult)
+    expect(context.some(item => item.truncated)).toBe(false)
   })
 
   it('builds bounded redacted progress and tool observer frames', () => {

@@ -41,6 +41,7 @@ $proxyScript = Join-Path $PSScriptRoot 'mobile_proxy.py'
 $desktopProcessScript = Join-Path $PSScriptRoot 'mobile-desktop-process.ps1'
 $desktopRouteScript = Join-Path $PSScriptRoot 'mobile-desktop-route.ps1'
 $pythonExecutable = Join-Path (Split-Path -Parent $HermesExecutable) 'python.exe'
+$lifecycleTraceId = [guid]::NewGuid().ToString('N')
 $serverWorkingDirectory = if (
     $env:USERPROFILE -and
     (Test-Path -LiteralPath $env:USERPROFILE -PathType Container)
@@ -58,6 +59,33 @@ if (-not (Test-Path -LiteralPath $desktopRouteScript -PathType Leaf)) {
     throw "Desktop route helper not found: $desktopRouteScript"
 }
 . $desktopRouteScript
+
+function Write-MobileLifecycleEvent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Event,
+        [Parameter(Mandatory = $true)][string]$Phase,
+        [string]$Outcome = '',
+        [hashtable]$Fields = @{}
+    )
+
+    $record = [ordered]@{
+        ts = [DateTimeOffset]::Now.ToString('O')
+        trace = $lifecycleTraceId
+        lane = 'mobile-bridge'
+        event = $Event
+        phase = $Phase
+    }
+    if ($Outcome) {
+        $record.outcome = $Outcome
+    }
+    foreach ($key in @($Fields.Keys | Sort-Object)) {
+        $record[[string]$key] = $Fields[$key]
+    }
+    [System.IO.File]::AppendAllText(
+        $launcherLog,
+        "LIFECYCLE $($record | ConvertTo-Json -Compress)`r`n"
+    )
+}
 
 function Test-DesktopRunning {
     if (-not $DesktopExecutable) {
@@ -169,6 +197,8 @@ function Get-DesktopBackendEndpoint {
         return $null
     }
 
+    $listenerSnapshot = $null
+
     foreach ($entry in $entries) {
         if (
             [string]$entry.profile -ne $activeProfile -or
@@ -216,22 +246,28 @@ function Get-DesktopBackendEndpoint {
         # interpreter child owns the socket. CIM can hide both command lines in
         # packaged Desktop. The ownership record, start markers, Desktop parent,
         # and subtree above prove identity before accepting a loopback listener.
+        # One system-wide listener snapshot is substantially cheaper and more
+        # predictable than a separate CIM-backed query for every launcher and
+        # interpreter in the verified backend process tree. Filter the snapshot
+        # only after the ownership and start-marker checks above have passed.
+        if ($null -eq $listenerSnapshot) {
+            $listenerSnapshot = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)
+        }
+        $backendProcessIds = @($processTree | ForEach-Object { [int]$_.ProcessId })
+        $listeners = @(
+            Get-HermesDesktopLoopbackListeners `
+                -ProcessIds $backendProcessIds `
+                -Listeners $listenerSnapshot `
+                -ExcludedPorts @($Port, $ProxyPort)
+        )
         $candidates = @()
-        foreach ($backendProcess in $processTree) {
-            $listeners = @(
-                Get-NetTCPConnection -OwningProcess ([int]$backendProcess.ProcessId) -State Listen -ErrorAction SilentlyContinue |
-                    Where-Object { $_.LocalAddress -in @('127.0.0.1', '::1') }
-            )
-            foreach ($listener in $listeners) {
-                $listenerPort = [int]$listener.LocalPort
-                if ($listenerPort -ge 1024 -and $listenerPort -notin @($Port, $ProxyPort)) {
-                    $candidates += [pscustomobject]@{
-                        Url = "http://127.0.0.1:$listenerPort"
-                        AccessTokenFile = $accessTokenFile
-                        Profile = $activeProfile
-                        IdentityKey = "$backendPid|$listenerPort|$accessTokenFile"
-                    }
-                }
+        foreach ($listener in $listeners) {
+            $listenerPort = [int]$listener.LocalPort
+            $candidates += [pscustomobject]@{
+                Url = "http://127.0.0.1:$listenerPort"
+                AccessTokenFile = $accessTokenFile
+                Profile = $activeProfile
+                IdentityKey = "$backendPid|$listenerPort|$accessTokenFile"
             }
         }
         # A Hermes backend process can own unrelated loopback listeners in
@@ -267,11 +303,11 @@ function Test-DesktopBackendApi {
     }
 }
 
-function Test-DesktopBackendStable {
+function Get-DesktopBackendStability {
     param($ExpectedBackend)
 
     if (-not $ExpectedBackend) {
-        return $true
+        return [pscustomobject]@{ Stable = $true; Transient = $false; Reason = '' }
     }
     $routePreference = Get-HermesDesktopRoutePreference -UserDataDirectory (Join-Path $env:APPDATA 'Hermes')
     if ($routePreference.Published) {
@@ -279,7 +315,11 @@ function Test-DesktopBackendStable {
             -not $routePreference.Local -or
             [string]$routePreference.Profile -ne [string]$ExpectedBackend.Profile
         ) {
-            return $false
+            return [pscustomobject]@{
+                Stable = $false
+                Transient = $false
+                Reason = 'route-changed'
+            }
         }
     } else {
         $fallbackProfile = 'default'
@@ -295,10 +335,21 @@ function Test-DesktopBackendStable {
             }
         }
         if ($fallbackProfile -ne [string]$ExpectedBackend.Profile) {
-            return $false
+            return [pscustomobject]@{
+                Stable = $false
+                Transient = $false
+                Reason = 'profile-changed'
+            }
         }
     }
-    return Test-DesktopBackendApi -Backend $ExpectedBackend
+    if (Test-DesktopBackendApi -Backend $ExpectedBackend) {
+        return [pscustomobject]@{ Stable = $true; Transient = $false; Reason = '' }
+    }
+    return [pscustomobject]@{
+        Stable = $false
+        Transient = $true
+        Reason = 'health-probe-failed'
+    }
 }
 
 if (-not (Test-Path -LiteralPath $proxyScript)) {
@@ -346,29 +397,63 @@ if (-not $mutex.WaitOne(0)) {
 }
 
 try {
+    $backendWaitStartedAt = $null
+    $backendWaitPolls = 0
+    $bridgeGeneration = 0
     while ($true) {
         if (-not (Test-DesktopRunning)) {
-            [System.IO.File]::AppendAllText(
-                $launcherLog,
-                "[$([DateTimeOffset]::Now.ToString('O'))] desktop-bound mode is idle until Desktop returns`r`n"
-            )
+            $desktopWaitStartedAt = [DateTimeOffset]::Now
+            Write-MobileLifecycleEvent -Event 'desktop-presence' -Phase 'begin'
             $waitPolls = Wait-HermesDesktopPresence `
                 -Probe { Test-DesktopRunning } `
-                -PollMilliseconds 2000
-            [System.IO.File]::AppendAllText(
-                $launcherLog,
-                "[$([DateTimeOffset]::Now.ToString('O'))] Desktop returned after $waitPolls idle polls; resolving its current backend`r`n"
-            )
+                -PollMilliseconds 500
+            Write-MobileLifecycleEvent `
+                -Event 'desktop-presence' `
+                -Phase 'end' `
+                -Outcome 'available' `
+                -Fields @{
+                    polls = $waitPolls
+                    elapsed_ms = [int]([DateTimeOffset]::Now - $desktopWaitStartedAt).TotalMilliseconds
+                }
+            $backendWaitStartedAt = $null
+            $backendWaitPolls = 0
             continue
         }
 
         $desktopBackend = Get-DesktopBackendEndpoint
         if ($DesktopExecutable -and -not $desktopBackend) {
-            Start-Sleep -Seconds 2
+            if ($null -eq $backendWaitStartedAt) {
+                $backendWaitStartedAt = [DateTimeOffset]::Now
+                $backendWaitPolls = 0
+                Write-MobileLifecycleEvent -Event 'desktop-backend' -Phase 'begin'
+            }
+            $backendWaitPolls += 1
+            Start-Sleep -Milliseconds 500
             continue
+        }
+        if ($null -ne $backendWaitStartedAt) {
+            Write-MobileLifecycleEvent `
+                -Event 'desktop-backend' `
+                -Phase 'end' `
+                -Outcome 'resolved' `
+                -Fields @{
+                    polls = $backendWaitPolls
+                    elapsed_ms = [int]([DateTimeOffset]::Now - $backendWaitStartedAt).TotalMilliseconds
+                    profile = [string]$desktopBackend.Profile
+                }
+            $backendWaitStartedAt = $null
+            $backendWaitPolls = 0
         }
 
         $upstream = if ($desktopBackend) { [string]$desktopBackend.Url } else { "http://127.0.0.1:$Port" }
+        $bridgeGeneration += 1
+        Write-MobileLifecycleEvent `
+            -Event 'bridge-generation' `
+            -Phase 'begin' `
+            -Fields @{
+                generation = $bridgeGeneration
+                profile = if ($desktopBackend) { [string]$desktopBackend.Profile } else { 'standalone' }
+            }
         $launcherMessage = if ($desktopBackend) {
             "[$([DateTimeOffset]::Now.ToString('O'))] attaching Mobile bridges on 127.0.0.1:$Port and 127.0.0.1:$ProxyPort to the Desktop backend`r`n"
         } else {
@@ -446,26 +531,77 @@ try {
             -RedirectStandardError $proxyStderrPath `
             -PassThru
 
-        while (
-            -not $server.HasExited -and
-            -not $proxy.HasExited -and
-            (Test-DesktopRunning) -and
-            (Test-DesktopBackendStable -ExpectedBackend $desktopBackend)
-        ) {
-            Start-Sleep -Seconds 2
+        Write-MobileLifecycleEvent `
+            -Event 'bridge-generation' `
+            -Phase 'end' `
+            -Outcome 'spawned' `
+            -Fields @{
+                generation = $bridgeGeneration
+                server_pid = $server.Id
+                proxy_pid = $proxy.Id
+            }
+
+        $exitReason = ''
+        $healthFailureStartedAt = $null
+        $healthFailurePolls = 0
+        while ($true) {
             $server.Refresh()
             $proxy.Refresh()
+            if ($server.HasExited) {
+                $exitReason = 'server'
+                break
+            }
+            if ($proxy.HasExited) {
+                $exitReason = 'proxy'
+                break
+            }
+            if (-not (Test-DesktopRunning)) {
+                $exitReason = 'desktop'
+                break
+            }
+
+            $stability = Get-DesktopBackendStability -ExpectedBackend $desktopBackend
+            if ($stability.Stable) {
+                if ($null -ne $healthFailureStartedAt) {
+                    Write-MobileLifecycleEvent `
+                        -Event 'upstream-health' `
+                        -Phase 'end' `
+                        -Outcome 'recovered' `
+                        -Fields @{
+                            generation = $bridgeGeneration
+                            polls = $healthFailurePolls
+                            elapsed_ms = [int]([DateTimeOffset]::Now - $healthFailureStartedAt).TotalMilliseconds
+                        }
+                    $healthFailureStartedAt = $null
+                    $healthFailurePolls = 0
+                }
+            } elseif (-not $stability.Transient) {
+                $exitReason = [string]$stability.Reason
+                break
+            } else {
+                if ($null -eq $healthFailureStartedAt) {
+                    $healthFailureStartedAt = [DateTimeOffset]::Now
+                    $healthFailurePolls = 0
+                    Write-MobileLifecycleEvent `
+                        -Event 'upstream-health' `
+                        -Phase 'begin' `
+                        -Outcome 'grace' `
+                        -Fields @{
+                            generation = $bridgeGeneration
+                            reason = [string]$stability.Reason
+                        }
+                }
+                $healthFailurePolls += 1
+                $healthFailureElapsed = [DateTimeOffset]::Now - $healthFailureStartedAt
+                if ($healthFailurePolls -ge 3 -and $healthFailureElapsed.TotalSeconds -ge 8) {
+                    $exitReason = 'desktop-backend-health'
+                    break
+                }
+            }
+            Start-Sleep -Milliseconds 1000
         }
 
-        $exitedName = if (-not (Test-DesktopRunning)) {
-            'desktop'
-        } elseif ($desktopBackend -and -not (Test-DesktopBackendStable -ExpectedBackend $desktopBackend)) {
-            'desktop backend'
-        } elseif ($server.HasExited) {
-            'server'
-        } else {
-            'proxy'
-        }
+        $exitedName = if ($exitReason) { $exitReason } else { 'unknown' }
         $exitCode = if ($server.HasExited) {
             $server.ExitCode
         } elseif ($proxy.HasExited) {
@@ -480,11 +616,22 @@ try {
             }
         }
 
-        [System.IO.File]::AppendAllText(
-            $launcherLog,
-            "[$([DateTimeOffset]::Now.ToString('O'))] $exitedName ended with code $exitCode; reevaluating lifecycle in 5 seconds`r`n"
-        )
-        Start-Sleep -Seconds $(if ($exitedName -eq 'desktop') { 2 } else { 5 })
+        $retryDelayMilliseconds = if ($exitedName -in @('desktop', 'route-changed', 'profile-changed')) {
+            250
+        } else {
+            1000
+        }
+        Write-MobileLifecycleEvent `
+            -Event 'bridge-generation' `
+            -Phase 'end' `
+            -Outcome 'recycle' `
+            -Fields @{
+                generation = $bridgeGeneration
+                reason = $exitedName
+                exit_code = $exitCode
+                retry_delay_ms = $retryDelayMilliseconds
+            }
+        Start-Sleep -Milliseconds $retryDelayMilliseconds
     }
 } finally {
     Remove-Item Env:HERMES_DASHBOARD_SESSION_TOKEN -ErrorAction SilentlyContinue

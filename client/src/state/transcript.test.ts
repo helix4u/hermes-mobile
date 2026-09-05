@@ -111,6 +111,31 @@ describe('transcript projection', () => {
     expect(result[1].text).toBe('worked it out')
   })
 
+  it('hides expanded attachment payloads from hydrated user turns', () => {
+    const ref = '@url:`https://example.test/support/thread`'
+    const result = historyToTranscript([
+      {
+        role: 'user',
+        content: `${ref}\n\n--- Attached Context ---\n\n🌐 ${ref} (16 tokens)\n,\n\n,\n\nReactions\n\nOfficial message\n\nclick to open image dialog`,
+      },
+    ])
+
+    expect(result).toHaveLength(1)
+    expect(result[0].text).toBe('<https://example.test/support/thread>')
+  })
+
+  it('keeps a missing attachment reference without exposing its payload', () => {
+    const result = historyToTranscript([
+      {
+        role: 'user',
+        content:
+          'please inspect this\n\n--- Attached Context ---\n\n📄 @file:`notes.txt` (4 tokens)\nsecretly huge file body',
+      },
+    ])
+
+    expect(result[0].text).toBe('@file:`notes.txt`\n\nplease inspect this')
+  })
+
   it('accepts durable tool field names from stored Hermes messages', () => {
     const result = historyToTranscript([
       {

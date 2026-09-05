@@ -41,6 +41,7 @@ function Get-HermesDesktopRoutePreference {
 function Select-HermesDesktopBackendCandidate {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [object[]]$Candidates,
         [Parameter(Mandatory = $true)]
         [scriptblock]$Probe
@@ -52,6 +53,34 @@ function Select-HermesDesktopBackendCandidate {
         }
     }
     return $null
+}
+
+function Get-HermesDesktopLoopbackListeners {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [int[]]$ProcessIds,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$Listeners,
+        [int[]]$ExcludedPorts = @()
+    )
+
+    $owned = [System.Collections.Generic.HashSet[int]]::new()
+    foreach ($processId in $ProcessIds) {
+        [void]$owned.Add([int]$processId)
+    }
+
+    return @(
+        $Listeners |
+            Where-Object {
+                $port = [int]$_.LocalPort
+                $owned.Contains([int]$_.OwningProcess) -and
+                [string]$_.LocalAddress -in @('127.0.0.1', '::1') -and
+                $port -ge 1024 -and
+                $port -notin $ExcludedPorts
+            }
+    )
 }
 
 function Test-HermesMobileHealthResponse {

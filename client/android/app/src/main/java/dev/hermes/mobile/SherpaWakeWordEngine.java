@@ -14,7 +14,7 @@ import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig;
  * App-owned sherpa-onnx open-vocabulary keyword spotter.
  *
  * Model paths are fixed Android assets. The caller supplies only one bounded,
- * pre-tokenized keyword definition generated from the bundled BPE model.
+ * pre-tokenized keyword definitions generated from the bundled BPE model.
  */
 final class SherpaWakeWordEngine implements WakeWordDetector {
     static final int SAMPLE_RATE = 16_000;
@@ -36,6 +36,7 @@ final class SherpaWakeWordEngine implements WakeWordDetector {
     private final String keywords;
     private OnlineStream stream;
     private boolean closed;
+    private String lastKeyword = "";
 
     SherpaWakeWordEngine(Context context, String keywords) {
         if (!isValidKeywords(keywords)) {
@@ -84,22 +85,29 @@ final class SherpaWakeWordEngine implements WakeWordDetector {
         String normalized = value.trim();
         if (
             normalized.isEmpty() ||
-            normalized.length() > 512 ||
-            normalized.indexOf('\n') >= 0 ||
+            normalized.length() > 1024 ||
             normalized.indexOf('\r') >= 0
         ) {
             return false;
         }
-        int displayStart = normalized.lastIndexOf(" @");
-        if (displayStart <= 0) {
+        String[] definitions = normalized.split("\\n", -1);
+        if (definitions.length < 1 || definitions.length > 3) {
             return false;
         }
-        String display = normalized.substring(displayStart + 2);
-        if (!display.matches("[A-Z0-9_'-]{1,64}")) {
-            return false;
+        for (String definition : definitions) {
+            String clean = definition.trim();
+            int displayStart = clean.lastIndexOf(" @");
+            if (displayStart <= 0) {
+                return false;
+            }
+            String display = clean.substring(displayStart + 2);
+            if (!display.matches("[A-Z0-9_'-]{1,64}")) {
+                return false;
+            }
         }
         for (int index = 0; index < normalized.length(); index++) {
-            if (Character.isISOControl(normalized.charAt(index))) {
+            char character = normalized.charAt(index);
+            if (character != '\n' && Character.isISOControl(character)) {
                 return false;
             }
         }
@@ -143,11 +151,17 @@ final class SherpaWakeWordEngine implements WakeWordDetector {
             spotter.decode(stream);
             KeywordSpotterResult result = spotter.getResult(stream);
             if (result != null && !result.getKeyword().trim().isEmpty()) {
+                lastKeyword = result.getKeyword().trim();
                 spotter.reset(stream);
                 return true;
             }
         }
         return false;
+    }
+
+    @Override
+    public synchronized String detectedKeyword() {
+        return lastKeyword;
     }
 
     private OnlineStream createStream() {
@@ -161,6 +175,7 @@ final class SherpaWakeWordEngine implements WakeWordDetector {
 
     private void replaceStream() {
         OnlineStream previous = stream;
+        lastKeyword = "";
         stream = createStream();
         if (previous != null) {
             previous.release();

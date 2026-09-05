@@ -107,4 +107,78 @@ describe('direct gateway authentication', () => {
     expect(result).toBe(target)
     expect(native.gatewayStatus).not.toHaveBeenCalled()
   })
+
+  it('recovers a starting host before choosing authentication, without opening sign-in', async () => {
+    vi.useFakeTimers()
+    try {
+      const native = bridge()
+      vi.mocked(native.gatewayStatus).mockRejectedValueOnce(
+        new Error('Hermes gateway health returned HTTP 502'),
+      )
+      const onRetry = vi.fn()
+      const pending = prepareDirectAuthentication(connection(), true, native, { onRetry })
+      await vi.advanceTimersByTimeAsync(249)
+      expect(native.gatewayStatus).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await pending).toMatchObject({ id: 'docker-host', authMode: 'token' })
+      expect(native.gatewayStatus).toHaveBeenCalledTimes(2)
+      expect(onRetry).toHaveBeenCalledOnce()
+      expect(native.gatewayLogin).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([401, 403, 429, 500])('does not retry HTTP %s or open sign-in after a failed probe', async (status) => {
+    const error = new Error(`Hermes gateway health returned HTTP ${status}`)
+    const native = bridge({ gatewayStatus: vi.fn().mockRejectedValue(error) })
+    await expect(prepareDirectAuthentication(connection(), true, native)).rejects.toBe(error)
+    expect(native.gatewayStatus).toHaveBeenCalledOnce()
+    expect(native.gatewayLogin).not.toHaveBeenCalled()
+  })
+
+  it('cancels a delayed retry when the user disconnects or selects another host', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new AbortController()
+      const native = bridge({ gatewayStatus: vi.fn().mockRejectedValue(new Error('Hermes gateway health returned HTTP 503')) })
+      const pending = prepareDirectAuthentication(connection(), true, native, { signal: controller.signal })
+      const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+      await vi.advanceTimersByTimeAsync(0)
+      controller.abort()
+      await rejected
+      await vi.runAllTimersAsync()
+      expect(native.gatewayStatus).toHaveBeenCalledOnce()
+      expect(native.gatewayLogin).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not open sign-in from a late probe after cancellation', async () => {
+    const controller = new AbortController()
+    let finish!: (value: Awaited<ReturnType<DirectGatewayAuthBridge['gatewayStatus']>>) => void
+    const native = bridge({ gatewayStatus: vi.fn(() => new Promise<Awaited<ReturnType<DirectGatewayAuthBridge['gatewayStatus']>>>(resolve => { finish = resolve })) })
+    const pending = prepareDirectAuthentication(connection(), true, native, { signal: controller.signal })
+    controller.abort()
+    finish({ baseUrl: 'https://docker.example', authRequired: true, signedIn: false, version: '1' })
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(native.gatewayLogin).not.toHaveBeenCalled()
+  })
+
+  it('exhausts a bounded startup retry budget instead of waiting forever', async () => {
+    vi.useFakeTimers()
+    try {
+      const error = new Error('Hermes gateway health returned HTTP 504')
+      const native = bridge({ gatewayStatus: vi.fn().mockRejectedValue(error) })
+      const pending = prepareDirectAuthentication(connection(), true, native)
+      const rejected = expect(pending).rejects.toBe(error)
+      await vi.runAllTimersAsync()
+      await rejected
+      expect(native.gatewayStatus).toHaveBeenCalledTimes(8)
+      expect(native.gatewayLogin).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

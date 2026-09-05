@@ -2,16 +2,24 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   activeTurnInputModePreferenceKey,
   loadActiveTurnInputMode,
+  loadSherpaPetWakePhrase,
+  loadSherpaVoiceWakePhrase,
+  persistSherpaVoiceWakePhrase,
+  resolveSherpaWakeRoute,
+  releaseWakeForVoice,
   loadSherpaWakePhrase,
   loadWakeWordMode,
   loadWakeWordModelId,
   loadWakeWordProvider,
   persistActiveTurnInputMode,
+  persistSherpaPetWakePhrase,
   persistSherpaWakePhrase,
   persistWakeWordMode,
   persistWakeWordModelId,
   persistWakeWordProvider,
   sherpaWakePhrasePreferenceKey,
+  sherpaPetWakePhrasePreferenceKey,
+  sherpaKeywordLabel,
   shouldListenForWakeWord,
   stripWakePhrase,
   wakeWordModePreferenceKey,
@@ -21,6 +29,36 @@ import {
 } from './wake-word'
 
 describe('Mobile wake word', () => {
+  test('voice starts only after native capture releases and never after cancellation', async () => {
+    let release!: () => void
+    let current = true
+    const start = vi.fn()
+    const pending = releaseWakeForVoice(() => new Promise<void>(resolve => { release = resolve }), () => current, start)
+    expect(start).not.toHaveBeenCalled()
+    release()
+    await pending
+    expect(start).toHaveBeenCalledOnce()
+    start.mockClear()
+    const cancelled = releaseWakeForVoice(() => new Promise<void>(resolve => { release = resolve }), () => current, start)
+    current = false
+    release()
+    await cancelled
+    expect(start).not.toHaveBeenCalled()
+    await expect(releaseWakeForVoice(async () => { throw new Error('Capture still owned') }, () => true, start)).rejects.toThrow('Capture still owned')
+    expect(start).not.toHaveBeenCalled()
+  })
+  test('routes live voice independently and scopes the editable phrase and opt-out', () => {
+    expect(loadSherpaVoiceWakePhrase('local')).toBe('hey companion')
+    expect(persistSherpaVoiceWakePhrase('local', 'Hello Companion')).toBe(true)
+    expect(loadSherpaVoiceWakePhrase('local')).toBe('hello companion')
+    expect(loadSherpaVoiceWakePhrase('cloud')).toBe('hey companion')
+    expect(resolveSherpaWakeRoute('HELLO_COMPANION', 'hey pet', 'hello companion')).toBe('voice')
+    expect(resolveSherpaWakeRoute('HEY_PET', 'hey pet', 'hello companion')).toBe('pet')
+    expect(resolveSherpaWakeRoute('HEY_HERMES', 'hey pet', 'hello companion')).toBe('hermes')
+    persistSherpaVoiceWakePhrase('local', '')
+    expect(loadSherpaVoiceWakePhrase('local')).toBe('')
+    expect(persistSherpaVoiceWakePhrase('local', '../invalid')).toBe(false)
+  })
   beforeEach(() => {
     const values = new Map<string, string>()
     vi.stubGlobal('window', {
@@ -76,6 +114,15 @@ describe('Mobile wake word', () => {
 
     expect(persistSherpaWakePhrase('workstation', '  Computer  ')).toBe(true)
     expect(loadSherpaWakePhrase('workstation')).toBe('computer')
+
+    expect(persistSherpaPetWakePhrase('workstation', '  Hey Alien  ')).toBe(true)
+    expect(loadSherpaPetWakePhrase('workstation')).toBe('hey alien')
+    expect(sherpaPetWakePhrasePreferenceKey('workstation')).not.toBe(
+      sherpaPetWakePhrasePreferenceKey('cloud-agent'),
+    )
+    expect(sherpaKeywordLabel('hey alien')).toBe('HEY_ALIEN')
+    expect(persistSherpaPetWakePhrase('workstation', '')).toBe(true)
+    expect(loadSherpaPetWakePhrase('workstation')).toBe('')
     expect(sherpaWakePhrasePreferenceKey('workstation')).not.toBe(
       sherpaWakePhrasePreferenceKey('cloud-agent'),
     )

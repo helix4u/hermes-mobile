@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
 import type { GatewayEvent } from '../protocol/types'
 import type { MobilePetInfo } from '../pet'
@@ -47,6 +47,40 @@ const profileParams = (profile: string) => ({
   profile: profile === 'default' ? '' : profile,
 })
 
+export const PETDEX_RENDER_LIMIT = 60
+
+const thumbnailCaches = new WeakMap<
+  JsonRpcGatewayClient,
+  Map<string, Promise<string>>
+>()
+
+function loadPetThumbnail(
+  gateway: JsonRpcGatewayClient,
+  pet: GalleryPet,
+  profile: string,
+): Promise<string> {
+  let cache = thumbnailCaches.get(gateway)
+  if (!cache) {
+    cache = new Map()
+    thumbnailCaches.set(gateway, cache)
+  }
+
+  const key = `${profile}\u0000${pet.slug}\u0000${pet.spritesheetUrl || ''}`
+  const cached = cache.get(key)
+  if (cached) return cached
+
+  const pending = gateway
+    .request<{ ok?: boolean; dataUri?: string }>('pet.thumb', {
+      ...profileParams(profile),
+      slug: pet.slug,
+      url: pet.spritesheetUrl || '',
+    })
+    .then((result) => (result.ok && result.dataUri ? result.dataUri : ''))
+    .catch(() => '')
+  cache.set(key, pending)
+  return pending
+}
+
 export function rankPetDexPets(
   pets: GalleryPet[],
   search: string,
@@ -67,6 +101,13 @@ export function rankPetDexPets(
     )
 }
 
+export function visiblePetDexPets(
+  pets: GalleryPet[],
+  search: string,
+): GalleryPet[] {
+  return rankPetDexPets(pets, search).slice(0, PETDEX_RENDER_LIMIT)
+}
+
 export const petHatchCancelToken = (token: string): string =>
   `${token}-mobile-hatch`
 
@@ -76,27 +117,44 @@ function PetThumbnail({
   profile,
 }: PetDexPanelProps & { pet: GalleryPet }) {
   const [src, setSrc] = useState('')
+  const thumbRef = useRef<HTMLSpanElement | null>(null)
+
   useEffect(() => {
     if (!gateway) return
     let active = true
-    void gateway
-      .request<{ ok?: boolean; dataUri?: string }>('pet.thumb', {
-        ...profileParams(profile),
-        slug: pet.slug,
-        url: pet.spritesheetUrl || '',
+    let observer: IntersectionObserver | null = null
+    const load = () => {
+      void loadPetThumbnail(gateway, pet, profile).then((dataUri) => {
+        if (active && dataUri) setSrc(dataUri)
       })
-      .then((result) => {
-        if (active && result.ok && result.dataUri) setSrc(result.dataUri)
-      })
-      .catch(() => undefined)
+    }
+
+    if (typeof IntersectionObserver === 'undefined' || !thumbRef.current) {
+      load()
+    } else {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return
+          observer?.disconnect()
+          load()
+        },
+        { rootMargin: '120px' },
+      )
+      observer.observe(thumbRef.current)
+    }
+
     return () => {
       active = false
+      observer?.disconnect()
     }
   }, [gateway, pet.slug, pet.spritesheetUrl, profile])
+
   return src ? (
     <img alt="" aria-hidden="true" src={src} />
   ) : (
-    <span aria-hidden="true">?</span>
+    <span ref={thumbRef} aria-hidden="true">
+      ?
+    </span>
   )
 }
 
@@ -111,6 +169,7 @@ function readFileDataUrl(file: File): Promise<string> {
 }
 
 export function PetDexPanel({ gateway, onChanged, profile }: PetDexPanelProps) {
+  const [expanded, setExpanded] = useState(false)
   const [gallery, setGallery] = useState<PetGallery | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState('')
@@ -170,15 +229,15 @@ export function PetDexPanel({ gateway, onChanged, profile }: PetDexPanelProps) {
   }, [gateway, profile])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    if (expanded) void refresh()
+  }, [expanded, refresh])
 
   useEffect(() => {
     if (!gateway) return
     return gateway.onEvent((event: GatewayEvent) => {
       const payload = event.payload as Record<string, unknown>
       if (event.type === 'pet.changed') {
-        void refresh()
+        if (expanded) void refresh()
       } else if (event.type === 'pet.generate.progress') {
         if (typeof payload.token === 'string') setToken(payload.token)
         if (
@@ -211,11 +270,17 @@ export function PetDexPanel({ gateway, onChanged, profile }: PetDexPanelProps) {
         }
       }
     })
-  }, [gateway, refresh])
+  }, [expanded, gateway, refresh])
 
   const visiblePets = useMemo(() => {
-    return rankPetDexPets(gallery?.pets ?? [], search)
-  }, [gallery?.pets, search])
+    if (!expanded) return []
+    return visiblePetDexPets(gallery?.pets ?? [], search)
+  }, [expanded, gallery?.pets, search])
+
+  const matchingPetCount = useMemo(() => {
+    if (!expanded) return 0
+    return rankPetDexPets(gallery?.pets ?? [], search).length
+  }, [expanded, gallery?.pets, search])
 
   async function mutate(
     label: string,
@@ -320,7 +385,11 @@ export function PetDexPanel({ gateway, onChanged, profile }: PetDexPanelProps) {
   }
 
   return (
-    <details className="petdex-panel">
+    <details
+      className="petdex-panel"
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
       <summary>
         <span>
           <strong>Petdex</strong>
@@ -332,7 +401,7 @@ export function PetDexPanel({ gateway, onChanged, profile }: PetDexPanelProps) {
         </span>
         <span className="disclosure-glyph">+</span>
       </summary>
-      <div className="petdex-body">
+      {expanded && <div className="petdex-body">
         <div className="petdex-toolbar">
           <input
             placeholder="Search Petdex"
@@ -472,6 +541,12 @@ export function PetDexPanel({ gateway, onChanged, profile }: PetDexPanelProps) {
             </article>
           ))}
         </div>
+        {matchingPetCount > visiblePets.length && (
+          <p className="advanced-copy">
+            Showing the first {PETDEX_RENDER_LIMIT} matches. Search to narrow
+            the gallery.
+          </p>
+        )}
 
         <details className="pet-hatch-panel">
           <summary>
@@ -695,7 +770,7 @@ export function PetDexPanel({ gateway, onChanged, profile }: PetDexPanelProps) {
             )}
           </div>
         </details>
-      </div>
+      </div>}
     </details>
   )
 }

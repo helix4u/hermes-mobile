@@ -55,6 +55,10 @@ export interface TranscriptItem {
 
 const SECRET_KEY =
   /(^|[_-])(api[_-]?key|authorization|cookie|credential|password|passwd|secret|token|private[_-]?key|access[_-]?key)($|[_-])|apikey|accesstoken|refreshtoken|clientsecret|privatekey/i
+const ATTACHED_CONTEXT_MARKER_RE = /(?:^|\n)--- Attached Context ---\s*\n/
+const CONTEXT_WARNINGS_MARKER_RE = /(?:^|\n)--- Context Warnings ---[\s\S]*$/
+const CONTEXT_REF_RE =
+  /@(file|folder|url|image|tool|terminal):(?:"[^"\n]+"|'[^'\n]+'|`[^`\n]+`|\S+)/g
 let fallbackId = 0
 
 function makeId(prefix: string): string {
@@ -99,6 +103,61 @@ function asText(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+function displayContextRef(ref: string): string {
+  if (!ref.startsWith('@url:')) return ref
+
+  let value = ref.slice('@url:'.length)
+  const quote = value[0]
+  if (
+    (quote === '`' || quote === '"' || quote === "'") &&
+    value.endsWith(quote)
+  ) {
+    value = value.slice(1, -1)
+  }
+
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return ref
+  } catch {
+    return ref
+  }
+
+  return `<${value}>`
+}
+
+function linkDisplayUrlRefs(text: string): string {
+  return text.replace(CONTEXT_REF_RE, ref => displayContextRef(ref))
+}
+
+function displayUserText(value: unknown): string {
+  const text = asText(value)
+  const marker = text.match(ATTACHED_CONTEXT_MARKER_RE)
+
+  if (!marker || marker.index === undefined) {
+    return text.replace(CONTEXT_WARNINGS_MARKER_RE, '').trim()
+  }
+
+  const visibleText = text
+    .slice(0, marker.index)
+    .replace(CONTEXT_WARNINGS_MARKER_RE, '')
+    .trim()
+  const attachedContext = text.slice(marker.index + marker[0].length)
+  const refs = [
+    ...new Set(
+      Array.from(attachedContext.matchAll(CONTEXT_REF_RE)).map(
+        match => match[0],
+      ),
+    ),
+  ]
+  const missingRefs = refs
+    .filter(ref => !visibleText.includes(ref))
+    .map(displayContextRef)
+
+  return [missingRefs.join('\n'), linkDisplayUrlRefs(visibleText)]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 export function redactDisplayValue(
@@ -152,7 +211,8 @@ export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
   for (const raw of messages) {
     const message = asRecord(raw)
     const role = String(message.role ?? '')
-    const text = asText(message.text ?? message.content)
+    const content = message.text ?? message.content
+    const text = role === 'user' ? displayUserText(content) : asText(content)
     if (message.display_kind === 'pet_commentary' && text.trim()) {
       const metadata = asRecord(message.display_metadata)
       const rawId = String(

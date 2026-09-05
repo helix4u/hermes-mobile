@@ -84,6 +84,7 @@ export interface WirelessDebuggingSettingsResult {
 }
 
 export interface WakeWordDetectedEvent {
+  keyword?: string
   phrase: string
   sessionId: string
   transcript: string
@@ -119,6 +120,13 @@ interface HermesNativePlugin {
   }): Promise<{ present: boolean }>
   listCredentialIds(): Promise<{ connectionIds: string[] }>
   removeCredential(options: { connectionId: string }): Promise<void>
+  requestMicrophoneAccess(): Promise<{ granted: boolean }>
+  getAudioInputInventory(): Promise<{ inputs: Array<{ label: string; type: number; channels: number[]; sampleRates: number[] }>; communicationRoute?: string }>
+  retainRealtimeVoice(options: {
+    leaseId: string
+  }): Promise<{ retained: boolean }>
+  traceRealtimeVoice(options: { phase: string; epoch: number; muted: boolean; tracks: number; elapsedMs?: number }): Promise<void>
+  releaseRealtimeVoice(options: { leaseId: string }): Promise<void>
   startRecording(): Promise<{ status: 'recording' }>
   stopRecording(): Promise<{
     dataUrl: string

@@ -25,14 +25,22 @@ public class HermesConnectionService extends Service {
         "dev.hermes.mobile.action.RETAIN_CONNECTION";
     private static final String ACTION_RELEASE =
         "dev.hermes.mobile.action.RELEASE_CONNECTION";
+    private static final String ACTION_RETAIN_VOICE =
+        "dev.hermes.mobile.action.RETAIN_REALTIME_VOICE";
+    private static final String ACTION_RELEASE_VOICE =
+        "dev.hermes.mobile.action.RELEASE_REALTIME_VOICE";
     private static final String EXTRA_SOCKET_ID = "socket_id";
+    private static final String EXTRA_VOICE_ID = "voice_id";
     private static final String CHANNEL_ID = "hermes_live_connection";
     private static final int NOTIFICATION_ID = 2201;
     private static final Set<String> requestedSocketIds =
         ConcurrentHashMap.newKeySet();
+    private static final Set<String> requestedVoiceIds =
+        ConcurrentHashMap.newKeySet();
     private static volatile boolean serviceCreated = false;
 
     private final Set<String> socketIds = ConcurrentHashMap.newKeySet();
+    private final Set<String> voiceIds = ConcurrentHashMap.newKeySet();
     private PowerManager.WakeLock wakeLock;
 
     public static void retain(Context context, String socketId) {
@@ -72,6 +80,36 @@ public class HermesConnectionService extends Service {
         }
     }
 
+    public static void retainRealtimeVoice(Context context, String voiceId) {
+        boolean newlyRequested = requestedVoiceIds.add(voiceId);
+        if (!newlyRequested && serviceCreated) {
+            return;
+        }
+        Intent intent = voiceServiceIntent(context, ACTION_RETAIN_VOICE, voiceId);
+        try {
+            ContextCompat.startForegroundService(context, intent);
+        } catch (RuntimeException error) {
+            if (newlyRequested) {
+                requestedVoiceIds.remove(voiceId);
+            }
+            throw error;
+        }
+    }
+
+    public static void releaseRealtimeVoice(Context context, String voiceId) {
+        requestedVoiceIds.remove(voiceId);
+        if (!serviceCreated) {
+            return;
+        }
+        try {
+            context.startService(
+                voiceServiceIntent(context, ACTION_RELEASE_VOICE, voiceId)
+            );
+        } catch (RuntimeException ignored) {
+            // The service may already be gone after process teardown.
+        }
+    }
+
     private static Intent serviceIntent(
         Context context,
         String action,
@@ -80,6 +118,17 @@ public class HermesConnectionService extends Service {
         Intent intent = new Intent(context, HermesConnectionService.class);
         intent.setAction(action);
         intent.putExtra(EXTRA_SOCKET_ID, socketId);
+        return intent;
+    }
+
+    private static Intent voiceServiceIntent(
+        Context context,
+        String action,
+        String voiceId
+    ) {
+        Intent intent = new Intent(context, HermesConnectionService.class);
+        intent.setAction(action);
+        intent.putExtra(EXTRA_VOICE_ID, voiceId);
         return intent;
     }
 
@@ -92,7 +141,7 @@ public class HermesConnectionService extends Service {
         // onStartCommand leaves a race where a fast release brings the service
         // down while Android is still waiting for startForeground.
         try {
-            promoteToForeground();
+            promoteToForeground(false);
         } catch (RuntimeException error) {
             Log.e(
                 LOG_TAG,
@@ -108,19 +157,27 @@ public class HermesConnectionService extends Service {
         String action = intent == null ? "" : intent.getAction();
         String socketId =
             intent == null ? "" : intent.getStringExtra(EXTRA_SOCKET_ID);
+        String voiceId =
+            intent == null ? "" : intent.getStringExtra(EXTRA_VOICE_ID);
 
-        if (ACTION_RETAIN.equals(action)) {
+        if (ACTION_RETAIN.equals(action) || ACTION_RETAIN_VOICE.equals(action)) {
             try {
                 // onCreate is not called when a new retain reaches a service
                 // instance that is still being torn down. Reassert foreground
                 // state for every retain before any release/idle logic can
                 // stop or demote the service.
-                promoteToForeground();
+                promoteToForeground(
+                    ACTION_RETAIN_VOICE.equals(action) || !requestedVoiceIds.isEmpty()
+                );
             } catch (RuntimeException error) {
                 if (socketId != null && !socketId.isEmpty()) {
                     requestedSocketIds.remove(socketId);
                 }
+                if (voiceId != null && !voiceId.isEmpty()) {
+                    requestedVoiceIds.remove(voiceId);
+                }
                 socketIds.clear();
+                voiceIds.clear();
                 releaseWakeLock();
                 Log.e(
                     LOG_TAG,
@@ -141,12 +198,42 @@ public class HermesConnectionService extends Service {
             socketIds.addAll(requestedSocketIds);
         }
 
-        if (!socketIds.isEmpty()) {
+        if (
+            (ACTION_RETAIN_VOICE.equals(action) || ACTION_RELEASE_VOICE.equals(action)) &&
+            voiceId != null &&
+            !voiceId.isEmpty()
+        ) {
+            voiceIds.clear();
+            voiceIds.addAll(requestedVoiceIds);
+        }
+
+        if (
+            ACTION_RELEASE_VOICE.equals(action) &&
+            voiceIds.isEmpty() &&
+            !socketIds.isEmpty()
+        ) {
+            try {
+                // A normal gateway socket can keep the service alive after the
+                // user ends Live Voice, but it must no longer advertise or own
+                // the microphone foreground-service type.
+                promoteToForeground(false);
+            } catch (RuntimeException error) {
+                Log.w(
+                    LOG_TAG,
+                    "Could not downgrade the Hermes connection notification after live voice",
+                    error
+                );
+            }
+        }
+
+        if (!socketIds.isEmpty() || !voiceIds.isEmpty()) {
             try {
                 acquireWakeLock();
             } catch (RuntimeException error) {
                 requestedSocketIds.removeAll(socketIds);
+                requestedVoiceIds.removeAll(voiceIds);
                 socketIds.clear();
+                voiceIds.clear();
                 releaseWakeLock();
                 Log.e(
                     LOG_TAG,
@@ -165,6 +252,7 @@ public class HermesConnectionService extends Service {
     public void onDestroy() {
         serviceCreated = false;
         socketIds.clear();
+        voiceIds.clear();
         releaseWakeLock();
         removeForegroundNotification();
         super.onDestroy();
@@ -175,20 +263,30 @@ public class HermesConnectionService extends Service {
         return null;
     }
 
-    private void promoteToForeground() {
-        Notification notification = connectionNotification();
+    private void promoteToForeground(boolean voiceActive) {
+        Notification notification = connectionNotification(voiceActive);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            int serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING;
+            if (voiceActive) {
+                serviceTypes |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+            }
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
+                serviceTypes
+            );
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && voiceActive) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             );
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
     }
 
-    private Notification connectionNotification() {
+    private Notification connectionNotification(boolean voiceActive) {
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.setFlags(
             Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -201,8 +299,14 @@ public class HermesConnectionService extends Service {
         );
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_hermes)
-            .setContentTitle("Hermes Mobile connected")
-            .setContentText("Keeping live Hermes sessions connected")
+            .setContentTitle(
+                voiceActive ? "Pet Live Voice active" : "Hermes Mobile connected"
+            )
+            .setContentText(
+                voiceActive
+                    ? "Listening and replying while Hermes Mobile is in the background"
+                    : "Keeping live Hermes sessions connected"
+            )
             .setContentIntent(contentIntent)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
@@ -254,7 +358,12 @@ public class HermesConnectionService extends Service {
     }
 
     private void stopWhenIdle(int startId) {
-        if (!socketIds.isEmpty() || !requestedSocketIds.isEmpty()) {
+        if (
+            !socketIds.isEmpty() ||
+            !requestedSocketIds.isEmpty() ||
+            !voiceIds.isEmpty() ||
+            !requestedVoiceIds.isEmpty()
+        ) {
             return;
         }
         releaseWakeLock();

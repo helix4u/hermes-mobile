@@ -107,6 +107,9 @@ export interface SessionCreateResult {
   stored_session_id: string
   message_count: number
   messages: unknown[]
+  running?: boolean
+  status?: string
+  todo_state?: unknown
   info?: {
     branch?: string
     cwd?: string
@@ -125,6 +128,7 @@ export interface SessionActivateResult {
   messages: unknown[]
   running?: boolean
   status?: string
+  todo_state?: unknown
   info?: SessionCreateResult['info']
 }
 

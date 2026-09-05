@@ -11,6 +11,10 @@
     "build": "npm run build --workspace @hermes-mobile/client",
     "typecheck": "npm run typecheck --workspace @hermes-mobile/client",
     "test": "npm run test --workspace @hermes-mobile/client",
+    "test:ui:focused": "node scripts/qa/run-focused.mjs",
+    "test:ui:device": "node scripts/qa/mobile-ui-smoke.mjs",
+    "test:ui:report": "node --test scripts/qa/report.test.mjs",
+    "test:ui:voice": "node scripts/qa/realtime-hook-smoke.mjs",
     "test:server": "python -m unittest discover -s tests/server -v"
   },
   "engines": {
