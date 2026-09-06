@@ -3,6 +3,15 @@ import { inputProgress, inputSample, microphoneChoices, microphoneConstraints, o
 import { normalizeRealtimeSettings, realtimeSettingsParams } from './pet-realtime-settings'
 
 describe('Realtime microphone', () => {
+  it('keeps the default route dynamic when Bluetooth hardware changes', async () => {
+    const track = { readyState: 'live', getSettings: () => ({ deviceId: 'new-headset' }), stop: vi.fn() }
+    const stream = { getAudioTracks: () => [track], getTracks: () => [track] }
+    const media = { getUserMedia: vi.fn().mockResolvedValue(stream) }
+    expect(await openMicrophone('default', media as unknown as MediaDevices)).toBe(stream)
+    expect(media.getUserMedia).toHaveBeenCalledWith(microphoneConstraints(''))
+    expect(track.stop).not.toHaveBeenCalled()
+    expect(microphoneChoices([{ kind: 'audioinput', deviceId: 'default', label: 'Default - Test Headset' }] as MediaDeviceInfo[])[0].label).toBe('System default: Test Headset')
+  })
   it('lists detected inputs, deduplicates defaults and labels permission-limited inputs', () => {
     expect(microphoneChoices([
       { kind: 'audioinput', deviceId: 'default', label: 'Default' },

@@ -54,7 +54,7 @@ import type {
 import { ImagePreview } from './ImageViewer'
 import { MarkdownContent } from './MarkdownContent'
 import { useVoiceCatalog } from './useVoiceCatalog'
-import { supportVoiceContext, type SupportVoiceReview as VoiceReview } from '../support-voice'
+import { prepareSupportVoiceContext, supportVoiceContext, type SupportVoiceReview as VoiceReview } from '../support-voice'
 import { SupportVoiceReview } from './SupportVoiceReview'
 import type { PetRealtimeContextTarget } from '../usePetRealtime'
 
@@ -1657,11 +1657,13 @@ export function SupportOpsView({
       if (generation !== voiceGeneration.current) throw new Error('Support voice target changed')
       return result
     }
-    await onStartVoiceSession(supportVoiceContext(connectionId, target, request, review => {
+    const prepared = await prepareSupportVoiceContext(supportVoiceContext(connectionId, target, request, review => {
       voiceReviewRef.current = review
       setVoiceReview(review)
       onNotice?.('Action ready for review in Support Ops. Nothing has run.')
-    }))
+    }, () => voiceQueueView.current))
+    if (generation !== voiceGeneration.current) return
+    await onStartVoiceSession(prepared)
   }
   const [stats, setStats] = useState<SupportStatsPayload | null>(null)
   const [view, setView] = useState<'queue' | 'overview'>('queue')
@@ -1679,6 +1681,8 @@ export function SupportOpsView({
   const [detailLoading, setDetailLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<SupportQueueFilter>('waiting_operator')
+  const voiceQueueView = useRef({ filter: String(filter), query })
+  voiceQueueView.current = { filter: String(filter), query }
   const [busy, setBusy] = useState('')
   const [localError, setLocalError] = useState('')
   const [operatorNotes, setOperatorNotes] = useState('')
@@ -2269,6 +2273,7 @@ export function SupportOpsView({
           </div>
         </header>
         {voiceReview && <SupportVoiceReview key={voiceReview.id} review={voiceReview}
+          onEdit={text => setVoiceReview(current => current?.id === voiceReview.id ? {...current, text} : current)}
           onCancel={() => setVoiceReview(null)} onApprove={async text => {
             await voiceRequest(`/voice/reviews/${voiceReview.id}/approve`, { targetId: voiceReview.targetId, action: voiceReview.action, text })
             onVoiceReceipt?.(voiceReview.targetId, voiceReview.action)
@@ -2844,6 +2849,7 @@ export function SupportOpsView({
         </div>
       </header>
       {voiceReview && <SupportVoiceReview key={voiceReview.id} review={voiceReview}
+        onEdit={text => setVoiceReview(current => current?.id === voiceReview.id ? {...current, text} : current)}
         onCancel={() => setVoiceReview(null)} onApprove={async text => {
           await voiceRequest(`/voice/reviews/${voiceReview.id}/approve`, { targetId: voiceReview.targetId, action: voiceReview.action, text })
           onVoiceReceipt?.(voiceReview.targetId, voiceReview.action)

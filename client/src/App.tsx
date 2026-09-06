@@ -25,7 +25,8 @@ import { Transcript, type ToolDetailMode } from './components/Transcript'
 import { WorkStatus } from './components/WorkStatus'
 import { SessionVoiceControls } from './components/SessionVoiceControls'
 import { realtimePersonality } from './realtime-continuity'
-import { VoiceReviewNotice } from './components/VoiceReviewNotice'
+import { HermesVoiceReview } from './components/HermesVoiceReview'
+import { VoiceWebpageNotice } from './components/VoiceWebpageNotice'
 import type {
   ActiveSessionListResult,
   GatewayConnectionState,
@@ -2841,7 +2842,6 @@ export function App() {
   }, [activeTab, connected, connection.id])
 
   const [voiceSettingsRequest, setVoiceSettingsRequest] = useState(0)
-  const [supportReviewPending, setSupportReviewPending] = useState(false)
   const openVoiceSettings = () => { setPetSidechatOpen(true); setVoiceSettingsRequest(value => value + 1) }
 
   return (
@@ -2891,10 +2891,11 @@ export function App() {
             </button>
           </div>
         </header>
-        <VoiceReviewNotice pending={!petSidechatOpen && ['pending', 'error', 'submitting'].includes(petRealtime.snapshot.hermesDraftStatus)}
-          supportPending={supportReviewPending && (activeTab !== 'support' || petSidechatOpen)}
-          onReview={() => setPetSidechatOpen(true)}
-          onSupportReview={() => { setPetSidechatOpen(false); setActiveTab('support') }} />
+        {petRealtime.snapshot.webpageUrl && <VoiceWebpageNotice url={petRealtime.snapshot.webpageUrl} onClose={petRealtime.dismissWebpage} />}
+        {['pending', 'error', 'submitting'].includes(petRealtime.snapshot.hermesDraftStatus) && <HermesVoiceReview
+          text={petRealtime.snapshot.hermesDraft} busy={petRealtime.snapshot.hermesDraftStatus === 'submitting'}
+          target={petRealtime.snapshot.attachedContextTitle} error={petRealtime.snapshot.error}
+          onEdit={petRealtime.updateHermesDraft} onApprove={petRealtime.approveHermesDraft} onCancel={petRealtime.cancelHermesDraft} />}
 
         {(error || notice) && (
           <div className={`toast ${error ? 'toast-error' : 'toast-success'}`}>
@@ -3318,7 +3319,6 @@ export function App() {
               }`}
             >
               <SupportOpsView
-                onVoiceReviewPending={setSupportReviewPending}
                 onVoiceReceipt={petRealtime.notifyReceipt}
                 active={activeTab === 'support'}
                 connected={connected}
@@ -3553,6 +3553,7 @@ export function App() {
           }}
         />
       <PetSidechatSheet
+        externalReview
         settingsRequest={voiceSettingsRequest}
         busy={pet.sidechat.busy}
         error={pet.sidechat.error}

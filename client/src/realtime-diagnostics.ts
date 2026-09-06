@@ -2,6 +2,8 @@
 export function voiceFailureReason(value: unknown): string {
   const error = value && typeof value === 'object' ? value as { code?: unknown; message?: unknown } : {}
   const code = error.code
+  const message = typeof error.message === 'string' ? error.message : ''
+  if (/instructions cannot be longer|context_length_exceeded|maximum context length|too many tokens/i.test(message)) return 'context_capacity'
   const codes: Record<string, string> = {
     response_cancel_not_active: 'cancel_already_complete',
     conversation_already_has_active_response: 'response_busy',
@@ -13,7 +15,6 @@ export function voiceFailureReason(value: unknown): string {
     '5031': 'context_backend_error',
   }
   if ((typeof code === 'string' || typeof code === 'number') && Object.hasOwn(codes, code)) return codes[String(code)]
-  const message = typeof error.message === 'string' ? error.message : ''
   if (/not connected|socket.*(?:closed|not open)|gateway.*disconnected/i.test(message)) return 'disconnected'
   if (/timed?\s*out|timeout/i.test(message)) return 'timeout'
   if (/cancelled by user interruption/i.test(message)) return 'interrupted'

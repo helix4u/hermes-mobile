@@ -11,6 +11,10 @@ export class MicrophoneInputError extends Error {
 export function microphoneChoices(devices: readonly MediaDeviceInfo[]): MicrophoneChoice[] {
   const seen = new Set(['default', ''])
   const choices = [{ id: '', label: 'System default' }]
+  const defaultDevice = devices.find(device => device.kind === 'audioinput' && device.deviceId === 'default')
+  if (defaultDevice?.label && !/^default$/i.test(defaultDevice.label.trim())) {
+    choices[0].label = `System default: ${defaultDevice.label.replace(/^default\s*[-:]?\s*/i, '')}`
+  }
   for (const device of devices) {
     if (device.kind !== 'audioinput' || seen.has(device.deviceId)) continue
     seen.add(device.deviceId)
@@ -21,11 +25,14 @@ export function microphoneChoices(devices: readonly MediaDeviceInfo[]): Micropho
 
 export function microphoneConstraints(id = '', noiseSuppression = true): MediaStreamConstraints {
   return { audio: { echoCancellation: true, noiseSuppression,
-    ...(id ? { deviceId: { exact: id } } : {}) } }
+    ...(id && id !== 'default' ? { deviceId: { exact: id } } : {}) } }
 }
 
 /** Do not silently substitute another device when an explicitly selected input vanished. */
 export async function openMicrophone(id = '', media = navigator.mediaDevices, noiseSuppression = true): Promise<MediaStream> {
+  // Browser default is a moving OS route, not a hardware identifier. Do not
+  // pin a former Bluetooth device or compare its concrete ID to this alias.
+  if (id === 'default') id = ''
   let stream: MediaStream
   try {
     stream = await media.getUserMedia(microphoneConstraints(id, noiseSuppression))

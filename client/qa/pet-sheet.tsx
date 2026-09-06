@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { PetSidechatSheet } from '../src/components/PetSidechatSheet'
 import { VoiceReviewNotice } from '../src/components/VoiceReviewNotice'
+import { HermesVoiceReview } from '../src/components/HermesVoiceReview'
 import { VoiceSettings } from '../src/components/VoiceSettings'
 import { usePetCompanion } from '../src/usePetCompanion'
 import '../src/styles.css'
@@ -26,10 +27,13 @@ function Fixture() {
   const [open, setOpen] = useState(true)
   const [pending, setPending] = useState(false)
   const [settingsRequest, setSettingsRequest] = useState(0)
+  const [globalReview, setGlobalReview] = useState(false)
+  const [globalText, setGlobalText] = useState('')
   const pet = usePetCompanion({ connected: true, connectionId: 'synthetic', profile: 'default', gateway: gateway as any,
     ensureSession: async () => 'synthetic', runtimeSessionId: 'synthetic', prepareSpeechSequence: () => null,
     speakSequence: speak, transcript: empty, transport: null, turnActive: false })
   ;(window as any).petQa = { pet, calls, get spoken() { return spoken }, finish: () => resolveGeneration({ok:true,text:'late generated text'}),
+    reviewHere: (text: string) => { setOpen(false); setGlobalText(text); setGlobalReview(true) },
     showCatalog: () => setCatalogMode(true), catalogChanges, finishCatalog: () => resolveCatalog({providers:[{id:'other-provider',voices:[]}]}),
     requestReview: () => { setPending(true); setOpen(false) },
     buildKeywords: () => import('../src/sherpa-keywords').then(module => module.buildSherpaKeywordDefinitions(['hey hermes', 'hey pet', 'hey companion'])),
@@ -37,6 +41,9 @@ function Fixture() {
     append: () => setMessages(previous => [...previous, {id:`message-${previous.length}`,role:'assistant',text:'New synthetic update.'}]) }
   if (catalogMode) return <VoiceSettings connected transport={catalogTransport as any} selection={{provider:'saved-provider',voice:'saved-voice',speed:1,instruct:'Keep my instruction',language:'en'} as any} onChange={value => catalogChanges.push(value)} />
   return <main className="app-shell"><header><button aria-label="Open voice conversation" onClick={() => setOpen(true)}>Voice</button><button aria-label="Live voice settings" onClick={() => { setOpen(true); setSettingsRequest(v => v + 1) }}>Settings</button></header>
+    {globalReview && <HermesVoiceReview text={globalText} busy={false} onEdit={setGlobalText}
+      onApprove={async () => { calls.push('approved:' + globalText); setGlobalReview(false); return true }}
+      onCancel={() => setGlobalReview(false)} />}
     <div className="mobile-workspace" style={{minHeight:0,overflow:'auto'}}>Synthetic attached session</div>
     <VoiceReviewNotice pending={pending && !open} supportPending={false} onReview={() => setOpen(true)} onSupportReview={() => {}} />
     <PetSidechatSheet busy={false} error="" name="A companion with a very long name" open={open} messages={messages} settingsRequest={settingsRequest}

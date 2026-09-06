@@ -6,6 +6,7 @@ describe('content-free voice failure diagnostics', () => {
     [{ code: 'response_cancel_not_active' }, 'cancel_already_complete'],
     [{ code: 4007 }, 'session_missing'],
     [{ code: 5031 }, 'context_backend_error'],
+    [{ code: 5031, message: 'Instructions cannot be longer than 65536 tokens' }, 'context_capacity'],
     [new Error('Gateway not connected'), 'disconnected'],
     [new Error('request timed out after 30s'), 'timeout'],
     [new Error('Read cancelled by user interruption; request again'), 'interrupted'],

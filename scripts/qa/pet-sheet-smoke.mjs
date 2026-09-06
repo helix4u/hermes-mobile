@@ -22,7 +22,11 @@ try {
   async function check(id,reason,fn) {
     const start=performance.now()
     try {await fn();report.checks.push({id,reason,status:'pass',ms:Math.round(performance.now()-start)})}
-    catch(e){report.checks.push({id,reason:`${reason} ${String(e.message).slice(0,240)}`,status:'fail',ms:Math.round(performance.now()-start)})}
+    catch(e){
+      await page.screenshot({path:path.join(values.out, id + '-failed.png')})
+      const geometry=await page.locator('dialog, dialog textarea, .pet-sidechat-sheet').evaluateAll(nodes=>nodes.map(node=>({tag:node.tagName,box:node.getBoundingClientRect().toJSON(),scrollHeight:node.scrollHeight,style:node.getAttribute('style')})))
+      report.checks.push({id,reason:`${reason} ${String(e.message).slice(0,240)}`,geometry,status:'fail',ms:Math.round(performance.now()-start)})
+    }
   }
   const insideBody = async locator => {
     const visible = await locator.evaluate(node => {
@@ -109,12 +113,20 @@ try {
     await page.getByRole('button',{name:'Show sidechat transcript'}).click()
     await page.locator('.pet-sidechat-messages').evaluate(node=>{node.scrollTop=node.scrollHeight;node.dispatchEvent(new Event('scroll'))})
     await insideBody(page.getByRole('button',{name:'Send to Hermes',exact:true}))
+    for (const name of ['Send to Hermes', 'Cancel']) {
+      const button = await page.getByRole('button', {name, exact:true}).boundingBox()
+      if (!button || button.height > 42 || button.width > 180) throw new Error('Review action stretched into a large panel')
+    }
+    const review = await page.locator('.pet-realtime-hermes-draft').boundingBox()
+    const editor = await page.getByRole('textbox', {name:'Hermes request draft',exact:true}).boundingBox()
+    if (!review || !editor || editor.height < review.height - 125) throw new Error('Review leaves available space unused while its editor scrolls')
     await insideBody(page.getByRole('textbox',{name:'Hermes request draft',exact:true}))
     await page.setViewportSize({width:740,height:360})
     await page.evaluate(()=>{
       document.documentElement.style.setProperty('--android-safe-bottom','24px')
       document.documentElement.style.setProperty('--android-safe-left','28px')
     })
+    await page.waitForFunction(()=>{const r=document.querySelector('.pet-sidechat-sheet').getBoundingClientRect(); return r.x>=28 && r.y+r.height<=337})
     const safe=await page.locator('.pet-sidechat-sheet').boundingBox()
     if(safe.x<28||safe.y+safe.height>337)throw Error('Native navigation/cutout insets ignored')
     await page.evaluate(()=>{
@@ -176,6 +188,33 @@ try {
     const definitions=await page.evaluate(()=>window.petQa.buildKeywords())
     const lines=definitions.trim().split('\n')
     if(lines.length!==3 || new Set(lines.map(line=>line.split(' @')[1])).size!==3)throw new Error('Wake actions did not get distinct keywords')
+  })
+  await check('VOICE-REVIEW-HERE','Required review opens over the current page, grows text before scrolling, keeps actions compact and sends only edited text.',async()=>{
+    await page.setViewportSize({width:360,height:780})
+    await page.goto(`${origin}/qa/pet-sheet.html`,{timeout:30000})
+    await page.waitForFunction(()=>window.petQa?.pet.status==='ready')
+    await page.evaluate(()=>window.petQa.reviewHere('Complete instruction. '.repeat(80)))
+    const modal = page.getByRole('dialog',{name:'Review Hermes request',exact:true})
+    await modal.waitFor()
+    if(await page.locator('.pet-sidechat-sheet').count())throw Error('Approval navigated into pet page')
+    const editor=modal.getByRole('textbox',{name:'Hermes request draft',exact:true})
+    await page.waitForFunction(()=>document.querySelector('dialog textarea').getBoundingClientRect().height>300)
+    await page.screenshot({path:path.join(values.out,'review-here-portrait.png')})
+    for(const name of ['Send to Hermes','Cancel','Later']) {
+      const r=await modal.getByRole('button',{name,exact:true}).boundingBox()
+      if(!r||r.height>44||r.width>180)throw Error('Oversized review action')
+    }
+    await modal.getByRole('button',{name:'Later',exact:true}).click()
+    await page.getByRole('button',{name:'Review request',exact:true}).click()
+    for (const [width,height] of [[740,360],[740,240],[360,780]]) {
+      await page.setViewportSize({width,height})
+      await page.waitForFunction(()=>{const r=document.querySelector('dialog').getBoundingClientRect();return r.x>=0 && r.y>=0 && r.right<=innerWidth+1 && r.bottom<=innerHeight+1})
+    }
+    await editor.fill('Only inspect this build.')
+    await modal.getByRole('button',{name:'Send to Hermes',exact:true}).click()
+    await modal.waitFor({state:'detached'})
+    if(!await page.evaluate(()=>window.petQa.calls.includes('approved:Only inspect this build.')))throw Error('Wrong reviewed text')
+    if(await page.locator('.pet-sidechat-sheet').count())throw Error('Approval changed underlying page')
   })
   await check('VOICE-CATALOG-LATE','Late or incomplete catalogs cannot clear a saved provider, voice or instructions.',async()=>{
     await page.evaluate(()=>window.petQa.showCatalog())

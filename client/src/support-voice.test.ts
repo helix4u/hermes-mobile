@@ -1,9 +1,61 @@
 import { describe, expect, it, vi } from 'vitest'
-import { readSupportVoiceContext, supportVoiceContext } from './support-voice'
+import { prepareSupportVoiceContext, readSupportVoiceContext, supportVoiceContext } from './support-voice'
 
 describe('Support voice capability boundary', () => {
+  it('gathers all queue pages as records, never empty section text', async () => {
+    const request = vi.fn(async (_path: string, args: Record<string,unknown>) => args.offset
+      ? {threads:[{thread_id:'b'}], offset:1, matching:2, revision:'one',nextOffset:null}
+      : {threads:[{thread_id:'a'}], offset:0, matching:2, revision:'one',nextOffset:1})
+    const result = await readSupportVoiceContext(request,{operation:'index',scope:'all'})
+    expect(result).toMatchObject({threads:[{thread_id:'a'},{thread_id:'b'}],complete:true,omittedItems:0})
+  })
+  it('refuses missing transcript rows even when the last page has no cursor', async () => {
+    const request = vi.fn(async () => ({section:'transcript',text:'[{"body":"latest"}]',startMessage:1,endMessageExclusive:2,totalMessages:2,offset:1,nextOffset:null}))
+    await expect(readSupportVoiceContext(request,{operation:'read',section:'transcript'})).rejects.toThrow('gap')
+  })
+  it('refuses malformed continuation metadata rather than calling the result complete', async () => {
+    await expect(readSupportVoiceContext(async () => ({section:'transcript',text:'[]',nextOffset:'bad'}),{section:'transcript'})).rejects.toThrow('invalid continuation')
+  })
+  it('loads actual filtered queue evidence before voice starts, and refreshes it on empty reads', async () => {
+    const request = vi.fn(async () => ({ threads: [{thread_id: '100000000000000001', title: 'Synthetic issue'}], matching: 1, revision: 'one' }))
+    let view = { filter: 'waiting_support', query: '' }
+    const target = supportVoiceContext('host', undefined, request, vi.fn(), () => view)
+    const prepared = await prepareSupportVoiceContext(target)
+    expect(JSON.parse(prepared.context[0].content)).toMatchObject({ threads: [{title: 'Synthetic issue'}], matching: 1, viewing: view })
+    view = { filter: 'pr_review', query: 'browser' }
+    await prepared.contextTools!.read({})
+    expect(request).toHaveBeenLastCalledWith('/voice/read', {operation:'index', filters:{filter:'pr_review'},query:'browser'})
+  })
+  it('treats a missing queue contract as failure, never as an empty queue', async () => {
+    const target = supportVoiceContext('host', undefined, async () => ({context:[{content:'Attached queue'}]}), vi.fn())
+    await expect(prepareSupportVoiceContext(target)).rejects.toThrow('incompatible response')
+  })
+  it('reads a whole attached thread by default without requiring the user to repeat its ID', async () => {
+    const request = vi.fn(async () => ({section:'transcript',revision:'one',text:'[{"body":"Newest complete message"}]',complete:true,nextOffset:null}))
+    const target = supportVoiceContext('host', {thread_id:'100000000000000001', title:'Synthetic issue'}, request, vi.fn())
+    const prepared = await prepareSupportVoiceContext(target)
+    expect(request).toHaveBeenCalledWith('/voice/read', {operation:'read',targetId:'100000000000000001',section:'transcript',limit:40})
+    expect(prepared.context[0].content).toContain('Newest complete message')
+  })
+  it('never upgrades an error response into a complete transcript', async () => {
+    await expect(readSupportVoiceContext(async () => ({status:'error'}), {operation:'read',section:'transcript'})).rejects.toThrow('read failed')
+  })
+  it('follows the current visible queue on each default read while preserving explicit scope', async () => {
+    const request = vi.fn(async (_path: string, _args: Record<string, unknown>) => ({ matching: 2, threads: [] }))
+    let view = { filter: 'waiting_operator', query: 'connection' }
+    const target = supportVoiceContext('host-a', undefined, request, vi.fn(), () => view)
+    await target.contextTools!.read({ operation: 'index' })
+    expect(request).toHaveBeenLastCalledWith('/voice/read', { operation: 'index', filters: { filter: 'waiting_operator' }, query: 'connection' })
+    view = { filter: 'pr_review', query: '' }
+    const result = await target.contextTools!.read({ operation: 'index' })
+    expect(request).toHaveBeenLastCalledWith('/voice/read', { operation: 'index', filters: { filter: 'pr_review' }, query: '' })
+    expect(result.viewing).toMatchObject(view)
+    await target.contextTools!.read({ operation: 'index', filters: { filter: 'all' } })
+    expect(request).toHaveBeenLastCalledWith('/voice/read', { operation: 'index', filters: { filter: 'all' }, query: '' })
+  })
+
   it('keeps connection and target identity separate and exposes reads without approval authority', async () => {
-    const request = vi.fn(async () => ({ matching: 3 }))
+    const request = vi.fn(async () => ({ matching: 3, threads: [] }))
     const review = vi.fn()
     const target = supportVoiceContext('host-a', undefined, request, review)
     expect(target.contextId).not.toBe(supportVoiceContext('host-b', undefined, request, review).contextId)

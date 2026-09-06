@@ -50,6 +50,39 @@ try {
     await fresh()
     await page.waitForFunction(() => !window.qa.realtime.snapshot.microphoneMuted && window.qa.tracks.at(-1).enabled)
   })
+  await check('HOOK-INITIAL-EVIDENCE', 'Whole context frames are installed in order before the first voice response; standing instructions are separate.', async () => {
+    await fresh()
+    const events = await page.evaluate(() => window.qa.sent)
+    const indices = [1, 2].map(part => events.findIndex(e => e.item?.content?.[0]?.text === `Synthetic complete context part ${part}/2`))
+    const response = events.findIndex(e => e.type === 'response.create')
+    if (indices[0] < 0 || indices[1] <= indices[0] || response <= indices[1]) throw new Error('Voice began before complete evidence delivery')
+  })
+  await check('HOOK-SUPPORT-REFRESH', 'Snapshot refresh uses the attached application reader and publishes its records, never the identity-only session RPC.', async () => {
+    await fresh()
+    await page.evaluate(async () => {
+      const q = window.qa
+      window.attachedReads = 0
+      await q.realtime.startContext({ contextId:'support:fixture:queue', contextTitle:'Support queue', context:[],
+        contextTools:{guide:'Synthetic read-only queue', read:async args=>{window.attachedReads++;return {threads:[{thread_id:'100000000000000001',title:'Synthetic queue record'}],matching:1}},propose:async()=>{throw new Error('No proposals in this test')}} })
+    })
+    await page.waitForFunction(() => window.qa.realtime.snapshot.status === 'listening')
+    const before = await page.evaluate(() => window.qa.contextRequests)
+    await page.evaluate(() => window.qa.frame({type:'response.done',response:{id:'snapshot-refresh',status:'completed',output:[{type:'function_call',name:'get_context_snapshot',call_id:'snapshot-owner',arguments:'{}'}]}}))
+    await page.waitForFunction(() => window.qa.sent.some(e=>e.item?.type==='function_call_output'&&e.item.call_id==='snapshot-owner'))
+    const result = await page.evaluate(() => ({reads:window.attachedReads,rpc:window.qa.contextRequests,preview:window.qa.realtime.snapshot.contextPreview,
+      output:window.qa.sent.find(e=>e.item?.call_id==='snapshot-owner')?.item?.output}))
+    if (result.reads!==1 || result.rpc!==before || !JSON.stringify(result.preview).includes('Synthetic queue record') || !result.output.includes('Synthetic queue record')) throw new Error(`Attached refresh lost application ownership: ${JSON.stringify({before,...result})}`)
+  })
+  await check('HOOK-VOICE-NOTEBOOK', 'Memory uses the attached target and fixed notebook RPC, without a new voice session or agent prompt.', async () => {
+    await fresh()
+    const before = await page.evaluate(() => window.qa.sessionRequests)
+    const memory = {scope:'session',key:'topic',kind:'checkpoint',content:'Synthetic topic',sourceTurn:'turn-one',sourceQuote:'Discuss this topic',expectedRevision:0}
+    await page.evaluate(args => window.qa.frame({type:'response.done',response:{id:'memory-save',status:'completed',output:[{type:'function_call',name:'save_voice_memory',call_id:'save-note',arguments:JSON.stringify(args)}]}}),memory)
+    await page.waitForFunction(() => window.qa.sent.some(e=>e.item?.call_id==='save-note'))
+    const result = await page.evaluate(() => ({requests:window.qa.sessionRequests,calls:window.qa.gatewayCalls}))
+    const save = result.calls.find(c=>c.method==='pet.realtime.knowledge')
+    if (result.requests!==before || save?.params.operation!=='voice_memory_save' || save.params.session_id!=='synthetic-session' || JSON.stringify(save.params.memory)!==JSON.stringify(memory) || result.calls.some(c=>c.method==='prompt.submit')) throw new Error('Voice memory changed ownership or execution authority')
+  })
   await check('HOOK-UI-CONTEXT', 'Page changes append quiet metadata without retargeting the call or requesting speech.', async () => {
     await fresh()
     const before = await page.evaluate(() => window.qa.sent.filter(e => e.type === 'response.create').length)
@@ -262,6 +295,69 @@ try {
     if (state.requests.length !== 1 || !state.requests[0].displayText.includes('Only inspect')) throw new Error('Wrong or duplicate submission')
     if (!state.sent.some(e => e.item?.content?.[0]?.text?.includes('submittedRequest'))) throw new Error('Voice has no receipt')
     if (state.sent.filter(e => e.type === 'response.create').length !== before) throw new Error('Receipt started unsolicited speech')
+  })
+  await check('HOOK-VERBAL', 'Exact audible readback allows one clear verbal approval; no model-side submit authority.', async () => {
+    await page.goto(`${url}/qa/realtime.html`)
+    await page.waitForFunction(() => Boolean(window.qa))
+    await page.evaluate(() => {
+      const q = window.qa
+      q.realtime.setSettings({...q.realtime.settings, approval:'verbal'})
+      return q.realtime.start()
+    })
+    await page.waitForFunction(() => window.qa.realtime.snapshot.status === 'listening')
+    await page.evaluate(() => {
+      const q = window.qa
+      q.frame({type:'response.created',response:{id:'draft',metadata:q.sent.at(-1).response.metadata}})
+      q.frame({type:'response.done',response:{id:'draft',status:'completed',output:[{type:'function_call',name:'draft_hermes_request',call_id:'draft-voice',arguments:JSON.stringify({message:'Inspect the build. Do not change files.'})}]}})
+    })
+    await page.waitForFunction(() => window.qa.sent.some(e => e.item?.call_id === 'draft-voice'))
+    if (await page.evaluate(() => window.qa.approved.length)) throw new Error('Draft was sent before readback')
+    await page.evaluate(() => {
+      const q = window.qa
+      q.frame({type:'response.created',response:{id:'readback',metadata:q.sent.filter(e=>e.type==='response.create').at(-1).response.metadata}})
+      q.frame({type:'output_audio_buffer.started',response_id:'readback'})
+      q.frame({type:'response.output_audio_transcript.done',response_id:'readback',transcript:'Inspect the build. Do not change files. Send that?'})
+      q.frame({type:'response.done',response:{id:'readback',status:'completed',output:[]}})
+      q.frame({type:'output_audio_buffer.stopped',response_id:'readback'})
+      q.frame({type:'input_audio_buffer.speech_started',item_id:'yes'})
+      q.frame({type:'conversation.item.input_audio_transcription.completed',item_id:'yes',transcript:'Yes'})
+    })
+    await page.waitForFunction(() => window.qa.approved.length === 1)
+    const request = await page.evaluate(() => window.qa.approved[0])
+    if (!request.displayText.endsWith('Inspect the build. Do not change files.')) throw new Error('Verbal approval changed the draft')
+  })
+  await check('HOOK-WEB-OFFER', 'Web opening is an exact-address offer, not model-triggered navigation or a false opened receipt.', async () => {
+    await fresh()
+    const before = page.url()
+    await page.evaluate(() => {
+      const q = window.qa
+      q.frame({type:'response.created',response:{id:'offer',metadata:q.sent.at(-1).response.metadata}})
+      q.frame({type:'response.done',response:{id:'offer',status:'completed',output:[{type:'function_call',name:'offer_to_open_webpage',call_id:'offer-page',arguments:JSON.stringify({url:'https://example.test/complete#tail'})}]}})
+    })
+    await page.waitForFunction(() => window.qa.realtime.snapshot.webpageUrl === 'https://example.test/complete#tail')
+    const output = await page.evaluate(() => JSON.parse(window.qa.sent.find(e=>e.item?.call_id==='offer-page').item.output))
+    if (output.status !== 'pending_user_click' || page.url() !== before) throw new Error('Offer navigated or claimed completion')
+    await page.evaluate(() => window.qa.realtime.dismissWebpage())
+    await page.waitForFunction(() => !window.qa.realtime.snapshot.webpageUrl)
+  })
+  await check('HOOK-LARGE-READ', 'Complete webpage evidence crosses the real hook in bounded lossless transport frames before one tool completion.', async () => {
+    await fresh()
+    await page.evaluate(() => {
+      const q = window.qa
+      q.setKnowledgeResult({text:'complete evidence '.repeat(5000), coverage:{complete:true}})
+      q.frame({type:'response.created',response:{id:'page-read',metadata:q.sent.at(-1).response.metadata}})
+      q.frame({type:'response.done',response:{id:'page-read',status:'completed',output:[{type:'function_call',name:'read_voice_webpage',call_id:'read-page',arguments:JSON.stringify({url:'https://example.test/report'})}]}})
+    })
+    await page.waitForFunction(() => window.qa.sent.some(e=>e.item?.call_id==='read-page'))
+    const result = await page.evaluate(() => {
+      const events = window.qa.sent
+      const parts = events.flatMap(e=>{try {const p=JSON.parse(e.item?.content?.[0]?.text); return p.callId==='read-page'?[p]:[]} catch{return []}})
+      const text = parts.sort((a,b)=>a.index-b.index).map(p=>p.body).join('')
+      return {text:JSON.parse(text).text, outputs:events.filter(e=>e.item?.call_id==='read-page').length,
+        max:Math.max(...events.map(e=>new TextEncoder().encode(JSON.stringify(e)).length)),
+        request:window.qa.gatewayCalls.find(c=>c.method==='pet.realtime.knowledge')}
+    })
+    if (result.text !== 'complete evidence '.repeat(5000) || result.outputs !== 1 || result.max > 16384 || result.request.params.operation !== 'webpage') throw new Error('Whole result transport or webpage routing failed')
   })
   await check('HOOK-018', 'External context replays only its own completed voice turns on reconnect.', async () => {
     await page.goto(`${url}/qa/realtime.html`)

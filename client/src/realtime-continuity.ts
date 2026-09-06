@@ -15,6 +15,8 @@ export interface VoiceTurn { id: string; user: string; assistant: string }
 
 export function voiceToolPhase(name: string, phase: 'started' | 'completed' | 'failed'): string {
   const known = ['wait_for_user', 'read_attached_context', 'propose_attached_action', 'draft_hermes_request',
+    'get_ui_context', 'get_session_workers', 'read_worker_activity', 'draft_worker_steer', 'read_voice_conversation',
+    'read_voice_memory', 'recall_voice_memory', 'save_voice_memory', 'forget_voice_memory', 'search_voice_web', 'read_voice_webpage',
     'get_context_snapshot', 'get_session_context', 'get_pet_sidechat_history', 'get_session_activity',
     'read_session_context', 'search_session_context']
   return `tool.${known.includes(name) ? name : 'unknown'}.${phase}`

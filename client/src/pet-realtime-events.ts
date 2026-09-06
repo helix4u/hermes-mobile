@@ -121,7 +121,7 @@ export function realtimeFunctionCalls(value: unknown): RealtimeFunctionCall[] {
 export function realtimeResponseId(value: unknown): string {
   const event = record(value)
   const response = record(event?.response)
-  return typeof response?.id === 'string' ? response.id : ''
+  return typeof response?.id === 'string' ? response.id : typeof event?.response_id === 'string' ? event.response_id : ''
 }
 
 export function realtimeResponseCompleted(value: unknown): boolean {

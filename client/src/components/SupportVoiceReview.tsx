@@ -1,21 +1,24 @@
 import { useRef, useState } from 'react'
 import { SUPPORT_VOICE_ACTIONS, type SupportVoiceReview as Review } from '../support-voice'
+import { VoiceReviewDialog } from './VoiceReviewDialog'
+import { VoiceReviewText } from './VoiceReviewText'
 
-export function SupportVoiceReview({ review, onApprove, onCancel }: {
+export function SupportVoiceReview({ review, onApprove, onCancel, onEdit }: {
   review: Review
   onApprove: (text: string) => Promise<void>
   onCancel: () => void
+  onEdit: (text: string) => void
 }) {
   const [text, setText] = useState(review.text)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const submitting = useRef(false)
-  return <section className="support-voice-review" aria-label="Review voice action">
+  return <VoiceReviewDialog label="Review Support action"><section className="support-voice-review" aria-label="Review voice action">
     <strong>{SUPPORT_VOICE_ACTIONS[review.action]}</strong>
     <small>{review.title} · {review.targetId}</small>
     <small>Nothing has run. Review and edit before approval. Never posts to Discord.</small>
-    <textarea aria-label="Reviewed support action text" value={text} maxLength={20000}
-      disabled={busy} onChange={event => setText(event.target.value)} rows={3} />
+    <VoiceReviewText aria-label="Reviewed support action text" value={text}
+      disabled={busy} onChange={event => { setText(event.target.value); onEdit(event.target.value) }} rows={3} />
     {error && <p role="alert">{error}</p>}
     <div className="support-heading-actions">
       <button disabled={busy} type="button" onClick={() => {
@@ -27,5 +30,5 @@ export function SupportVoiceReview({ review, onApprove, onCancel }: {
       }}>{busy ? 'Submitting...' : 'Approve action'}</button>
       <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
     </div>
-  </section>
+  </section></VoiceReviewDialog>
 }

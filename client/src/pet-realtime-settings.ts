@@ -5,7 +5,7 @@ export const REALTIME_EFFORTS = ['default', 'minimal', 'low', 'medium', 'high', 
 export interface RealtimeSettings {
   maxWorkers?: number
   mode?: 'pet' | 'session'
-  approval?: 'on' | 'smart' | 'off'
+  approval?: 'on' | 'smart' | 'off' | 'verbal'
   noiseReduction?: 'near_field' | 'far_field' | 'off'
 
   model: (typeof REALTIME_MODELS)[number]
@@ -29,7 +29,7 @@ export function normalizeRealtimeSettings(value: unknown): RealtimeSettings {
   return { model, effort,
     ...(typeof record.maxWorkers === 'number' && Number.isInteger(record.maxWorkers) && record.maxWorkers >= 0 && record.maxWorkers <= 16 ? { maxWorkers: record.maxWorkers } : {}),
     ...(['pet', 'session'].includes(String(record.mode)) ? { mode: record.mode as RealtimeSettings['mode'] } : {}),
-    ...(['on', 'smart', 'off'].includes(String(record.approval)) ? { approval: record.approval as RealtimeSettings['approval'] } : {}),
+    ...(['on', 'smart', 'off', 'verbal'].includes(String(record.approval)) ? { approval: record.approval as RealtimeSettings['approval'] } : {}),
     ...(['near_field', 'far_field', 'off'].includes(String(record.noiseReduction)) ? { noiseReduction: record.noiseReduction as RealtimeSettings['noiseReduction'] } : {}),
     ...(record.diagnostics === true ? { diagnostics: true } : {}),
     ...(typeof record.microphoneId === 'string' && record.microphoneId.length <= 256 && record.microphoneId

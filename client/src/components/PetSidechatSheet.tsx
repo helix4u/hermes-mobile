@@ -56,6 +56,7 @@ interface SidechatMessage {
 }
 
 interface PetSidechatSheetProps {
+  externalReview?: boolean
   settingsRequest?: number
   busy: boolean
   error: string
@@ -91,6 +92,7 @@ interface PetSidechatSheetProps {
 }
 
 export function PetSidechatSheet({
+  externalReview = false,
   settingsRequest = 0,
   busy,
   error,
@@ -140,7 +142,7 @@ export function PetSidechatSheet({
       page.style.left = `${viewport?.offsetLeft || 0}px`
     }
     const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.stopPropagation(); closeRef.current() }
+      if (event.key === 'Escape' && !document.querySelector('dialog[open]')) { event.stopPropagation(); closeRef.current() }
     }
     resize()
     window.visualViewport?.addEventListener('resize', resize)
@@ -148,7 +150,7 @@ export function PetSidechatSheet({
     window.addEventListener('resize', resize)
     document.addEventListener('keydown', key)
     const listener = Capacitor.isNativePlatform()
-      ? CapacitorApp.addListener('backButton', () => closeRef.current()) : null
+      ? CapacitorApp.addListener('backButton', () => { if (!document.querySelector('dialog[open]')) closeRef.current() }) : null
     return () => {
       siblings.forEach(({ node, inert }) => { node.inert = inert })
       window.visualViewport?.removeEventListener('resize', resize)
@@ -391,6 +393,7 @@ export function PetSidechatSheet({
               <select aria-label="Voice handoff review" disabled={realtimeActive} value={realtime.settings.approval ?? 'on'}
                 onChange={event => realtime.setSettings?.({ ...realtime.settings!, approval: event.target.value as RealtimeSettings['approval'] })}>
                 <option value="on">On: review every request</option>
+                <option value="verbal">Read aloud, then ask to send</option>
                 <option value="smart">Smart: reads automatic, handoffs reviewed</option>
                 <option value="off">Off: auto-send to Hermes</option>
               </select>
@@ -458,7 +461,7 @@ export function PetSidechatSheet({
           </div>
         )}
         {stats?.billing && <RealtimeCostMeter usage={stats.billing} />}
-        {realtime.snapshot.hermesDraftStatus !== 'idle' && (
+        {!externalReview && realtime.snapshot.hermesDraftStatus !== 'idle' && (
           <section className="pet-realtime-hermes-draft" aria-label="Review Hermes request" ref={reviewRef}>
             {realtime.snapshot.workerTarget && <small>Steer worker: {realtime.snapshot.workerTarget}</small>}
             <header>

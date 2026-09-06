@@ -231,7 +231,10 @@ export function RichEmbed({ descriptor }: { descriptor: EmbedDescriptor }) {
         allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
         allowFullScreen
         loading="lazy"
-        referrerPolicy="no-referrer"
+        // YouTube requires client identification (error 153 when suppressed).
+        // Capacitor serves this app from HTTPS localhost; send only its origin
+        // cross-site, never the session route/query. Other providers stay private.
+        referrerPolicy={descriptor.provider === 'youtube' ? 'strict-origin-when-cross-origin' : 'no-referrer'}
         sandbox="allow-forms allow-presentation allow-popups allow-same-origin allow-scripts"
         src={descriptor.embedUrl}
         title={`${descriptor.label} embed`}

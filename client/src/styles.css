@@ -60,6 +60,42 @@
   font-size: 12px;
 }
 .voice-review-notice button { min-height: 36px; padding: 4px 8px; }
+.voice-review-dialog {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  width: min(42rem, calc(100vw - 2rem - var(--safe-inset-left) - var(--safe-inset-right)));
+  max-height: calc(var(--review-viewport-height, 100dvh) - 2rem - var(--safe-inset-top) - var(--safe-inset-bottom));
+  margin: 0;
+  padding: .8rem;
+  border: 1px solid var(--stroke-strong);
+  border-radius: .65rem;
+  background: var(--surface);
+  color: var(--text);
+  overflow: auto;
+}
+.voice-review-dialog::backdrop { background: color-mix(in srgb, var(--bg) 60%, transparent); }
+.voice-review-dialog[open] { display: flex; flex-direction: column; gap: .65rem; }
+.voice-review-dialog > header,
+.voice-review-dialog footer,
+.voice-review-dialog .support-heading-actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: .5rem; flex: 0 0 auto;
+}
+.voice-review-dialog > header { justify-content: space-between; }
+.voice-review-dialog button {
+  flex: 0 0 auto; width: auto; height: auto; min-height: 2.25rem;
+  padding: .35rem .7rem; font-size: .8rem;
+  border: 1px solid var(--stroke-strong); border-radius: .35rem;
+  background: var(--surface-2); color: var(--text);
+}
+.voice-review-dialog footer button:first-child { background: var(--text); color: var(--bg); }
+.voice-review-dialog [data-review-heading]:focus { outline: none; }
+.voice-review-dialog textarea {
+  width: 100%; min-height: 5rem; flex: 0 1 auto; resize: none;
+  font: inherit; font-size: .9rem; line-height: 1.45;
+  padding: .65rem; color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--stroke); border-radius: .35rem;
+}
+.voice-review-dialog .support-voice-review { border: 0; margin: 0; padding: 0; min-height: 0; }
 .voice-settings-shortcut { min-width: 38px; min-height: 36px; padding: 4px 6px; font-size: 12px; }
 
 html,
@@ -1484,6 +1520,7 @@ h3 {
 
 .pet-realtime-hermes-draft {
   display: grid;
+  align-content: start;
   gap: 0.42rem;
   margin: 0.35rem 0.65rem 0.15rem;
   border-top: 1px solid var(--stroke);
@@ -1524,11 +1561,17 @@ h3 {
 
 .pet-realtime-hermes-draft > div {
   display: flex;
+  align-items: center;
+  align-self: start;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.38rem;
 }
 
 .pet-realtime-hermes-draft button {
+  flex: 0 0 auto;
+  align-self: center;
+  height: auto;
   min-height: 1.85rem;
   border: 1px solid var(--stroke);
   border-radius: 0.52rem;
@@ -1542,6 +1585,23 @@ h3 {
 .pet-realtime-hermes-draft button:first-child {
   border-color: color-mix(in srgb, var(--gold) 58%, var(--stroke));
   color: var(--gold);
+}
+
+/* Review owns the available content viewport. Only the request scrolls;
+   neither action buttons nor empty grid tracks absorb the spare height. */
+.voice-page .pet-realtime-hermes-draft {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.voice-page .pet-realtime-hermes-draft > header,
+.voice-page .pet-realtime-hermes-draft > small,
+.voice-page .pet-realtime-hermes-draft > div { flex: 0 0 auto; }
+.voice-page .pet-realtime-hermes-draft textarea {
+  flex: 1 1 auto;
+  min-height: 3rem;
+  max-height: none;
+  resize: none;
 }
 
 .pet-realtime-inspector {

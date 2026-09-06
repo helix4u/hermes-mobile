@@ -17,6 +17,7 @@ let contextRequests = 0
 const approved: any[] = []
 const histories: any[] = []
 const gatewayCalls: Array<{method:string;params:unknown}> = []
+let knowledgeResult: unknown = {}
 let credentialsResolve: ((value: any) => void) | null = null
 let holdCredentials = false
 let connectionFails = false
@@ -54,9 +55,10 @@ Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: tr
   return { getAudioTracks: () => [track], getTracks: () => [track] }
 }})
 window.fetch = async () => { if (connectionFails) throw new Error('Synthetic connection failure'); return new Response('synthetic-answer') }
-const credentials = { requestDelegationLimit: true, endpoint: '/synthetic', clientSecret: 'synthetic', openingInstruction: 'Hey.', model: 'gpt-realtime', contextStats: { messages: 1, characters: 20 } }
+const credentials = { initialContextEvents: [1, 2].map(index => ({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `Synthetic complete context part ${index}/2` }] } })), requestDelegationLimit: true, endpoint: '/synthetic', clientSecret: 'synthetic', openingInstruction: 'Hey.', model: 'gpt-realtime', contextStats: { messages: 1, characters: 20 } }
 const gateway = { request: async (method: string, params:unknown) => {
   gatewayCalls.push({method,params})
+  if (method === 'pet.realtime.knowledge') return knowledgeResult
   if (method === 'delegation.status') return {active:[{subagent_id:'worker-a'}]}
   if (method === 'subagent.steer') return {status:'queued'}
   if (method === 'pet.realtime.context') {
@@ -83,7 +85,7 @@ function Fixture() {
     onReply: () => {}, personalityId: 'synthetic', personalityName: 'Companion', prompt: 'Synthetic test.' })
   ;(window as any).qa = { realtime, sent, tracks, peers, failPlayback: () => { playbackFails = true; peers.at(-1).ontrack({ streams: [new MediaStream()] }) }, disconnect: () => { const peer = peers.at(-1); peer.connectionState = 'disconnected'; peer.onconnectionstatechange() }, frame: (data: any) => channel.onmessage({ data: JSON.stringify(data) }) }
   Object.assign((window as any).qa, { constraints, get sessionRequests() { return sessionRequests }, get contextsClosed() { return contextsClosed },
-    approved, histories, gatewayCalls, setView, get contextRequests() { return contextRequests }, holdContext: () => { holdContext = true }, releaseContext: () => contextResolve?.({ context: [] }),
+    approved, histories, gatewayCalls, setView, setKnowledgeResult: (value: unknown) => { knowledgeResult = value }, get contextRequests() { return contextRequests }, holdContext: () => { holdContext = true }, releaseContext: () => contextResolve?.({ context: [] }),
     hold: () => { holdCredentials = true }, release: () => credentialsResolve?.(credentials), failConnection: () => { connectionFails = true }, failMicrophone: () => { microphoneFails = true } })
   return <main className="app-shell">
     <header className="topbar"><button className="brand-button"><span className="brand-mark-shell"><img className="brand-mark" src="/nous-sidecar-128.png"/><span className="brand-exp-badge">EXP</span></span><span><small>Hermes</small><strong>Mobile</strong></span></button>
