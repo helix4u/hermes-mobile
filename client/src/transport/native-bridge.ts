@@ -107,6 +107,7 @@ export interface WakeWordUtteranceEvent {
 export interface SessionOpenTarget {
   id: string
   connectionId: string
+  profile?: string
   runtimeSessionId: string
   storedSessionId: string
   title: string
@@ -148,6 +149,7 @@ interface HermesNativePlugin {
   enableSessionNotifications(): Promise<{ enabled: boolean }>
   showSessionResultNotification(options: {
     connectionId: string
+    profile: string
     runtimeSessionId: string
     storedSessionId: string
     title: string

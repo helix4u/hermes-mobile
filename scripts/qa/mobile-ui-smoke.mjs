@@ -138,7 +138,8 @@ try {
   await check('UI-010', async () => {
     ensure(!await page.getByRole('button', { name: 'Close pet sidechat', exact: true }).isVisible(), 'Existing pet interaction is open; leave it untouched.')
     try {
-      await page.getByRole('button', { name: 'Open voice conversation', exact: true }).click()
+      await page.locator('.chat-view.active .thread-actions-trigger').click()
+      await page.getByRole('button', { name: 'Voice conversation', exact: true }).click()
       await page.locator('details.pet-realtime-settings > summary').click()
       const control = page.getByRole('combobox', { name: 'Pet live voice', exact: true })
       await control.waitFor({ state: 'visible' })
@@ -161,7 +162,8 @@ try {
     ensure(/^[01]$/.test(auto) && /^[0-3]$/.test(rotation), 'Unknown rotation preference; leave unchanged.')
     try {
       stage = 'open voice page'
-      await page.getByRole('button', { name: 'Open voice conversation', exact: true }).click()
+      await page.locator('.chat-view.active .thread-actions-trigger').click()
+      await page.getByRole('button', { name: 'Voice conversation', exact: true }).click()
       stage = 'rotate device and await landscape viewport'
       adb('shell', 'settings', 'put', 'system', 'accelerometer_rotation', '0')
       adb('shell', 'settings', 'put', 'system', 'user_rotation', '1')

@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import path from 'node:path'
 import { saveReport } from './report.mjs'
+import { voiceTranscriptCases } from './voice-transcript-cases.mjs'
+import { voiceApprovalCases } from './voice-approval-cases.mjs'
+import { voiceNoiseCases } from './voice-noise-cases.mjs'
+import { supportVoiceApprovalCases } from './support-voice-approval-cases.mjs'
 
 const { values } = parseArgs({ options: { out: { type: 'string' },
   'playwright-package': { type: 'string' }, channel: { type: 'string', default: 'msedge' } } })
@@ -38,6 +42,10 @@ try {
   await context.route('**/*', route => new URL(route.request().url()).origin === url ? route.continue() : route.abort())
   page = await context.newPage()
   page.setDefaultTimeout(5000)
+  await voiceTranscriptCases({ page, url, check })
+  await voiceApprovalCases({ page, url, check })
+  await voiceNoiseCases({ page, url, check })
+  await supportVoiceApprovalCases({ page, url, check })
   const fresh = async () => {
     // First navigation includes Vite dependency compilation. That setup time is
     // not a voice latency assertion; keep the actual state guards at five seconds.
@@ -249,15 +257,15 @@ try {
         && window.qa.realtime.snapshot.error.includes('Selected microphone is unavailable'))
       if (await page.evaluate(() => window.qa.sessionRequests !== 0 || window.qa.realtime.snapshot.active)) throw new Error('Missing input contacted provider or stayed active')
     })
-  await check('UI-VOICE-HEADER', 'Always-visible voice settings and microphone stay in one compact row.', async () => {
+  await check('UI-VOICE-HEADER', 'The live microphone and identity stay in one compact row after removal of the redundant settings shortcut.', async () => {
     await fresh()
     for (const width of [320, 360, 384]) {
       await page.setViewportSize({ width, height: 824 })
       const geometry = await page.evaluate(() => {
         const box = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height } }
-        return { header:box('.topbar'), brand:box('.brand-button'), settings:box('.voice-settings-shortcut'), status:box('.topbar-statuses'), scrollWidth:document.documentElement.scrollWidth }
+        return { header:box('.topbar'), brand:box('.brand-button'), microphone:box('.topbar .live-voice-mic'), status:box('.topbar-statuses'), scrollWidth:document.documentElement.scrollWidth }
       })
-      if (geometry.header.height > 80 || geometry.brand.right > geometry.status.left + 1 || geometry.status.right > width || geometry.scrollWidth > width || geometry.settings.height < 32) throw new Error(`Header layout at ${width}: ${JSON.stringify(geometry)}`)
+      if (geometry.header.height > 80 || geometry.brand.right > geometry.status.left + 1 || geometry.status.right > width || geometry.scrollWidth > width || geometry.microphone.height < 32) throw new Error(`Header layout at ${width}: ${JSON.stringify(geometry)}`)
     }
   })
   await check('HOOK-016', 'Barge-in resolves the accepted read without starting an obsolete answer.', async () => {
@@ -272,6 +280,7 @@ try {
     const before = await page.evaluate(() => window.qa.sent.filter(e => e.type === 'response.create').length)
     await page.evaluate(() => {
       window.qa.frame({ type: 'input_audio_buffer.speech_started', item_id: 'interrupt-read' })
+      window.qa.frame({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'interrupt-read', transcript: 'Stop talking.' })
       window.qa.releaseContext()
     })
     await page.waitForFunction(() => window.qa.sent.some(e => e.item?.call_id === 'call-read'))

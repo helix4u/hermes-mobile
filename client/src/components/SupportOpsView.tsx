@@ -54,7 +54,8 @@ import type {
 import { ImagePreview } from './ImageViewer'
 import { MarkdownContent } from './MarkdownContent'
 import { useVoiceCatalog } from './useVoiceCatalog'
-import { prepareSupportVoiceContext, supportVoiceContext, type SupportVoiceReview as VoiceReview } from '../support-voice'
+import { prepareSupportVoiceContext, supportReviewSnapshot, supportVoiceContext, type SupportVoiceReview as VoiceReview } from '../support-voice'
+import { sameVoiceReview, type VoiceContextReview } from '../voice-context-review'
 import { SupportVoiceReview } from './SupportVoiceReview'
 import type { PetRealtimeContextTarget } from '../usePetRealtime'
 
@@ -1630,6 +1631,9 @@ export function SupportOpsView({
   const [voiceReview, setVoiceReview] = useState<VoiceReview | null>(null)
   useEffect(() => { onVoiceReviewPending?.(Boolean(voiceReview)); return () => onVoiceReviewPending?.(false) }, [voiceReview, onVoiceReviewPending])
   const voiceReviewRef = useRef(voiceReview)
+  const voiceApprovalBusy = useRef(false)
+  const [voiceReviewSubmitting, setVoiceReviewSubmitting] = useState(false)
+  const [voiceReviewAttempted, setVoiceReviewAttempted] = useState(false)
   const voiceGeneration = useRef(0)
   voiceReviewRef.current = voiceReview
   const voiceScope = useRef({ connected, transport, alive: true })
@@ -1658,14 +1662,75 @@ export function SupportOpsView({
       return result
     }
     const prepared = await prepareSupportVoiceContext(supportVoiceContext(connectionId, target, request, review => {
+      setVoiceReviewAttempted(false)
       voiceReviewRef.current = review
       setVoiceReview(review)
       onNotice?.('Action ready for review in Support Ops. Nothing has run.')
-    }, () => voiceQueueView.current))
+    }, () => voiceQueueView.current, {
+      current: () => generation === voiceGeneration.current && voiceScope.current.alive
+        ? supportReviewSnapshot(voiceReviewRef.current) : null,
+      approve: async review => {
+        if (generation !== voiceGeneration.current) throw new Error('Support voice target changed')
+        await approveVoiceReview(review)
+      },
+      cancel: review => {
+        if (voiceApprovalBusy.current) throw new Error('This action is already being submitted and cannot be cancelled.')
+        if (generation === voiceGeneration.current && sameVoiceReview(review, supportReviewSnapshot(voiceReviewRef.current))) clearVoiceReview()
+      },
+    }))
     if (generation !== voiceGeneration.current) return
     await onStartVoiceSession(prepared)
   }
   const [stats, setStats] = useState<SupportStatsPayload | null>(null)
+  const clearVoiceReview = () => {
+    if (voiceApprovalBusy.current) return
+    voiceReviewRef.current = null
+    setVoiceReview(null)
+  }
+  const editVoiceReview = (text: string) => {
+    const current = voiceReviewRef.current
+    if (!current || voiceApprovalBusy.current) return
+    voiceReviewRef.current = { ...current, text }
+    setVoiceReview(voiceReviewRef.current)
+  }
+  const approveVoiceReview = async (snapshot: VoiceContextReview) => {
+    const current = voiceReviewRef.current
+    if (voiceApprovalBusy.current || !current || !sameVoiceReview(snapshot, supportReviewSnapshot(current))) {
+      throw new Error('The pending review changed. Review the current exact action first.')
+    }
+    voiceApprovalBusy.current = true
+    setVoiceReviewSubmitting(true)
+    setVoiceReviewAttempted(true)
+    try {
+      await voiceRequest(`/voice/reviews/${current.id}/approve`, {
+        targetId: current.targetId, action: current.action, text: current.text,
+      })
+      // Accepted submission retires the review directly. The user-facing
+      // cancellation path must remain blocked until dispatch has settled.
+      if (voiceReviewRef.current === current) {
+        voiceReviewRef.current = null
+        setVoiceReview(null)
+      }
+    } finally {
+      voiceApprovalBusy.current = false
+      setVoiceReviewSubmitting(false)
+    }
+    // Receipt delivery and view refresh are not submission. Once accepted,
+    // their failure must not reject approval or offer the same review again.
+    try {
+      onVoiceReceipt?.(current.targetId, current.action)
+      await loadQueue()
+      if (selectedIdRef.current) await loadThread(selectedIdRef.current, true)
+    } catch {
+      setLocalError('The action was submitted, but the Support view could not refresh. Refresh Support Ops to check its progress.')
+    }
+  }
+  const approveVoiceReviewButton = async (text: string) => {
+    editVoiceReview(text)
+    const snapshot = supportReviewSnapshot(voiceReviewRef.current)
+    if (!snapshot) throw new Error('That review is no longer pending.')
+    await approveVoiceReview(snapshot)
+  }
   const [view, setView] = useState<'queue' | 'overview'>('queue')
   const [health, setHealth] = useState<SupportOpsHealth | null>(null)
   const [operatorConfig, setOperatorConfig] =
@@ -2273,14 +2338,8 @@ export function SupportOpsView({
           </div>
         </header>
         {voiceReview && <SupportVoiceReview key={voiceReview.id} review={voiceReview}
-          onEdit={text => setVoiceReview(current => current?.id === voiceReview.id ? {...current, text} : current)}
-          onCancel={() => setVoiceReview(null)} onApprove={async text => {
-            await voiceRequest(`/voice/reviews/${voiceReview.id}/approve`, { targetId: voiceReview.targetId, action: voiceReview.action, text })
-            onVoiceReceipt?.(voiceReview.targetId, voiceReview.action)
-            setVoiceReview(null)
-            await loadQueue()
-            if (selectedIdRef.current) await loadThread(selectedIdRef.current, true)
-          }} />}
+          submitting={voiceReviewSubmitting} submissionAttempted={voiceReviewAttempted}
+          onEdit={editVoiceReview} onCancel={clearVoiceReview} onApprove={approveVoiceReviewButton} />}
 
         {localError && <div className="support-inline-error">{localError}</div>}
         {health && !targetedSyncAvailable && (
@@ -2849,13 +2908,8 @@ export function SupportOpsView({
         </div>
       </header>
       {voiceReview && <SupportVoiceReview key={voiceReview.id} review={voiceReview}
-        onEdit={text => setVoiceReview(current => current?.id === voiceReview.id ? {...current, text} : current)}
-        onCancel={() => setVoiceReview(null)} onApprove={async text => {
-          await voiceRequest(`/voice/reviews/${voiceReview.id}/approve`, { targetId: voiceReview.targetId, action: voiceReview.action, text })
-          onVoiceReceipt?.(voiceReview.targetId, voiceReview.action)
-          setVoiceReview(null)
-          await loadQueue()
-        }} />}
+        submitting={voiceReviewSubmitting} submissionAttempted={voiceReviewAttempted}
+        onEdit={editVoiceReview} onCancel={clearVoiceReview} onApprove={approveVoiceReviewButton} />}
       {localError && <div className="support-inline-error">{localError}</div>}
       {health && !targetedSyncAvailable && (
         <div className="support-inline-warning">

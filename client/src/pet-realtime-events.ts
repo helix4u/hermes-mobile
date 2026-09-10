@@ -49,7 +49,7 @@ export function realtimeUserTranscript(value: unknown): string {
   return realtimeEventType(event) ===
     'conversation.item.input_audio_transcription.completed' &&
     typeof event?.transcript === 'string'
-    ? event.transcript.trim()
+    ? realtimeSpeechText(event.transcript)
     : ''
 }
 
@@ -63,7 +63,9 @@ export function realtimeInputItemId(value: unknown): string {
 }
 
 export function realtimeTranscriptIsNoise(value: string): boolean {
-  const normalized = value
+  const speech = realtimeSpeechText(value)
+  if (!/[\p{L}\p{N}]/u.test(speech)) return true
+  const normalized = speech
     .trim()
     .toLowerCase()
     .replace(/^[[(<]\s*/, '')
@@ -71,6 +73,23 @@ export function realtimeTranscriptIsNoise(value: string): boolean {
     .replace(/[.!?,;:…]+$/g, '')
     .trim()
   return /^(?:ahem|cough(?:ing|s)?|clears? (?:his |her |their )?throat|throat clear(?:ing)?|sneez(?:e|es|ing)|sniff(?:s|ing)?|rustl(?:e|es|ing)|background noise|inaudible|silence)$/.test(normalized)
+}
+
+/** Square-bracket ASR annotations are not user words. Keep all outside text,
+ * including negation and punctuation. Unmatched brackets remain literal.
+ */
+export function realtimeSpeechText(value: string): string {
+  let depth = 0, start = 0, copied = 0
+  let speech = ''
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] === '[') {
+      if (depth++ === 0) start = index
+    } else if (value[index] === ']' && depth && --depth === 0) {
+      speech += value.slice(copied, start) + ' '
+      copied = index + 1
+    }
+  }
+  return copied ? (speech + value.slice(copied)).replace(/\s+/g, ' ').trim() : value.trim()
 }
 
 export function realtimeAssistantTranscript(
@@ -122,6 +141,13 @@ export function realtimeResponseId(value: unknown): string {
   const event = record(value)
   const response = record(event?.response)
   return typeof response?.id === 'string' ? response.id : typeof event?.response_id === 'string' ? event.response_id : ''
+}
+
+export function realtimeTranscriptPartId(value: unknown): string {
+  const event = record(value)
+  if (typeof event?.item_id === 'string') return `${event.item_id}:${event.content_index ?? 0}`
+  if (typeof event?.output_index === 'number') return `${event.output_index}:${event.content_index ?? 0}`
+  return 'main'
 }
 
 export function realtimeResponseCompleted(value: unknown): boolean {

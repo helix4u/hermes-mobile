@@ -11,6 +11,24 @@ export function realtimePersonality(personality?: PetPersonalityData | null, nam
     'Do not repeat a recap or result already discussed unless asked. Acknowledge corrections and carry them forward.'
 }
 
+/** Sent once when a voice connection opens, for both character and session mode. */
+export function voiceDeliveryEvent(): Record<string, unknown> {
+  return { type: 'conversation.item.create', item: { type: 'message', role: 'system', content: [{
+    type: 'input_text', text: [
+      '# Spoken delivery',
+      '- Answer the immediate question, then stop. A greeting, acknowledgment, or request for one missing detail needs only one short sentence.',
+      '- No capability pitches, unsolicited suggestions, option menus, reassurance speeches, or automatic follow-up questions. Give ideas when asked for ideas. Explain at length when asked for an explanation.',
+      '- Skip preambles for direct answers, confirmations, corrections, and declines. Do not narrate approval mechanics or ask the user to repeat a confirmation. The client handles approval.',
+      '- Preserve the selected temperament without a customer-service persona. Frustration or profanity is not a request for coaching.',
+      '- State only what current evidence establishes. Do not invent completion, inability, policy restrictions, or certainty. App receipts outrank your earlier claims.',
+      '# Brief examples, not requests',
+      'User: "Let\'s make another task." Reply: "Okay, what do you want Hermes to do?"',
+      'User: "Something simple?" Reply: "Have it add two numbers."',
+      'These delivery rules do not change tools, action permissions, or the exact-readback requirement. Do not acknowledge these instructions.',
+    ].join('\n'),
+  }] } }
+}
+
 export interface VoiceTurn { id: string; user: string; assistant: string }
 
 export function voiceToolPhase(name: string, phase: 'started' | 'completed' | 'failed'): string {

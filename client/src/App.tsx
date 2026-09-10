@@ -12,6 +12,8 @@ import { pollSupportAvailability } from './support-availability-poller'
 import { hostConnectionPresentation } from './connection-presentation'
 import { EmbedPreferencesProvider } from './embeds'
 import { ConnectionSheet } from './components/ConnectionSheet'
+import { ProfilesCronPanel } from './components/ProfilesCronPanel'
+import { canOpenProfileNotification, migrateProfileState, profileLiveSessions, profileStateKey } from './profiles'
 import { ControlPanel } from './components/ControlPanel'
 import { FilesView } from './components/FilesView'
 import { MobilePet } from './components/MobilePet'
@@ -302,8 +304,12 @@ function SendIcon() {
 
 export function App() {
   const initialConnection = useMemo<BrowserConnection>(
-    () =>
-      typeof window === 'undefined' ? defaultConnection : loadConnection(),
+    () => {
+      if (typeof window === 'undefined') return defaultConnection
+      const saved = loadConnection()
+      try { migrateProfileState(saved, window.localStorage) } catch { /* Storage can be unavailable. */ }
+      return saved
+    },
     [],
   )
   const nativeClient = isNativeHermesClient()
@@ -327,7 +333,7 @@ export function App() {
     () => initialSessionSnapshot?.sessions ?? [],
   )
   const [activeSessions, setActiveSessions] = useState<LiveSessionSummary[]>(
-    () => initialSessionSnapshot?.activeSessions ?? [],
+    () => profileLiveSessions(initialSessionSnapshot?.activeSessions ?? [], initialConnection.profile, ''),
   )
   const [projects, setProjects] = useState<ProjectTree[]>([])
   const [activeProjectId, setActiveProjectId] = useState('')
@@ -337,13 +343,13 @@ export function App() {
     () => (typeof window === 'undefined' ? [] : loadConnections()),
   )
   const [selectedStoredId, setSelectedStoredId] = useState(() =>
-    typeof window === 'undefined' ? '' : loadSelectedSession(initialConnection.id),
+    typeof window === 'undefined' ? '' : loadSelectedSession(profileStateKey(initialConnection)),
   )
   const [runtimeSessionId, setRuntimeSessionId] = useState('')
   const [preferredWorkspace, setPreferredWorkspace] = useState(() =>
     typeof window === 'undefined'
       ? ''
-      : loadPreferredWorkspace(initialConnection.id),
+      : loadPreferredWorkspace(profileStateKey(initialConnection)),
   )
   const [sessionCwd, setSessionCwd] = useState('')
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
@@ -356,7 +362,7 @@ export function App() {
     mode: 'preview' | 'reader'
   } | null>(null)
   const [draft, setDraft] = useState(() =>
-    typeof window === 'undefined' ? '' : loadDraft(initialConnection.id),
+    typeof window === 'undefined' ? '' : loadDraft(profileStateKey(initialConnection)),
   )
   const [transcript, setTranscript] = useState<TranscriptItem[]>([])
   const [workStatus, setWorkStatus] = useState(emptyWorkStatus)
@@ -517,7 +523,7 @@ export function App() {
     const value = sessionId.trim()
     selectedStoredIdRef.current = value
     setSelectedStoredId(value)
-    persistSelectedSession(connectionId, value)
+    persistSelectedSession(profileStateKey({ id: connectionId, profile: connectionRef.current.profile }), value)
   }
 
   function commitTurnActive(active: boolean) {
@@ -528,11 +534,11 @@ export function App() {
   useEffect(() => {
     cacheTranscript(
       transcriptCacheRef.current,
-      connection.id,
+      profileStateKey(connection),
       selectedStoredIdRef.current,
       transcript,
     )
-  }, [connection.id, transcript])
+  }, [connection.id, connection.profile, transcript])
 
   const commandSuggestions = useMemo(() => {
     const text = draft.trimStart()
@@ -665,7 +671,7 @@ export function App() {
     })
   const pet = usePetCompanion({
     connected,
-    connectionId: connection.id,
+    connectionId: profileStateKey(connection),
     ensureSession: () => ensureSession(),
     gateway: transportRef.current?.gateway ?? null,
     profile: connection.profile,
@@ -677,6 +683,7 @@ export function App() {
     turnActive,
   })
   const petRealtime = usePetRealtime({
+    transport: transportRef.current,
     uiContext: { page: petSidechatOpen ? 'voice' : activeTab, underlyingPage: activeTab,
       focusedSessionId: runtimeSessionId || undefined, focusedSessionTitle: activeSession?.title || undefined },
     sessionTitle: activeSession?.title || 'New conversation',
@@ -851,6 +858,7 @@ export function App() {
       ) {
         void HermesNative.showSessionResultNotification({
           connectionId: connectionRef.current.id,
+          profile: connectionRef.current.profile,
           runtimeSessionId: eventSessionId || runtimeSessionId,
           storedSessionId: selectedStoredIdRef.current,
           title: 'Hermes finished',
@@ -970,20 +978,22 @@ export function App() {
     applyThemeSelection(selection, hostSkin)
   }, [connection.id])
   useEffect(() => {
-    persistDraft(connection.id, draft)
-  }, [connection.id, draft])
+    persistDraft(profileStateKey(connection), draft)
+  }, [connection.id, connection.profile, draft])
   useEffect(() => {
     if (!connected || preferredWorkspace || !transportRef.current) return
-    void transportRef.current
+    const owner = transportRef.current
+    void owner
       .requestJson<{ cwd?: string }>('/api/fs/default-cwd')
       .then((result) => {
+        if (transportRef.current !== owner) return
         const cwd = String(result.cwd || '').trim()
         if (!cwd) return
         setPreferredWorkspace(cwd)
-        persistPreferredWorkspace(connection.id, cwd)
+        persistPreferredWorkspace(profileStateKey(connection), cwd)
       })
       .catch(() => undefined)
-  }, [connected, connection.id, preferredWorkspace])
+  }, [connected, connection.id, connection.profile, preferredWorkspace])
   useEffect(() => {
     setAutoSpeak(loadAutoSpeak(connection.id))
     const nextWakeWordMode = loadWakeWordMode(connection.id)
@@ -1061,7 +1071,7 @@ export function App() {
     let removeShareListener: (() => Promise<void>) | null = null
     const receiveShare = (share: SharedContent) => {
       if (disposed || !share?.id) return
-      setShareWorkspace(loadPreferredWorkspace(connectionRef.current.id))
+      setShareWorkspace(loadPreferredWorkspace(profileStateKey(connectionRef.current)))
       setPendingShare(share)
     }
     void HermesNative.addListener('shareReceived', receiveShare).then(
@@ -1590,8 +1600,8 @@ export function App() {
         : cached?.sessions ?? []
     const refreshedActiveSessions =
       activeResult.status === 'fulfilled'
-        ? activeResult.value.sessions ?? []
-        : cached?.activeSessions ?? []
+        ? profileLiveSessions(activeResult.value.sessions ?? [], profile, runtimeSessionIdRef.current)
+        : profileLiveSessions(cached?.activeSessions ?? [], profile, runtimeSessionIdRef.current)
     if (storedResult.status === 'fulfilled' || cached) setSessions(refreshedSessions)
     if (activeResult.status === 'fulfilled' || cached) setActiveSessions(refreshedActiveSessions)
     if (storedResult.status === 'fulfilled' || activeResult.status === 'fulfilled') {
@@ -1600,16 +1610,6 @@ export function App() {
         activeSessions: refreshedActiveSessions,
       })
     }
-    if (profile !== 'default') {
-      setProjects([])
-      setActiveProjectId('')
-      setProjectDetail(null)
-      return {
-        sessions: refreshedSessions,
-        activeSessions: refreshedActiveSessions,
-      }
-    }
-
     const projectId = activeProjectId
     void transport.gateway
       .request<ProjectsTreeResult>('projects.tree', {
@@ -1640,7 +1640,7 @@ export function App() {
   ): Promise<void> {
     if (transportRef.current !== transport) return
     const target = sessionRestoreTarget(
-      loadSelectedSession(connectionId),
+      loadSelectedSession(profileStateKey(transport.connection)),
       snapshot.sessions,
       snapshot.activeSessions,
     )
@@ -1650,7 +1650,7 @@ export function App() {
         try {
           await selectActiveSession(target.session)
         } catch {
-          const storedId = target.session.session_key || loadSelectedSession(connectionId)
+          const storedId = target.session.session_key || loadSelectedSession(profileStateKey(transport.connection))
           if (!storedId) return
           await selectSession({
             id: storedId,
@@ -1861,29 +1861,44 @@ export function App() {
   }
 
   function prepareConnectionView(nextConnection: BrowserConnection) {
+    petRealtime.stop()
+    stopPlayback()
+    cancelWakeCapture()
+    pet.cancelCommentary()
+    pet.sidechat.replace([])
+    petSidechatTranscriptRef.current = null
+    supportOpsTranscriptRef.current = null
+    setPetSidechatOpen(false)
+    setReaderImport(null)
+    setWakeReviewPending(false)
+    setThreadActionsOpen(false)
+    const saved = loadConnections().find(row => row.id === nextConnection.id)
+    if (saved) {
+      try { migrateProfileState(saved, window.localStorage) } catch { /* Keep live switching available. */ }
+    }
     sessionSelectionEpochRef.current += 1
     projectSelectionEpochRef.current += 1
     disconnect()
     transcriptFollowRef.current = true
     connectionRef.current = nextConnection
-    const selectedSessionId = loadSelectedSession(nextConnection.id)
+    const selectedSessionId = loadSelectedSession(profileStateKey(nextConnection))
     const cachedSnapshot = loadSessionSnapshot(nextConnection.id, nextConnection.profile)
     const cachedTranscript = selectedSessionId
-      ? readCachedTranscript(transcriptCacheRef.current, nextConnection.id, selectedSessionId)
+      ? readCachedTranscript(transcriptCacheRef.current, profileStateKey(nextConnection), selectedSessionId)
       : undefined
     selectedStoredIdRef.current = selectedSessionId
     runtimeSessionIdRef.current = ''
     setConnection(nextConnection)
-    setDraft(loadDraft(nextConnection.id))
+    setDraft(loadDraft(profileStateKey(nextConnection)))
     setSelectedStoredId(selectedSessionId)
     setRuntimeSessionId('')
     setWorkStatus(emptyWorkStatus())
-    setPreferredWorkspace(loadPreferredWorkspace(nextConnection.id))
+    setPreferredWorkspace(loadPreferredWorkspace(profileStateKey(nextConnection)))
     setSessionCwd('')
     setWorkspaceOpen(false)
     setTranscript(cachedTranscript ?? [])
     setSessions(cachedSnapshot?.sessions ?? [])
-    setActiveSessions(cachedSnapshot?.activeSessions ?? [])
+    setActiveSessions(profileLiveSessions(cachedSnapshot?.activeSessions ?? [], nextConnection.profile, ''))
     setProjects([])
     setActiveProjectId('')
     setProjectDetail(null)
@@ -1993,7 +2008,7 @@ export function App() {
     const selectionEpoch = ++sessionSelectionEpochRef.current
     const activeConnection = connectionRef.current
     const connectionId = activeConnection.id
-    const connectionWorkspace = loadPreferredWorkspace(connectionId)
+    const connectionWorkspace = loadPreferredWorkspace(profileStateKey(activeConnection))
     const selectionIsCurrent = () =>
       sessionSelectionEpochRef.current === selectionEpoch &&
       transportRef.current === transport &&
@@ -2001,7 +2016,7 @@ export function App() {
     const previousStoredId = selectedStoredIdRef.current
     cacheTranscript(
       transcriptCacheRef.current,
-      connectionId,
+      profileStateKey(activeConnection),
       previousStoredId,
       transcript,
     )
@@ -2050,12 +2065,12 @@ export function App() {
       const cached =
         readCachedTranscript(
           transcriptCacheRef.current,
-          connectionId,
+          profileStateKey(activeConnection),
           storedId,
         ) ??
         readCachedTranscript(
           transcriptCacheRef.current,
-          connectionId,
+          profileStateKey(activeConnection),
           session.id,
         )
       setTranscript((current) => {
@@ -2491,7 +2506,7 @@ export function App() {
         },
       )
       if (transportRef.current !== transport) return
-      setActiveSessions(result.sessions ?? [])
+      setActiveSessions(profileLiveSessions(result.sessions ?? [], transport.connection.profile, runtimeSessionIdRef.current))
     } catch {
       // Preserve the last authoritative snapshot across a transient reconnect.
     }
@@ -2504,7 +2519,12 @@ export function App() {
     if (!transport) throw new Error('Connect to Hermes first')
     const selectionEpoch = ++sessionSelectionEpochRef.current
     const connectionId = connectionRef.current.id
-    const connectionWorkspace = loadPreferredWorkspace(connectionId)
+    const connectionWorkspace = loadPreferredWorkspace(profileStateKey(transport.connection))
+    if (!profileLiveSessions([session], transport.connection.profile, runtimeSessionIdRef.current).length) {
+      if (session.session_key) return selectSession({ id: session.session_key, title: session.title ?? null,
+        preview: session.preview ?? null, started_at: session.started_at ?? 0, message_count: session.message_count ?? 0, source: null })
+      throw new Error('This host does not identify the live session profile. Open its saved session instead.')
+    }
     const previousRuntimeId = runtimeSessionIdRef.current
     const selectionIsCurrent = () =>
       sessionSelectionEpochRef.current === selectionEpoch &&
@@ -2527,7 +2547,7 @@ export function App() {
       const cached = storedId
         ? readCachedTranscript(
             transcriptCacheRef.current,
-            connectionId,
+            profileStateKey(transport.connection),
             storedId,
           )
         : null
@@ -2564,24 +2584,41 @@ export function App() {
   }
 
   async function openSessionTarget(target: SessionOpenTarget): Promise<void> {
+    if (voicePhase === 'recording' || voicePhase === 'transcribing') {
+      setError('Finish the current voice input before opening another conversation.')
+      return
+    }
+    if (!canOpenProfileNotification(target, connectionRef.current.id, runtimeSessionIdRef.current)) {
+      setError('This notification does not identify its profile. Select the profile in Control, then open the conversation from Sessions.')
+      return
+    }
+    const targetProfile = target.profile?.trim() || connectionRef.current.profile
     const storedSessionId = target.storedSessionId.trim()
     if (storedSessionId) {
-      persistSelectedSession(target.connectionId, storedSessionId)
+      const owner = connectionRef.current.id === target.connectionId ? connectionRef.current
+        : loadConnections().find(row => row.id === target.connectionId)
+      if (owner) persistSelectedSession(profileStateKey({ ...owner, profile: targetProfile }), storedSessionId)
     }
     setActiveTab('chat')
     setConnectionOpen(false)
 
-    if (connectionRef.current.id !== target.connectionId) {
-      const saved = loadConnections().find(row => row.id === target.connectionId)
+    if (connectionRef.current.id !== target.connectionId || connectionRef.current.profile !== targetProfile) {
+      const saved = connectionRef.current.id === target.connectionId ? connectionRef.current
+        : loadConnections().find(row => row.id === target.connectionId)
       if (!saved) {
         setError('The Hermes connection for this session is no longer saved.')
         return
       }
-      await switchSavedConnection(saved)
+      await switchSavedConnection({ ...saved, profile: targetProfile })
       return
     }
 
     commitSelectedStoredSession(storedSessionId, target.connectionId)
+    const openingTransport = transportRef.current
+    const openingEpoch = sessionSelectionEpochRef.current
+    const openingIsCurrent = () => transportRef.current === openingTransport &&
+      sessionSelectionEpochRef.current === openingEpoch &&
+      connectionRef.current.id === target.connectionId && connectionRef.current.profile === targetProfile
     if (
       transportRef.current &&
       desiredConnectedRef.current &&
@@ -2595,8 +2632,10 @@ export function App() {
         Date.now() < deadline
       ) {
         await new Promise(resolve => window.setTimeout(resolve, 100))
+        if (!openingIsCurrent()) return
       }
     }
+    if (!openingIsCurrent()) return
     if (
       !transportRef.current ||
       !desiredConnectedRef.current ||
@@ -2615,6 +2654,7 @@ export function App() {
       try {
         await selectActiveSession({
           id: target.runtimeSessionId,
+          profile_name: targetProfile,
           session_key: storedSessionId || null,
           title: target.title || null,
           preview: target.preview || null,
@@ -2683,7 +2723,7 @@ export function App() {
       void refreshSessions(transport)
     }
     setPreferredWorkspace(resolved)
-    persistPreferredWorkspace(connection.id, resolved)
+    persistPreferredWorkspace(profileStateKey(connection), resolved)
     setNotice(
       activeRuntimeId
         ? `Session workspace set to ${resolved}`
@@ -2694,7 +2734,7 @@ export function App() {
   async function chooseShareConnection(
     target: BrowserConnection,
   ): Promise<boolean> {
-    setShareWorkspace(loadPreferredWorkspace(target.id))
+    setShareWorkspace(loadPreferredWorkspace(profileStateKey(target)))
     if (
       target.id === connectionRef.current.id &&
       connected &&
@@ -2864,7 +2904,6 @@ export function App() {
             </span>
           </button>
           <div className="topbar-statuses">
-            <button type="button" className="quiet-button voice-settings-shortcut" aria-label="Open voice conversation" onClick={() => setPetSidechatOpen(true)}>Voice</button>
             {petRealtimeActive && petRealtime.snapshot.status !== 'testing' && (
               <LiveVoiceMicrophoneButton
                 muted={!!petRealtime.snapshot.microphoneMuted}
@@ -2881,12 +2920,12 @@ export function App() {
               <span>{wakePresentation.label}</span>
             </button>}
             <button
-              aria-label={`Connection: ${hostConnection.label}`}
+              aria-label={`Connection: ${hostConnection.label}. Profile: ${connection.profile}`}
               className={`host-pill state-${hostConnection.tone}`}
               onClick={() => setConnectionOpen(true)}
             >
               <span className="host-dot" />
-              <span>{hostConnection.label}</span>
+              <span>{hostConnection.label} / {connection.profile}</span>
               <span className="host-chevron">⌄</span>
             </button>
           </div>
@@ -2993,7 +3032,9 @@ export function App() {
                       autoSpeak={autoSpeak} activeTurnInputMode={activeTurnInputMode}
                       onWakeChange={changeWakeWordMode} onAutoSpeakChange={changeAutoSpeak}
                       onInputModeChange={changeActiveTurnInputMode} />
+                    <button type="button" className="thread-menu-action" onClick={() => { setThreadActionsOpen(false); setPetSidechatOpen(true) }}>Voice conversation</button>
                     <button type="button" className="thread-menu-action" onClick={() => { setThreadActionsOpen(false); openVoiceSettings() }}>Live voice settings</button>
+                    <button type="button" className="thread-menu-action" onClick={() => { setThreadActionsOpen(false); setActiveTab('control') }}>Profiles and cron jobs</button>
                   </div>
                 )}
               </div>
@@ -3257,11 +3298,11 @@ export function App() {
             }`}
           >
             <ReaderView
-              key={connection.id}
+              key={profileStateKey(connection)}
               active={activeTab === 'reader'}
               activeSpeechId={activeSpeechId}
               connected={connected}
-              connectionId={connection.id}
+              connectionId={profileStateKey(connection)}
               latestText={latestAssistantText}
               normalVoice={voiceSelection}
               phase={voicePhase}
@@ -3282,9 +3323,9 @@ export function App() {
             }`}
           >
             <FilesView
-              key={connection.id}
+              key={profileStateKey(connection)}
               connected={connected}
-              connectionId={connection.id}
+              connectionId={profileStateKey(connection)}
               initialPath={
                 sessionCwd ||
                 activeSession?.cwd ||
@@ -3373,12 +3414,21 @@ export function App() {
               activeTab === 'control' ? 'active' : ''
             }`}
           >
+            <ProfilesCronPanel key={profileStateKey(connection)} transport={transportRef.current}
+              active={activeTab === 'control' && connected} profile={connection.profile}
+              switching={busy || petRealtimeActive || voicePhase === 'recording' || voicePhase === 'transcribing'}
+              onSwitchProfile={async profile => {
+                if (busy || petRealtimeActive || voicePhase === 'recording' || voicePhase === 'transcribing') return false
+                const next = { ...connectionRef.current, profile }
+                prepareConnectionView(next)
+                return connect(next)
+              }} />
             <ControlPanel
               realtimeInput={{ selected: petRealtime.settings.microphoneId || '', disabled: petRealtimeActive,
                 onChange: microphoneId => petRealtime.setSettings({ ...petRealtime.settings, microphoneId }),
                 onTest: petRealtime.testMicrophone, status: petRealtime.snapshot.inputStatus, level: petRealtime.snapshot.inputLevel,
                 onStopTest: petRealtime.snapshot.status === 'testing' ? petRealtime.stop : undefined }}
-              key={controlVisit}
+              key={`${controlVisit}:${profileStateKey(connection)}`}
               connected={connected}
               gateway={transportRef.current?.gateway ?? null}
               runtimeSessionId={runtimeSessionId}

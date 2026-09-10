@@ -1,4 +1,5 @@
 import { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
+import { assertHttpProfile, scopedHttpPath, scopedRpcParams, verifyProfileResult } from '../profiles'
 import type { MobileCapabilities } from '../protocol/types'
 import {
   CORE_GATEWAY_METADATA_PATHS,
@@ -44,7 +45,8 @@ export class BrowserHermesTransport {
 
   constructor(
     readonly connection: BrowserConnection,
-    gateway = new JsonRpcGatewayClient(),
+    gateway = new JsonRpcGatewayClient(undefined, 30_000, params => scopedRpcParams(connection.profile, params),
+      (method, result) => verifyProfileResult(connection.profile, method, result)),
   ) {
     this.connection = {
       ...connection,
@@ -105,6 +107,10 @@ export class BrowserHermesTransport {
     body?: Record<string, unknown>,
     options?: HermesRequestOptions,
   ): Promise<T> {
+    assertHttpProfile(path, this.connection.profile, body)
+    if (path === '/api/fs/default-cwd' && !body && (!options?.method || options.method === 'GET')) {
+      return this.gateway.request<T>('config.get', { key: 'project' })
+    }
     return this.fetchJson<T>(path, body, options)
   }
 
@@ -154,7 +160,7 @@ export class BrowserHermesTransport {
   ): Promise<readonly [string, string] | null> {
     try {
       const response = await fetch(
-        buildPluginHttpUrl(this.connection.baseUrl, path),
+        buildPluginHttpUrl(this.connection.baseUrl, scopedHttpPath(path, this.connection.profile)),
         {
         method: 'POST',
         credentials: 'include',
@@ -187,7 +193,7 @@ export class BrowserHermesTransport {
     let response: Response
     try {
       response = await fetch(
-        buildPluginHttpUrl(this.connection.baseUrl, path),
+        buildPluginHttpUrl(this.connection.baseUrl, scopedHttpPath(path, this.connection.profile)),
         {
           credentials: 'include',
           method: options?.method ?? (body ? 'POST' : 'GET'),

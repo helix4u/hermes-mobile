@@ -3,14 +3,33 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket
+from starlette.concurrency import run_in_threadpool
 
 from .compatibility import probe_hermes
 from .contract import CapabilityResponse, FeatureSet, HealthResponse
 from .gateway import handle_mobile_gateway
 from .observers import snapshot
 from .tickets import TTL_SECONDS, mint_ticket
+from .diagnostics_adapter import diagnostics_home
+from .voice_diagnostics import append_entries, read_payload, validate_payload
 
 router = APIRouter()
+
+
+@router.post("/v1/voice-diagnostics")
+async def voice_diagnostics(request: Request) -> dict:
+    report = probe_hermes()
+    if not report.gateway_available:
+        raise HTTPException(503, "Hermes Mobile plugin is incompatible")
+    # Authenticate before inspecting any body, resolving a profile or writing a log.
+    report.http_auth(request)
+    entries = validate_payload(await read_payload(request))
+    home = diagnostics_home(request.query_params.get("profile"))
+    try:
+        accepted = await run_in_threadpool(append_entries, home, entries)
+    except OSError:
+        raise HTTPException(503, "Diagnostics storage unavailable") from None
+    return {"schema": 1, "accepted": accepted}
 
 
 @router.get("/v1/health")

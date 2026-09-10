@@ -1,4 +1,5 @@
 import { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
+import { assertHttpProfile, scopedHttpPath, scopedRpcParams, verifyProfileResult } from '../profiles'
 import type { MobileCapabilities } from '../protocol/types'
 import {
   BrowserHermesTransport,
@@ -59,6 +60,9 @@ export class NativeHermesTransport implements HermesTransport {
     }
     this.gateway = new JsonRpcGatewayClient(
       url => new NativeWebSocket(connection.id, url),
+      30_000,
+      params => scopedRpcParams(connection.profile, params),
+      (method, result) => verifyProfileResult(connection.profile, method, result),
     )
   }
 
@@ -124,10 +128,14 @@ export class NativeHermesTransport implements HermesTransport {
     body?: Record<string, unknown>,
     options?: HermesRequestOptions,
   ): Promise<T> {
+    assertHttpProfile(path, this.connection.profile, body)
+    if (path === '/api/fs/default-cwd' && !body && (!options?.method || options.method === 'GET')) {
+      return this.gateway.request<T>('config.get', { key: 'project' })
+    }
     await this.prepareCredential()
     const response = await HermesNative.httpRequest({
       connectionId: this.connection.id,
-      url: buildPluginHttpUrl(this.connection.baseUrl, path),
+      url: buildPluginHttpUrl(this.connection.baseUrl, scopedHttpPath(path, this.connection.profile)),
       method: options?.method ?? (body ? 'POST' : 'GET'),
       ...(options?.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       ...(body

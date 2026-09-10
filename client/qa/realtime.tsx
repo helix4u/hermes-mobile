@@ -3,7 +3,11 @@ import { createRoot } from 'react-dom/client'
 import { SessionVoiceControls } from '../src/components/SessionVoiceControls'
 import { LiveVoiceMicrophoneButton } from '../src/components/LiveVoiceMicrophoneButton'
 import { WorkStatus } from '../src/components/WorkStatus'
+import { PetSidechatSheet } from '../src/components/PetSidechatSheet'
+import type { PetSidechatMessage } from '../src/pet'
 import { usePetRealtime } from '../src/usePetRealtime'
+import { supportVoiceContext, supportReviewSnapshot, type SupportVoiceReview } from '../src/support-voice'
+import { sameVoiceReview } from '../src/voice-context-review'
 import '../src/styles.css'
 
 const sent: any[] = []
@@ -14,6 +18,7 @@ let sessionRequests = 0
 let contextResolve: ((value: any) => void) | null = null
 let holdContext = false
 let contextRequests = 0
+let sessionContext: Record<string, unknown> = { context: [] }
 const approved: any[] = []
 const histories: any[] = []
 const gatewayCalls: Array<{method:string;params:unknown}> = []
@@ -21,6 +26,20 @@ let knowledgeResult: unknown = {}
 let credentialsResolve: ((value: any) => void) | null = null
 let holdCredentials = false
 let connectionFails = false
+let recordMode = 'hold'
+let supportReview: SupportVoiceReview | null = null
+const supportApprovals: SupportVoiceReview[] = []
+const pendingRecords: Array<{ params: any; resolve: (value: unknown) => void }> = []
+const savedMessages: PetSidechatMessage[] = []
+function releaseRecord() {
+  const pending = pendingRecords.shift()
+  if (!pending) throw new Error('No pending synthetic record')
+  const { turnId, userText, petText } = pending.params
+  savedMessages.push({ id: `${turnId}:user`, role: 'user', text: userText },
+    { id: `${turnId}:pet`, role: 'assistant', text: petText })
+  // The real record RPC acknowledges only the newly appended turn.
+  pending.resolve({ messages: savedMessages.slice(-2) })
+}
 let contextsClosed = 0
 class LocalAudioContext {
   state = 'running'
@@ -58,13 +77,19 @@ window.fetch = async () => { if (connectionFails) throw new Error('Synthetic con
 const credentials = { initialContextEvents: [1, 2].map(index => ({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `Synthetic complete context part ${index}/2` }] } })), requestDelegationLimit: true, endpoint: '/synthetic', clientSecret: 'synthetic', openingInstruction: 'Hey.', model: 'gpt-realtime', contextStats: { messages: 1, characters: 20 } }
 const gateway = { request: async (method: string, params:unknown) => {
   gatewayCalls.push({method,params})
+  if (method === 'pet.realtime.record') {
+    if (recordMode === 'fail') throw new Error('Synthetic save failure')
+    if (recordMode === 'empty') return {}
+    return new Promise(resolve => { pendingRecords.push({ params, resolve }) })
+  }
+  if (method === 'pet.sidechat.history') return { messages: [...savedMessages] }
   if (method === 'pet.realtime.knowledge') return knowledgeResult
   if (method === 'delegation.status') return {active:[{subagent_id:'worker-a'}]}
   if (method === 'subagent.steer') return {status:'queued'}
   if (method === 'pet.realtime.context') {
     contextRequests++
     if (holdContext) return new Promise(resolve => { contextResolve = resolve })
-    return { context: [] }
+    return sessionContext
   }
   if (method !== 'pet.realtime.session') return {}
   sessionRequests++
@@ -73,6 +98,7 @@ const gateway = { request: async (method: string, params:unknown) => {
 } }
 
 function Fixture() {
+  const [messages, setMessages] = useState<PetSidechatMessage[]>([])
   const [view, setView] = useState({page:'chat',focusedSessionId:'synthetic-session'})
   const [wake, setWake] = useState<'off' | 'review' | 'send'>('review')
   const [auto, setAuto] = useState(true)
@@ -81,15 +107,42 @@ function Fixture() {
   const realtime = usePetRealtime({ connectionId: 'synthetic-fixture', gateway: gateway as any,
     uiContext:view, sessionTitle:'Synthetic task',
     context: [], ensureSession: async () => 'synthetic-session', runtimeSessionId: 'synthetic-session',
-    onAskHermes: async request => { approved.push(request) }, onMessages: messages => { histories.push(messages) }, onMicrophoneOwnershipChange: () => {},
+    onAskHermes: async request => { approved.push(request) }, onMessages: messages => { histories.push(messages); setMessages(messages) }, onMicrophoneOwnershipChange: () => {},
     onReply: () => {}, personalityId: 'synthetic', personalityName: 'Companion', prompt: 'Synthetic test.' })
   ;(window as any).qa = { realtime, sent, tracks, peers, failPlayback: () => { playbackFails = true; peers.at(-1).ontrack({ streams: [new MediaStream()] }) }, disconnect: () => { const peer = peers.at(-1); peer.connectionState = 'disconnected'; peer.onconnectionstatechange() }, frame: (data: any) => channel.onmessage({ data: JSON.stringify(data) }) }
   Object.assign((window as any).qa, { constraints, get sessionRequests() { return sessionRequests }, get contextsClosed() { return contextsClosed },
+    supportApprovals, supportSnapshot: () => supportReviewSnapshot(supportReview),
+    editSupport: (patch: Partial<SupportVoiceReview>) => { if (supportReview) supportReview = { ...supportReview, ...patch } },
+    cancelSupport: () => { supportReview = null },
+    startSupport: async () => {
+      realtime.setSettings({ ...realtime.settings, approval: 'verbal' })
+      await realtime.startContext(supportVoiceContext('synthetic-fixture', undefined,
+        async (path, body) => path === '/voice/propose'
+          ? { id: 'review-one', targetId: '100000000000000001', title: 'Synthetic issue', action: 'investigate', text: 'Inspect the failure. Do not change files.', status: 'pending_approval' }
+          : { threads: [], matching: 0 },
+        review => { supportReview = review }, undefined, {
+          current: () => supportReviewSnapshot(supportReview),
+          approve: async snapshot => {
+            if (!supportReview || !sameVoiceReview(snapshot, supportReviewSnapshot(supportReview))) throw new Error('Review changed')
+            supportApprovals.push(supportReview)
+            supportReview = null
+          },
+          cancel: snapshot => { if (sameVoiceReview(snapshot, supportReviewSnapshot(supportReview))) supportReview = null },
+        }))
+    },
+    releaseRecord, setRecordMode: (mode: string) => { recordMode = mode },
+    setSessionContext: (value: Record<string, unknown>) => { sessionContext = value },
     approved, histories, gatewayCalls, setView, setKnowledgeResult: (value: unknown) => { knowledgeResult = value }, get contextRequests() { return contextRequests }, holdContext: () => { holdContext = true }, releaseContext: () => contextResolve?.({ context: [] }),
     hold: () => { holdCredentials = true }, release: () => credentialsResolve?.(credentials), failConnection: () => { connectionFails = true }, failMicrophone: () => { microphoneFails = true } })
+  if (new URLSearchParams(location.search).has('voicePage')) return <PetSidechatSheet
+    busy={false} error="" messages={messages} name="Companion" open
+    onClose={() => {}} onLoad={() => {}} onPersonalityChange={() => {}} onReset={() => {}}
+    onSend={async () => true} onSendToHermes={() => {}} onTranscriptTarget={() => {}}
+    onToggleRecording={() => {}} personalities={[]} personalitySlug="synthetic"
+    realtime={realtime} voicePhase="idle" voiceRecordingAvailable={false} />
   return <main className="app-shell">
     <header className="topbar"><button className="brand-button"><span className="brand-mark-shell"><img className="brand-mark" src="/nous-sidecar-128.png"/><span className="brand-exp-badge">EXP</span></span><span><small>Hermes</small><strong>Mobile</strong></span></button>
-      <div className="topbar-statuses"><button className="quiet-button voice-settings-shortcut" aria-label="Live voice settings">Voice</button><LiveVoiceMicrophoneButton muted={!!realtime.snapshot.microphoneMuted} onChange={realtime.setMicrophoneMuted}/><button className="host-pill"><span className="host-dot"/><span>Workstation</span><span>⌄</span></button></div></header>
+      <div className="topbar-statuses"><LiveVoiceMicrophoneButton muted={!!realtime.snapshot.microphoneMuted} onChange={realtime.setMicrophoneMuted}/><button className="host-pill"><span className="host-dot"/><span>Workstation</span><span>⌄</span></button></div></header>
     <div className="mobile-workspace"><section className="app-view chat-view active">
       <div className="thread-heading"><div className="thread-heading-copy"><p className="eyebrow">Live</p><h1>A long synthetic session title that must never wrap</h1></div><div className="thread-actions"><button className="thread-actions-trigger quiet-button" onClick={() => setMenu(!menu)}>Options</button>{menu && <div className="thread-actions-popover"><button className="thread-menu-action" onClick={() => void realtime.start()}>Start test voice</button><SessionVoiceControls nativeClient wakeWordMode={wake} autoSpeak={auto} activeTurnInputMode={mode} onWakeChange={setWake} onAutoSpeakChange={setAuto} onInputModeChange={setMode}/></div>}</div></div>
       <div className="session-workspace-button">Session workspace</div>

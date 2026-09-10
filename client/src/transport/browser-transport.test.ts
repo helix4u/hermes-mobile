@@ -257,7 +257,7 @@ describe('authenticated JSON requests', () => {
 
     expect(result.transcript).toBe('hello')
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://hermes.example/api/audio/transcribe',
+      'https://hermes.example/api/audio/transcribe?profile=default',
       expect.objectContaining({
         method: 'POST',
         credentials: 'include',
@@ -295,7 +295,7 @@ describe('authenticated JSON requests', () => {
     )
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://hermes.example/api/config',
+      'https://hermes.example/api/config?profile=default',
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({

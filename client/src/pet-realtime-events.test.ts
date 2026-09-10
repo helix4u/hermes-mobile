@@ -8,6 +8,7 @@ import {
   realtimeResponseUsage,
   realtimeTranscriptIsNoise,
   realtimeUserTranscript,
+  realtimeSpeechText,
 } from './pet-realtime-events'
 
 describe('pet realtime events', () => {
@@ -80,6 +81,24 @@ describe('pet realtime events', () => {
       type: 'conversation.item.input_audio_transcription.completed',
       item_id: 'audio-1',
     })).toBe('audio-1')
+  })
+
+  it.each(['[noise]', '[]', '[arbitrary label]', '[dog [distant] barking]', '[x] [y]...', '', '...'])('ignores non-user input %s', text => {
+    expect(realtimeTranscriptIsNoise(text)).toBe(true)
+  })
+
+  it.each([
+    ['[noise] Do not [unknown] send it.', 'Do not send it.'],
+    ["[noise] Don't stop.", "Don't stop."],
+    ['No [arbitrary]. Actually keep the draft.', 'No . Actually keep the draft.'],
+    ['Please [first [nested]] explain it, without changing files.', 'Please explain it, without changing files.'],
+    ['The label [is incomplete', 'The label [is incomplete'],
+    ['I said cough, not stop.', 'I said cough, not stop.'],
+    ['Use <tag> and (parentheses).', 'Use <tag> and (parentheses).'],
+  ])('retains every actual word in %s', (raw, expected) => {
+    expect(realtimeSpeechText(raw)).toBe(expected)
+    expect(realtimeUserTranscript({ type: 'conversation.item.input_audio_transcription.completed', transcript: raw })).toBe(expected)
+    expect(realtimeTranscriptIsNoise(raw)).toBe(false)
   })
 
   it('surfaces provider errors without throwing on unknown data', () => {

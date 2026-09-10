@@ -123,6 +123,7 @@ public class HermesNativePlugin extends Plugin {
     public static final String EXTRA_NOTIFICATION_TARGET_ID =
         "notification_target_id";
     public static final String EXTRA_CONNECTION_ID = "connection_id";
+    public static final String EXTRA_SESSION_PROFILE = "session_profile";
     public static final String EXTRA_RUNTIME_SESSION_ID = "runtime_session_id";
     public static final String EXTRA_STORED_SESSION_ID = "stored_session_id";
     public static final String EXTRA_SESSION_TITLE = "session_title";
@@ -197,6 +198,7 @@ public class HermesNativePlugin extends Plugin {
     private static final class PendingSessionOpen {
         final String id;
         final String connectionId;
+        final String profile;
         final String runtimeSessionId;
         final String storedSessionId;
         final String title;
@@ -205,6 +207,7 @@ public class HermesNativePlugin extends Plugin {
         PendingSessionOpen(
             String id,
             String connectionId,
+            String profile,
             String runtimeSessionId,
             String storedSessionId,
             String title,
@@ -212,6 +215,7 @@ public class HermesNativePlugin extends Plugin {
         ) {
             this.id = id;
             this.connectionId = connectionId;
+            this.profile = SessionNotificationIdentity.profile(profile);
             this.runtimeSessionId = runtimeSessionId;
             this.storedSessionId = storedSessionId;
             this.title = title;
@@ -222,6 +226,7 @@ public class HermesNativePlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("id", id);
             result.put("connectionId", connectionId);
+            result.put("profile", profile);
             result.put("runtimeSessionId", runtimeSessionId);
             result.put("storedSessionId", storedSessionId);
             result.put("title", title);
@@ -476,6 +481,7 @@ public class HermesNativePlugin extends Plugin {
         PendingSessionOpen target = new PendingSessionOpen(
             stringOrEmpty(intent.getStringExtra(EXTRA_NOTIFICATION_TARGET_ID)),
             stringOrEmpty(intent.getStringExtra(EXTRA_CONNECTION_ID)),
+            intent.getStringExtra(EXTRA_SESSION_PROFILE),
             stringOrEmpty(intent.getStringExtra(EXTRA_RUNTIME_SESSION_ID)),
             stringOrEmpty(intent.getStringExtra(EXTRA_STORED_SESSION_ID)),
             stringOrEmpty(intent.getStringExtra(EXTRA_SESSION_TITLE)),
@@ -542,6 +548,7 @@ public class HermesNativePlugin extends Plugin {
     @PluginMethod
     public void showSessionResultNotification(PluginCall call) {
         String connectionId = call.getString("connectionId", "").trim();
+        String profile = SessionNotificationIdentity.profile(call.getString("profile"));
         String runtimeSessionId = call.getString("runtimeSessionId", "").trim();
         String storedSessionId = call.getString("storedSessionId", "").trim();
         String title = clippedNotificationText(
@@ -553,10 +560,10 @@ public class HermesNativePlugin extends Plugin {
             360
         );
         if (
-            connectionId.isEmpty() ||
+            connectionId.isEmpty() || profile.isEmpty() ||
             (runtimeSessionId.isEmpty() && storedSessionId.isEmpty())
         ) {
-            call.reject("A Hermes connection and session are required");
+            call.reject("A Hermes connection, profile and session are required");
             return;
         }
         if (!notificationsGranted()) {
@@ -568,16 +575,19 @@ public class HermesNativePlugin extends Plugin {
 
         String targetId = UUID.randomUUID().toString();
         int notificationId = RESULT_NOTIFICATION_BASE_ID + Math.floorMod(
-            (connectionId + ":" + storedSessionId + ":" + runtimeSessionId).hashCode(),
+            SessionNotificationIdentity.key(connectionId, profile, storedSessionId, runtimeSessionId).hashCode(),
             100_000
         );
         Intent openIntent = new Intent(getContext(), MainActivity.class);
         openIntent.setAction(ACTION_OPEN_SESSION);
+        openIntent.setData(Uri.parse("hermes-mobile://session/" + Uri.encode(
+            SessionNotificationIdentity.key(connectionId, profile, storedSessionId, runtimeSessionId))));
         openIntent.setFlags(
             Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP
         );
         openIntent.putExtra(EXTRA_NOTIFICATION_TARGET_ID, targetId);
         openIntent.putExtra(EXTRA_CONNECTION_ID, connectionId);
+        openIntent.putExtra(EXTRA_SESSION_PROFILE, profile);
         openIntent.putExtra(EXTRA_RUNTIME_SESSION_ID, runtimeSessionId);
         openIntent.putExtra(EXTRA_STORED_SESSION_ID, storedSessionId);
         openIntent.putExtra(EXTRA_SESSION_TITLE, title);

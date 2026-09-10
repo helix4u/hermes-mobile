@@ -49,6 +49,7 @@ export type LiveSessionStatus = 'waiting' | 'starting' | 'working' | 'idle'
 
 export interface LiveSessionSummary {
   id: string
+  profile_name?: string
   session_key?: string | null
   title?: string | null
   preview?: string | null

@@ -54,6 +54,8 @@ export class JsonRpcGatewayClient {
     private readonly socketFactory: WebSocketFactory = url =>
       new WebSocket(url),
     private readonly requestTimeoutMs = 30_000,
+    private readonly mapParams?: (params: Record<string, unknown>) => Record<string, unknown>,
+    private readonly mapResult?: (method: string, result: unknown) => unknown,
   ) {}
 
   get connected(): boolean {
@@ -170,7 +172,7 @@ export class JsonRpcGatewayClient {
       jsonrpc: '2.0',
       id,
       method,
-      params,
+      params: this.mapParams ? this.mapParams(params) : params,
     })
     const timeoutMs = options.timeoutMs ?? this.requestTimeoutMs
 
@@ -181,7 +183,10 @@ export class JsonRpcGatewayClient {
       }, timeoutMs)
 
       this.pending.set(id, {
-        resolve: value => resolve(value as T),
+        resolve: value => {
+          try { resolve((this.mapResult ? this.mapResult(method, value) : value) as T) }
+          catch (error) { reject(error instanceof Error ? error : new Error(String(error))) }
+        },
         reject,
         timeout,
       })

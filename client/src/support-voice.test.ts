@@ -1,7 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
-import { prepareSupportVoiceContext, readSupportVoiceContext, supportVoiceContext } from './support-voice'
+import { prepareSupportVoiceContext, readSupportVoiceContext, supportVoiceContext, supportReviewSnapshot } from './support-voice'
+import { sameVoiceReview } from './voice-context-review'
 
 describe('Support voice capability boundary', () => {
+  it('binds readback to review identity and preserves meaning-bearing text', () => {
+    const review = { id: 'proposal', targetId: '100000000000000001', title: 'Synthetic issue', action: 'investigate', text: 'Do not change files.', status: 'pending_approval' }
+    const snapshot = supportReviewSnapshot(review)!
+    expect(snapshot.text).toBe('Start investigation for Synthetic issue.\nDo not change files.')
+    expect(sameVoiceReview(snapshot, supportReviewSnapshot({ ...review }))).toBe(true)
+    for (const patch of [{ id: 'new' }, { targetId: '100000000000000002' }, { action: 'suggest_reply' }, { text: 'Change files.' }, { title: 'Other issue' }, { status: 'approved' }]) {
+      expect(sameVoiceReview(snapshot, supportReviewSnapshot({ ...review, ...patch }))).toBe(false)
+    }
+    expect(sameVoiceReview(snapshot, null)).toBe(false)
+  })
   it('gathers all queue pages as records, never empty section text', async () => {
     const request = vi.fn(async (_path: string, args: Record<string,unknown>) => args.offset
       ? {threads:[{thread_id:'b'}], offset:1, matching:2, revision:'one',nextOffset:null}
