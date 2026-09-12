@@ -1,6 +1,6 @@
 import type { PetRealtimeContextTarget } from './usePetRealtime'
 import { attachedVoiceRecord } from './attached-voice-read'
-import type { VoiceContextApproval, VoiceContextReview } from './voice-context-review'
+import type { VoiceContextReview } from './voice-context-review'
 
 export interface SupportVoiceReview {
   id: string
@@ -177,7 +177,6 @@ export function supportVoiceContext(
   request: (path: string, body: Record<string, unknown>) => Promise<Record<string, unknown>>,
   onReview: (review: SupportVoiceReview) => void,
   currentView?: () => { filter: string; query: string },
-  approval?: VoiceContextApproval,
 ): PetRealtimeContextTarget {
   const guide = [
       'Use read_attached_context to read index or read an exact targetId. Exact reads can retrieve archived threads outside the visible open queue. Use {"operation":"read","targetId":"the exact thread ID","section":"transcript"} for the conversation.',
@@ -191,7 +190,7 @@ export function supportVoiceContext(
       'Stale is an age-based queue lane, not missing content. A missing ticket, draft, or investigation does not mean the transcript is blank. Read the transcript separately. A changed read is refreshed once by the app without a stale cursor. A detail_stale warning means readable historical evidence, not proof of current Discord state. Describe the returned evidence with that limit, and never claim it is unavailable unless the read actually failed. Never fill the gap from an older index or claim live verification without evidence.',
       'Keep people distinct: the user speaking to you is not an assignee, author, reporter, or mentioned person unless the evidence explicitly says so. Never invent a name correction.',
       'Track which queue items were already discussed, dismissed, or selected. When asked for other items, omit those instead of repeating the whole list.',
-      'Supported action proposals: investigate, investigate_ticket, suggest_reply, save_reply. They only stage an editable review in Support Ops. The application handles button approval or exact complete spoken readback followed by explicit approval when verbal review is enabled. You cannot approve or execute. No Discord posting is available.',
+      "Supported action proposals: investigate, investigate_ticket, suggest_reply, save_reply. They only stage an editable review in Support Ops. Only the user's visible review-card buttons can approve or cancel it. Spoken words cannot approve, cancel, or execute. No Discord posting is available.",
     ].join('\n')
   return {
     contextId: `support:${connectionId}:${target?.thread_id || 'queue'}`,
@@ -199,7 +198,6 @@ export function supportVoiceContext(
     context: [{ id: 'attached-support-target', role: 'user', content: `Attached Support Ops ${target?.thread_id ? `thread ID ${target.thread_id}: ${target.title}` : 'queue'}.` }],
     contextTools: {
       guide,
-      approval,
       read: async args => {
         const view = currentView?.()
         const selected = { ...args }

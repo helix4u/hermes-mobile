@@ -1,6 +1,7 @@
 import { isMarkdownDocument, type PreviewDocument } from '../preview'
 import { MarkdownContent } from './MarkdownContent'
 import { ImagePreview } from './ImageViewer'
+import { CloseIcon } from './UiIcons'
 
 export type DocumentMode = 'edit' | 'preview'
 
@@ -152,7 +153,7 @@ export function DocumentPreview({
               type="button"
               onClick={onClose}
             >
-              ×
+              <CloseIcon />
             </button>
           )}
         </div>

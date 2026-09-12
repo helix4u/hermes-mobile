@@ -1,7 +1,9 @@
 // Exercise the production hook and voice page together, using only synthetic I/O.
 export async function voiceTranscriptCases({ page, url, check }) {
+  let navigationTimeout = 60000
   async function fresh(local = false) {
-    await page.goto(`${url}/qa/realtime.html?voicePage`, { timeout: 30000 })
+    await page.goto(`${url}/qa/realtime.html?voicePage`, { timeout: navigationTimeout })
+    navigationTimeout = 30000
     await page.waitForFunction(() => Boolean(window.qa))
     await page.evaluate(local => local
       ? window.qa.realtime.startContext({ context: [], contextId: 'synthetic-context', contextTitle: 'Context' })

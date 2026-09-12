@@ -41,6 +41,15 @@ describe('profile cron parity', () => {
     expect(requestJson).toHaveBeenCalledTimes(1)
     expect(requestJson).toHaveBeenCalledWith('/api/cron/jobs/id/trigger?profile=writer', {}, { timeoutMs: 120_000 })
   })
+  test('removing scheduled work uses the profile-scoped REST delete route', async () => {
+    const { client, requestJson } = fixture()
+    await client.action('job/one', 'remove')
+    expect(requestJson).toHaveBeenCalledWith(
+      '/api/cron/jobs/job%2Fone?profile=writer',
+      undefined,
+      { method: 'DELETE' },
+    )
+  })
   test('one pending action per job prevents duplicate clicks', async () => {
     const { client, requestJson } = fixture()
     let finish!: (value: unknown) => void

@@ -10,7 +10,7 @@ import {
 } from '../usePetRealtime'
 import type { PetPersonalitySummary } from '../pet'
 import { MarkdownContent } from './MarkdownContent'
-import { REALTIME_MODELS, REALTIME_EFFORTS, supportsRealtimeEffort, type RealtimeSettings } from '../pet-realtime-settings'
+import { REALTIME_MODELS, REALTIME_EFFORTS, VOICE_ENGINES, supportsRealtimeEffort, type RealtimeSettings } from '../pet-realtime-settings'
 
 function CloseIcon() {
   return (
@@ -374,6 +374,13 @@ export function PetSidechatSheet({
           </label>
         {realtime.settings && realtime.setSettings && (
           <>
+            <label>Voice engine
+              <select aria-label="Voice engine" disabled={realtimeActive} value={realtime.settings.engine ?? 'realtime'}
+                onChange={event => realtime.setSettings?.({ ...realtime.settings!, engine: event.target.value as RealtimeSettings['engine'] })}>
+                {VOICE_ENGINES.map(engine => <option key={engine} value={engine}>{engine === 'live' ? 'GPT-Live 1' : 'Realtime'}</option>)}
+              </select>
+            </label>
+            {realtime.settings.engine === 'live' && <small>GPT-Live is available for durable Hermes sessions. Realtime model, effort, and voice choices do not apply. Attached Support voice keeps Realtime.</small>}
             <label>Voice mode
               <select aria-label="Voice mode" disabled={realtimeActive} value={realtime.settings.mode ?? 'pet'}
                 onChange={event => realtime.setSettings?.({ ...realtime.settings!, mode: event.target.value as RealtimeSettings['mode'] })}>
@@ -389,16 +396,7 @@ export function PetSidechatSheet({
                 }} />
             </label>
             <small>Includes descendant workers. Zero keeps work in the attached parent. Blank uses Hermes default. Existing concurrency limits still apply.</small>
-            <label>Voice handoff review
-              <select aria-label="Voice handoff review" disabled={realtimeActive} value={realtime.settings.approval ?? 'on'}
-                onChange={event => realtime.setSettings?.({ ...realtime.settings!, approval: event.target.value as RealtimeSettings['approval'] })}>
-                <option value="on">On: review every request</option>
-                <option value="verbal">Read aloud, then ask to send</option>
-                <option value="smart">Smart: reads automatic, handoffs reviewed</option>
-                <option value="off">Off: auto-send to Hermes</option>
-              </select>
-            </label>
-            <small>Support workflows and agent permissions still require their own approvals.</small>
+            <small>Hermes requests always open an editable review card. Spoken words cannot send or cancel them.</small>
             <label>Microphone environment
               <select aria-label="Microphone environment" disabled={realtimeActive} value={realtime.settings.noiseReduction ?? 'near_field'}
                 onChange={event => realtime.setSettings?.({ ...realtime.settings!, noiseReduction: event.target.value as RealtimeSettings['noiseReduction'] })}>
@@ -423,14 +421,14 @@ export function PetSidechatSheet({
             </label>
             <label>
               Realtime model
-              <select aria-label="Realtime model" disabled={realtimeActive} value={realtime.settings.model}
+              <select aria-label="Realtime model" disabled={realtimeActive || realtime.settings.engine === 'live'} value={realtime.settings.model}
                 onChange={event => realtime.setSettings?.({ ...realtime.settings!, model: event.target.value as RealtimeSettings['model'] })}>
                 {REALTIME_MODELS.map(model => <option key={model} value={model}>{model}</option>)}
               </select>
             </label>
             <label>
               Reasoning effort
-              <select aria-label="Reasoning effort" disabled={realtimeActive || !supportsRealtimeEffort(realtime.settings.model)} value={realtime.settings.effort}
+              <select aria-label="Reasoning effort" disabled={realtimeActive || realtime.settings.engine === 'live' || !supportsRealtimeEffort(realtime.settings.model)} value={realtime.settings.effort}
                 onChange={event => realtime.setSettings?.({ ...realtime.settings!, effort: event.target.value as RealtimeSettings['effort'] })}>
                 {REALTIME_EFFORTS.map(effort => <option key={effort} value={effort}>{effort === 'default' ? 'Provider default' : effort}</option>)}
               </select>
@@ -461,15 +459,13 @@ export function PetSidechatSheet({
           </div>
         )}
         {stats?.billing && <RealtimeCostMeter usage={stats.billing} />}
-        {!externalReview && realtime.snapshot.hermesDraftStatus !== 'idle' && (
+        {!externalReview && ['pending', 'submitting', 'error'].includes(realtime.snapshot.hermesDraftStatus) && (
           <section className="pet-realtime-hermes-draft" aria-label="Review Hermes request" ref={reviewRef}>
             {realtime.snapshot.workerTarget && <small>Steer worker: {realtime.snapshot.workerTarget}</small>}
             <header>
               <strong>Review Hermes request</strong>
               <small>
-                {realtime.snapshot.hermesDraftStatus === 'sent'
-                  ? realtime.snapshot.workerTarget ? 'Steering queued, delivery not yet confirmed' : 'Submitted to Hermes'
-                  : 'Nothing is sent until you approve it'}
+                Nothing is sent until you approve it
               </small>
             </header>
             <textarea
@@ -483,22 +479,20 @@ export function PetSidechatSheet({
               value={realtime.snapshot.hermesDraft}
             />
             <div>
-              {realtime.snapshot.hermesDraftStatus !== 'sent' && (
-                <button
-                  disabled={
-                    !realtime.snapshot.hermesDraft.trim() ||
-                    realtime.snapshot.hermesDraftStatus === 'submitting'
-                  }
-                  onClick={() => void realtime.approveHermesDraft()}
-                  type="button"
-                >
-                  {realtime.snapshot.hermesDraftStatus === 'submitting'
-                    ? 'Sending…'
-                    : 'Send to Hermes'}
-                </button>
-              )}
+              <button
+                disabled={
+                  !realtime.snapshot.hermesDraft.trim() ||
+                  realtime.snapshot.hermesDraftStatus === 'submitting'
+                }
+                onClick={() => void realtime.approveHermesDraft()}
+                type="button"
+              >
+                {realtime.snapshot.hermesDraftStatus === 'submitting'
+                  ? 'Sending…'
+                  : 'Send to Hermes'}
+              </button>
               <button onClick={realtime.cancelHermesDraft} type="button">
-                {realtime.snapshot.hermesDraftStatus === 'sent' ? 'Dismiss' : 'Cancel'}
+                Cancel
               </button>
             </div>
           </section>

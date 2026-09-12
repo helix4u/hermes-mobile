@@ -12,7 +12,6 @@ import { pollSupportAvailability } from './support-availability-poller'
 import { hostConnectionPresentation } from './connection-presentation'
 import { EmbedPreferencesProvider } from './embeds'
 import { ConnectionSheet } from './components/ConnectionSheet'
-import { ProfilesCronPanel } from './components/ProfilesCronPanel'
 import { canOpenProfileNotification, migrateProfileState, profileLiveSessions, profileStateKey } from './profiles'
 import { ControlPanel } from './components/ControlPanel'
 import { FilesView } from './components/FilesView'
@@ -76,6 +75,7 @@ import {
 } from './state/cloud'
 import { projectSessionRows } from './state/sessions'
 import { LiveVoiceMicrophoneButton } from './components/LiveVoiceMicrophoneButton'
+import { ChevronDownIcon } from './components/UiIcons'
 import {
   eventTargetsSelectedSession,
   loadSelectedSession,
@@ -191,23 +191,6 @@ import {
 } from './work-status'
 
 type AppTab = 'chat' | 'sessions' | 'reader' | 'files' | 'support' | 'control'
-
-function wakeWordPresentation(status: WakeWordStatus): {
-  label: string
-  tone: string
-} {
-  const presentations: Record<WakeWordStatus, { label: string; tone: string }> = {
-    capturing: { label: 'Wake heard', tone: 'active' },
-    error: { label: 'Wake error', tone: 'error' },
-    listening: { label: 'Wake ready', tone: 'ready' },
-    off: { label: 'Wake off', tone: 'off' },
-    paused: { label: 'Wake paused', tone: 'paused' },
-    starting: { label: 'Wake loading', tone: 'loading' },
-    transcribing: { label: 'Wake working', tone: 'active' },
-    unsupported: { label: 'Wake unavailable', tone: 'error' },
-  }
-  return presentations[status]
-}
 
 function normalizeToolDetailMode(value: unknown): ToolDetailMode {
   return value === 'expanded' || value === 'hidden' ? value : 'collapsed'
@@ -2846,7 +2829,6 @@ export function App() {
 
   const wakeCaptureActive = wakeWordStatus === 'capturing'
   const wakeTranscribing = wakeWordStatus === 'transcribing'
-  const wakePresentation = wakeWordPresentation(wakeWordStatus)
   const petRealtimeActive = petRealtime.snapshot.active || petRealtime.snapshot.status === 'connecting'
   const hostConnection = hostConnectionPresentation(
     connectionState,
@@ -2910,23 +2892,18 @@ export function App() {
                 onChange={petRealtime.setMicrophoneMuted}
               />
             )}
-            {(!petRealtimeActive || petRealtime.snapshot.status === 'error') && <button
-              aria-label={`${wakePresentation.label}. Open voice settings.`}
-              className={`wake-status-pill state-${wakePresentation.tone}`}
-              onClick={() => setActiveTab('control')}
-              type="button"
-            >
-              <span className="wake-status-dot" />
-              <span>{wakePresentation.label}</span>
-            </button>}
             <button
               aria-label={`Connection: ${hostConnection.label}. Profile: ${connection.profile}`}
               className={`host-pill state-${hostConnection.tone}`}
               onClick={() => setConnectionOpen(true)}
+              title={`${hostConnection.label} · ${connection.profile}`}
             >
               <span className="host-dot" />
-              <span>{hostConnection.label} / {connection.profile}</span>
-              <span className="host-chevron">⌄</span>
+              <span className="host-pill-copy">
+                <strong>{hostConnection.label}</strong>
+                <small>{connection.profile}</small>
+              </span>
+              <span className="host-chevron"><ChevronDownIcon /></span>
             </button>
           </div>
         </header>
@@ -3110,7 +3087,7 @@ export function App() {
 
             <form
               className="composer"
-              data-pet-perch
+              data-pet-avoid
               onSubmit={(event) => void submit(event)}
             >
               <WorkStatus key={runtimeSessionId || selectedStoredId || 'draft'} status={workStatus} />
@@ -3414,16 +3391,8 @@ export function App() {
               activeTab === 'control' ? 'active' : ''
             }`}
           >
-            <ProfilesCronPanel key={profileStateKey(connection)} transport={transportRef.current}
-              active={activeTab === 'control' && connected} profile={connection.profile}
-              switching={busy || petRealtimeActive || voicePhase === 'recording' || voicePhase === 'transcribing'}
-              onSwitchProfile={async profile => {
-                if (busy || petRealtimeActive || voicePhase === 'recording' || voicePhase === 'transcribing') return false
-                const next = { ...connectionRef.current, profile }
-                prepareConnectionView(next)
-                return connect(next)
-              }} />
             <ControlPanel
+              active={activeTab === 'control'}
               realtimeInput={{ selected: petRealtime.settings.microphoneId || '', disabled: petRealtimeActive,
                 onChange: microphoneId => petRealtime.setSettings({ ...petRealtime.settings, microphoneId }),
                 onTest: petRealtime.testMicrophone, status: petRealtime.snapshot.inputStatus, level: petRealtime.snapshot.inputLevel,
@@ -3450,6 +3419,7 @@ export function App() {
               transport={transportRef.current}
               voiceSelection={voiceSelection}
               voicePhase={voicePhase}
+              switchingProfile={busy || petRealtimeActive || voicePhase === 'recording' || voicePhase === 'transcribing'}
               pet={{
                 catalog: pet.catalog,
                 desktopSpeech: pet.desktopSpeech,
@@ -3481,6 +3451,12 @@ export function App() {
               onStopSpeech={stopPlayback}
               onToolDetailModeChange={changeToolDetailMode}
               onVoiceSelectionChange={changeVoiceSelection}
+              onSwitchProfile={async profile => {
+                if (busy || petRealtimeActive || voicePhase === 'recording' || voicePhase === 'transcribing') return false
+                const next = { ...connectionRef.current, profile }
+                prepareConnectionView(next)
+                return connect(next)
+              }}
             />
           </section>
 
@@ -3501,7 +3477,7 @@ export function App() {
         </div>
 
         <nav
-          data-pet-perch
+          data-pet-avoid
           className={`bottom-nav ${supportOpsAvailable ? 'support-enabled' : ''}`}
           aria-label="Primary"
         >

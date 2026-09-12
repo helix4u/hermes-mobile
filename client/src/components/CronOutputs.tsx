@@ -34,29 +34,31 @@ export function CronOutputs({ client, jobId, active }: { client: CronClient | nu
     finally { if (request === epoch.current) setPending(false) }
   }
 
-  return <section aria-label="Saved cron output">
+  return <section className="cron-output" aria-label="Saved cron output">
     <h3>Saved output</h3>
     <p>Includes script-only results. New completed output appears as the host saves it.</p>
     {!outputs.length && <p>No saved output yet.</p>}
-    {outputs.map(output => <button key={output.id} disabled={!active} onClick={() => void read(output)} style={{ display: 'block', maxWidth: '100%', marginBottom: 8 }}>
-      {output.id} ({output.size_bytes.toLocaleString()} bytes)
-    </button>)}
-    {before && <button disabled={pending || !active} onClick={() => {
-      if (!client) return
-      const request = epoch.current
-      setPending(true)
-      void client.outputs(jobId, before).then(result => {
-        if (request !== epoch.current) return
-        setOutputs(current => [...current, ...result.outputs.filter(row => !current.some(old => old.id === row.id))])
-        setBefore(result.next_before)
-      }).catch(reason => { if (request === epoch.current) setError(String(reason)) })
-        .finally(() => { if (request === epoch.current) setPending(false) })
-    }}>Older output</button>}
+    <div className="cron-output-list">
+      {outputs.map(output => <button className="quiet-button" type="button" key={output.id} disabled={!active} onClick={() => void read(output)}>
+        {output.id} ({output.size_bytes.toLocaleString()} bytes)
+      </button>)}
+      {before && <button className="quiet-button" type="button" disabled={pending || !active} onClick={() => {
+        if (!client) return
+        const request = epoch.current
+        setPending(true)
+        void client.outputs(jobId, before).then(result => {
+          if (request !== epoch.current) return
+          setOutputs(current => [...current, ...result.outputs.filter(row => !current.some(old => old.id === row.id))])
+          setBefore(result.next_before)
+        }).catch(reason => { if (request === epoch.current) setError(String(reason)) })
+          .finally(() => { if (request === epoch.current) setPending(false) })
+      }}>Older output</button>}
+    </div>
     {error && <p role="alert">{error}</p>}
     {pending && <p role="status">Loading output...</p>}
-    {page && <div>
-      <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{page.content}</pre>
-      {page.next_offset !== null && <button disabled={pending || !active} onClick={() => { if (selected) void read(selected, page.next_offset!) }}>Load more output</button>}
+    {page && <div className="cron-output-content">
+      <pre>{page.content}</pre>
+      {page.next_offset !== null && <button className="quiet-button" type="button" disabled={pending || !active} onClick={() => { if (selected) void read(selected, page.next_offset!) }}>Load more output</button>}
       {page.next_offset === null && <p>End of saved output.</p>}
     </div>}
   </section>

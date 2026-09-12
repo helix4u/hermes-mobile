@@ -1666,18 +1666,7 @@ export function SupportOpsView({
       voiceReviewRef.current = review
       setVoiceReview(review)
       onNotice?.('Action ready for review in Support Ops. Nothing has run.')
-    }, () => voiceQueueView.current, {
-      current: () => generation === voiceGeneration.current && voiceScope.current.alive
-        ? supportReviewSnapshot(voiceReviewRef.current) : null,
-      approve: async review => {
-        if (generation !== voiceGeneration.current) throw new Error('Support voice target changed')
-        await approveVoiceReview(review)
-      },
-      cancel: review => {
-        if (voiceApprovalBusy.current) throw new Error('This action is already being submitted and cannot be cancelled.')
-        if (generation === voiceGeneration.current && sameVoiceReview(review, supportReviewSnapshot(voiceReviewRef.current))) clearVoiceReview()
-      },
-    }))
+    }, () => voiceQueueView.current))
     if (generation !== voiceGeneration.current) return
     await onStartVoiceSession(prepared)
   }

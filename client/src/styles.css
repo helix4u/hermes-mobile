@@ -275,59 +275,53 @@ h3 {
 .host-pill {
   gap: 0.45rem;
   min-width: 0;
-  flex: 0 1 auto;
-  max-width: 100%;
+  min-height: 42px;
+  flex: 1 1 10rem;
+  max-width: 15rem;
   border: 1px solid var(--stroke);
-  border-radius: 999px;
-  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  padding: 0.38rem 0.55rem;
   font-size: 0.72rem;
+  line-height: 1;
 }
 
-.wake-status-pill {
+.host-pill-copy {
   display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 0.34rem;
-  min-height: 2rem;
-  border: 1px solid var(--stroke);
-  border-radius: 999px;
-  background: transparent;
-  padding: 0.4rem 0.55rem;
-  color: var(--muted);
-  font-size: 0.64rem;
-  font-weight: 750;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  text-align: left;
 }
 
-.wake-status-dot,
+.host-pill-copy strong,
+.host-pill-copy small {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-pill-copy strong {
+  color: var(--text);
+  font-size: 0.69rem;
+  font-weight: 760;
+}
+
+.host-pill-copy small {
+  color: var(--gold-light);
+  font-size: 0.56rem;
+  font-weight: 700;
+}
+
 .pet-live-main-dot {
   flex: 0 0 auto;
   width: 0.42rem;
   height: 0.42rem;
   border-radius: 50%;
   background: var(--muted-2);
-}
-
-.wake-status-pill.state-ready {
-  border-color: rgb(117 200 146 / 30%);
-  color: var(--success);
-}
-
-.wake-status-pill.state-ready .wake-status-dot {
-  background: var(--success);
-  box-shadow: 0 0 0 0.18rem rgb(117 200 146 / 10%);
-}
-
-.wake-status-pill.state-loading .wake-status-dot,
-.wake-status-pill.state-active .wake-status-dot {
-  background: var(--gold);
-}
-
-.wake-status-pill.state-error {
-  color: var(--danger);
-}
-
-.wake-status-pill.state-error .wake-status-dot {
-  background: var(--danger);
 }
 
 .pet-live-main-button {
@@ -352,12 +346,6 @@ h3 {
 .pet-live-main-button.active .pet-live-main-dot {
   background: var(--gold);
   box-shadow: 0 0 0 0.18rem color-mix(in srgb, var(--gold) 12%, transparent);
-}
-
-.host-pill > span:nth-child(2) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .host-dot,
@@ -388,7 +376,23 @@ h3 {
 }
 
 .host-chevron {
+  display: grid;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  place-items: center;
   color: var(--muted);
+}
+
+.host-chevron svg {
+  display: block;
+  width: 0.85rem;
+  height: 0.85rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .mobile-workspace {
@@ -590,9 +594,9 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 36px;
+  min-height: 42px;
   border: 1px solid var(--stroke-strong);
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--surface-2);
   color: var(--text);
   padding: 6px 9px;
@@ -934,9 +938,9 @@ h3 {
   position: fixed;
   top: 0;
   left: 0;
-  /* Keep the companion draggable above its own sidechat (120), while native
-     media viewers and other deliberate full-screen surfaces can still win. */
-  z-index: 130;
+  /* Keep the companion above transcript content but below every interactive
+     sticky control, menu, composer suggestion, sheet, and review surface. */
+  z-index: 10;
   width: 100vw;
   height: 100dvh;
   overflow: visible;
@@ -972,7 +976,7 @@ h3 {
 
 .mobile-pet-bubble {
   position: fixed;
-  z-index: 131;
+  z-index: 11;
   box-sizing: border-box;
   width: min(14rem, calc(100vw - 2rem));
   max-width: calc(100vw - 2rem);
@@ -1174,14 +1178,76 @@ h3 {
 .voice-page .pet-sidechat-composer { flex-shrink: 0; }
 .voice-page .pet-realtime-settings > summary { min-height: 2.5rem; padding: .55rem .75rem; }
 @media (orientation: landscape) and (max-height: 600px) {
-  .voice-page .pet-sidechat-sheet { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; grid-template-rows: auto minmax(0, 1fr) auto; }
-  .voice-page .pet-sidechat-heading { grid-column: 1 / -1; grid-row: 1; }
-  .voice-page .pet-sidechat-body { grid-column: 1; grid-row: 2 / 4; }
-  .voice-page .pet-realtime-controls { display: flex; grid-column: 2; grid-row: 2; flex-direction: column; align-items: stretch; justify-content: end; overflow-y: auto; }
+  :root {
+    --landscape-rail-width: clamp(8.75rem, 18vw, 9.5rem);
+  }
+
+  .voice-page .pet-sidechat-sheet {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  .voice-page .pet-sidechat-heading {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .voice-page .pet-realtime-controls {
+    display: flex;
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+    align-items: center;
+    justify-content: flex-start;
+    overflow: hidden;
+    border-bottom: 1px solid var(--stroke);
+    padding: 0.35rem 0.55rem;
+  }
+
   .voice-page .pet-realtime-controls > * { flex-shrink: 0; }
-  .voice-page .pet-realtime-state { max-width: none; white-space: normal; }
-  .voice-page .pet-sidechat-composer { grid-column: 2; grid-row: 3; flex-wrap: wrap; }
-  .voice-page .pet-sidechat-composer textarea { flex-basis: 100%; }
+
+  .voice-page .pet-realtime-state {
+    max-width: min(24rem, 55vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .voice-page .pet-sidechat-body {
+    grid-column: 1;
+    grid-row: 3;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .voice-page .pet-sidechat-messages {
+    padding: 0.65rem clamp(0.65rem, 3vw, 1.5rem);
+    gap: 0.65rem;
+  }
+
+  .voice-page .pet-sidechat-message {
+    width: auto;
+    max-width: min(46rem, 88%);
+    margin-inline: 0;
+  }
+
+  .voice-page .pet-sidechat-message.user { margin-left: auto; }
+
+  .voice-page .pet-sidechat-composer {
+    display: grid;
+    grid-column: 1;
+    grid-row: 4;
+    grid-template-columns: minmax(0, 1fr) 2.35rem 2.35rem;
+    min-width: 0;
+    align-items: end;
+  }
+
+  .voice-page .pet-sidechat-composer textarea {
+    min-width: 0;
+    min-height: 2.35rem;
+    max-height: min(4.5rem, 24dvh);
+  }
 }
 
 @keyframes pet-sidechat-pop {
@@ -5565,12 +5631,26 @@ textarea:focus {
 }
 
 .icon-button {
-  display: grid;
+  display: inline-flex;
   width: 2.25rem;
   height: 2.25rem;
-  place-items: center;
+  min-width: 2.25rem;
+  flex: 0 0 2.25rem;
+  align-items: center;
+  justify-content: center;
   padding: 0;
-  font-size: 1rem;
+  line-height: 0;
+}
+
+.icon-button svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .button-row {
@@ -5653,15 +5733,34 @@ textarea:focus {
 .cron-list {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  margin-top: 0.25rem;
+  gap: 0;
 }
 
 .cron-card {
-  border: 1px solid var(--stroke);
-  border-radius: 0.7rem;
-  background: var(--surface-2);
-  padding: 0.7rem;
+  min-width: 0;
+  border-bottom: 1px solid var(--stroke);
+  padding: 0.8rem 0;
+}
+
+.cron-card:first-child {
+  padding-top: 0;
+}
+
+.cron-card:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.cron-card-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cron-card-heading small {
+  flex: 0 0 auto;
+  margin-top: 0;
 }
 
 .cron-card strong {
@@ -6101,6 +6200,18 @@ textarea:focus {
 }
 
 @media (max-width: 520px) {
+  .brand-button > span:last-child {
+    display: none;
+  }
+
+  .topbar-statuses {
+    flex: 1 1 auto;
+  }
+
+  .host-pill {
+    max-width: none;
+  }
+
   .setting-grid,
   .advanced-config-form,
   .support-settings-grid,
@@ -6604,8 +6715,8 @@ textarea:focus {
 /*
  * A short landscape viewport is a different workspace, not a scaled portrait
  * screen. Keep the portrait header/navigation dimensions as a left rail, give
- * the active surface the center, and reserve a bounded right lane for Chat
- * voice controls and composition.
+ * the active surface the remaining width, and keep compact interaction rows
+ * attached to that surface instead of reserving an empty composer column.
  */
 @media (orientation: landscape) and (max-height: 600px) {
   html,
@@ -6617,8 +6728,8 @@ textarea:focus {
   }
 
   .app-shell {
-    grid-template-columns: 4.75rem minmax(0, 1fr);
-    grid-template-rows: 7.1rem minmax(0, 1fr);
+    grid-template-columns: var(--landscape-rail-width) minmax(0, 1fr);
+    grid-template-rows: 6.2rem minmax(0, 1fr);
     width: 100%;
     max-width: none;
     height: 100dvh;
@@ -6636,7 +6747,7 @@ textarea:focus {
     grid-row: 1;
     flex-direction: column;
     justify-content: flex-start;
-    gap: 0.55rem;
+    gap: 0.35rem;
     min-width: 0;
     min-height: 0;
     border-right: 1px solid color-mix(in srgb, var(--stroke) 70%, transparent);
@@ -6646,15 +6757,16 @@ textarea:focus {
   }
 
   .brand-button {
-    flex-direction: column;
-    gap: 0.2rem;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.42rem;
     width: 100%;
-    text-align: center;
+    text-align: left;
   }
 
   .brand-mark {
-    width: 2.35rem;
-    height: 2.35rem;
+    width: 2.15rem;
+    height: 2.15rem;
     border-radius: 0.72rem;
   }
 
@@ -6664,7 +6776,8 @@ textarea:focus {
   }
 
   .brand-button > span:last-child {
-    align-items: center;
+    display: flex;
+    align-items: flex-start;
   }
 
   .brand-button small {
@@ -6672,48 +6785,55 @@ textarea:focus {
   }
 
   .brand-button strong {
-    font-size: 0.62rem;
+    font-size: 0.67rem;
     letter-spacing: 0;
   }
 
   .host-pill {
-    justify-content: center;
+    justify-content: flex-start;
     gap: 0.28rem;
-    width: 100%;
+    width: auto;
     max-width: 100%;
-    min-height: 1.8rem;
+    min-height: 2.5rem;
+    flex: 1 1 auto;
     padding: 0.28rem;
   }
 
   .topbar-statuses {
     width: 100%;
     flex: 0 0 auto;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.24rem;
   }
 
   .topbar .live-voice-mic {
-    width: 100%;
+    width: 1.9rem;
+    min-width: 1.9rem;
+    min-height: 2.5rem;
     padding: 5px;
     font-size: 10px;
     gap: 3px;
   }
 
   .topbar .live-voice-mic svg { width: 14px; height: 14px; }
+  .topbar .live-voice-mic span { display: none; }
 
-  .wake-status-pill {
-    min-width: 1.8rem;
-    min-height: 1.8rem;
-    justify-content: center;
-    padding: 0.28rem;
+  .host-pill-copy {
+    display: flex;
+    gap: 0.08rem;
   }
 
-  .wake-status-pill > span:last-child {
-    display: none;
+  .host-pill-copy strong {
+    display: block;
+    overflow: hidden;
+    font-size: 0.57rem;
+    line-height: 1.08;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .host-pill > span:nth-child(2) {
-    display: none;
+  .host-pill-copy small {
+    font-size: 0.49rem;
   }
 
   .mobile-workspace {
@@ -6766,8 +6886,8 @@ textarea:focus {
 
   .chat-view.active {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) clamp(15rem, 32vw, 21rem);
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     width: 100%;
     max-width: 100%;
     min-width: 0;
@@ -6810,11 +6930,10 @@ textarea:focus {
   }
 
   .chat-view .chat-voice-controls {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
     min-width: 0;
     border-bottom: 1px solid var(--stroke);
-    border-left: 1px solid var(--stroke);
   }
 
   .chat-view .chat-voice-controls > summary {
@@ -6847,20 +6966,23 @@ textarea:focus {
 
   .chat-view .composer {
     display: flex;
-    grid-column: 2;
-    grid-row: 1 / 4;
+    grid-column: 1;
+    grid-row: 4;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
-    border-top: 0;
-    border-left: 1px solid var(--stroke);
-    padding: 0.5rem 0.5rem 0.4rem;
+    max-height: min(12rem, 48dvh);
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-top: 1px solid var(--stroke);
+    border-left: 0;
+    padding: 0.42rem 0.55rem 0.35rem;
   }
 
   .chat-view .composer-box {
     grid-template-columns: 2.2rem minmax(0, 1fr) 2.2rem;
-    margin-top: auto;
+    width: 100%;
+    margin-top: 0;
     border-radius: 0.8rem;
     padding: 0.32rem;
   }
@@ -6870,8 +6992,8 @@ textarea:focus {
   }
 
   .chat-view .composer textarea {
-    min-height: 3.2rem;
-    max-height: min(8rem, 38dvh);
+    min-height: 2.2rem;
+    max-height: min(5rem, 24dvh);
     padding: 0.45rem 0.18rem;
     font-size: 0.78rem;
   }
@@ -6919,7 +7041,7 @@ textarea:focus {
     justify-content: flex-end;
     padding:
       var(--safe-inset-top) var(--safe-inset-right)
-      var(--safe-inset-bottom) calc(4.75rem + var(--safe-inset-left));
+      var(--safe-inset-bottom) calc(var(--landscape-rail-width) + var(--safe-inset-left));
   }
 
   .connection-sheet,
@@ -6936,14 +7058,69 @@ textarea:focus {
 
   .toast {
     top: calc(0.5rem + var(--safe-inset-top));
-    left: calc(4.75rem + (100% - 4.75rem) / 2);
-    width: min(30rem, calc(100% - 6.25rem));
+    left: calc(var(--landscape-rail-width) + (100% - var(--landscape-rail-width)) / 2);
+    width: min(30rem, calc(100% - var(--landscape-rail-width) - 1.5rem));
   }
 }
 .realtime-input-settings {
   display: grid;
   gap: 0.4rem;
   min-width: 0;
+}
+
+.control-subsection {
+  border-top: 1px solid var(--stroke);
+  padding-top: 0.8rem;
+}
+
+.control-subsection > summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.control-subsection[open] > summary {
+  margin-bottom: 0.8rem;
+}
+
+.cron-progress {
+  min-width: 0;
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--stroke);
+  padding-top: 0.8rem;
+}
+
+.cron-progress h3,
+.cron-output h3 {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.cron-progress > p,
+.cron-output > p {
+  margin-top: 0.35rem;
+}
+
+.cron-run-list,
+.cron-output-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+}
+
+.cron-run-message,
+.cron-output-content {
+  min-width: 0;
+  margin-top: 0.6rem;
+}
+
+.cron-run-message pre,
+.cron-output-content pre {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .realtime-input-settings label {

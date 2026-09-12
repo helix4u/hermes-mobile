@@ -75,10 +75,14 @@ export class CronClient {
   output(jobId: string, output: CronOutput, offset = 0): Promise<CronOutputPage> {
     return this.transport.requestJson(`${this.path(`/${encodeURIComponent(jobId)}/outputs/${encodeURIComponent(output.id)}`)}&offset=${offset}&version=${encodeURIComponent(output.version)}`)
   }
-  async action(jobId: string, action: 'trigger' | 'pause' | 'resume'): Promise<CronJob> {
+  async action(jobId: string, action: 'trigger' | 'pause' | 'remove' | 'resume'): Promise<CronJob | null> {
     if (this.pending.has(jobId)) throw new Error('A request for this job is already in progress')
     this.pending.add(jobId)
     try {
+      if (action === 'remove') {
+        await this.transport.requestJson(this.path(`/${encodeURIComponent(jobId)}`), undefined, { method: 'DELETE' })
+        return null
+      }
       // Trigger can wait for execution. Never retry automatically after a lost response.
       return await this.transport.requestJson(this.path(`/${encodeURIComponent(jobId)}/${action}`), {}, { timeoutMs: 120_000 })
     } finally { this.pending.delete(jobId) }

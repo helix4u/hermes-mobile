@@ -5,7 +5,6 @@ import { flushSync } from 'react-dom'
 import { SupportOpsView } from '../src/components/SupportOpsView'
 import type { HermesTransport } from '../src/transport/hermes-transport'
 import type { PetRealtimeContextTarget } from '../src/usePetRealtime'
-import type { VoiceContextReview } from '../src/voice-context-review'
 import '../src/styles.css'
 
 const thread = { thread_id: '100000000000000001', title: 'Synthetic build issue', waiting_on_operator: true, has_ticket: true }
@@ -64,20 +63,10 @@ function Fixture() {
 }
 const root = createRoot(document.getElementById('root')!)
 flushSync(() => root.render(<StrictMode><Fixture /></StrictMode>))
-const approval = () => {
-  if (!target?.contextTools?.approval) throw new Error('No captured production approval callbacks')
-  return target.contextTools.approval
-}
 Object.assign(window, { supportReviewQA: {
   requests, receipts, errors, text,
   get target() { return target },
-  snapshot: () => approval().current(),
   propose: () => target!.contextTools!.propose({ targetId: thread.thread_id, action: 'investigate', text }),
-  approve: async (review: VoiceContextReview) => {
-    try { await approval().approve(review); return { ok: true } }
-    catch (error) { return { ok: false, error: String(error) } }
-  },
-  cancel: (review: VoiceContextReview) => approval().cancel(review),
   holdApproval: () => { hold = true },
   releaseApproval: () => { hold = false; release?.(); release = undefined },
   failAfterAccept: (failure: string) => { failRefresh = failure === 'refresh'; failReceipt = failure === 'receipt' },

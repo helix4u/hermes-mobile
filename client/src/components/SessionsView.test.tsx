@@ -62,6 +62,7 @@ describe('SessionsView', () => {
   it('renders projects as a vertical expandable browser', () => {
     const html = renderSessions()
 
+    expect(html).toMatch(/aria-label="Refresh sessions"[\s\S]*?<svg/)
     expect(html).toContain('session-project-browser')
     expect(html).toContain('aria-label="Session projects"')
     expect(html).toContain('aria-expanded="true"')

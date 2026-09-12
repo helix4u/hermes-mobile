@@ -12,6 +12,7 @@ import {
   projectSessionRows,
   sessionMatches,
 } from '../state/sessions'
+import { RefreshIcon } from './UiIcons'
 
 interface SessionsViewProps {
   connected: boolean
@@ -272,7 +273,7 @@ export function SessionsView({
           disabled={!connected}
           onClick={() => void onRefresh()}
         >
-          ↻
+          <RefreshIcon />
         </button>
       </div>
 

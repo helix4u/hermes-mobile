@@ -261,6 +261,7 @@ public class HermesNativePlugin extends Plugin {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object recorderLock = new Object();
     private final Object wakeWordLock = new Object();
+    private RealtimeVoiceAudioRoute realtimeVoiceAudioRoute;
     private MediaRecorder recorder;
     private File recordingFile;
     private long recordingStartedAt;
@@ -272,6 +273,11 @@ public class HermesNativePlugin extends Plugin {
     @Override
     public void load() {
         activeSharePlugin = new WeakReference<>(this);
+        AudioManager audioManager =
+            (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        realtimeVoiceAudioRoute = new RealtimeVoiceAudioRoute(
+            new AndroidRealtimeVoiceAudioBackend(audioManager)
+        );
         cleanupOrphanedShares(getContext());
         publishPendingShare();
         publishPendingSessionOpen();
@@ -816,6 +822,7 @@ public class HermesNativePlugin extends Plugin {
             call.reject("Microphone permission is required for live voice");
             return;
         }
+        boolean newlyRetained = false;
         try {
             // Reserve ownership before stopping wake capture. A queued wake start
             // must not reopen AudioRecord after WebRTC takes the microphone.
@@ -825,18 +832,50 @@ public class HermesNativePlugin extends Plugin {
                         call.reject("Finish dictation before starting live voice");
                         return;
                     }
-                    retainedRealtimeVoiceIds.add(leaseId);
+                    newlyRetained = retainedRealtimeVoiceIds.add(leaseId);
                 }
             }
             stopWakeWordInternal("", true);
+            RealtimeVoiceAudioRoute.DeviceKind outputRoute =
+                realtimeVoiceAudioRoute.retain(leaseId);
             HermesConnectionService.retainRealtimeVoice(getContext(), leaseId);
             JSObject result = new JSObject();
             result.put("retained", true);
+            result.put("outputRoute", outputRoute.name().toLowerCase(Locale.ROOT));
             call.resolve(result);
         } catch (RuntimeException error) {
-            retainedRealtimeVoiceIds.remove(leaseId);
+            if (newlyRetained) {
+                retainedRealtimeVoiceIds.remove(leaseId);
+                realtimeVoiceAudioRoute.release(leaseId);
+                HermesConnectionService.releaseRealtimeVoice(getContext(), leaseId);
+            }
             call.reject(
-                "Could not retain live voice in the background (" +
+                "Could not route live voice to the speaker or connected headset (" +
+                error.getClass().getSimpleName() +
+                ")"
+            );
+        }
+    }
+
+    @PluginMethod
+    public void ensureRealtimeVoiceOutput(PluginCall call) {
+        String leaseId = requireRealtimeVoiceLeaseId(call);
+        if (leaseId == null) {
+            return;
+        }
+        if (!retainedRealtimeVoiceIds.contains(leaseId)) {
+            call.reject("Live voice no longer owns the Android audio route");
+            return;
+        }
+        try {
+            RealtimeVoiceAudioRoute.DeviceKind outputRoute =
+                realtimeVoiceAudioRoute.ensure(leaseId);
+            JSObject result = new JSObject();
+            result.put("outputRoute", outputRoute.name().toLowerCase(Locale.ROOT));
+            call.resolve(result);
+        } catch (RuntimeException error) {
+            call.reject(
+                "Could not route live voice to the speaker or connected headset (" +
                 error.getClass().getSimpleName() +
                 ")"
             );
@@ -2469,6 +2508,9 @@ public class HermesNativePlugin extends Plugin {
         for (String leaseId : retainedRealtimeVoiceIds.toArray(new String[0])) {
             releaseRealtimeVoiceLease(leaseId);
         }
+        if (realtimeVoiceAudioRoute != null) {
+            realtimeVoiceAudioRoute.releaseAll();
+        }
         sockets.clear();
         retainedSocketIds.clear();
         retainedRealtimeVoiceIds.clear();
@@ -2964,6 +3006,7 @@ public class HermesNativePlugin extends Plugin {
 
     private void releaseRealtimeVoiceLease(String leaseId) {
         if (retainedRealtimeVoiceIds.remove(leaseId)) {
+            realtimeVoiceAudioRoute.release(leaseId);
             HermesConnectionService.releaseRealtimeVoice(getContext(), leaseId);
         }
     }

@@ -1,4 +1,4 @@
-// Real rendered SupportOpsView callback-to-transport regressions, offline only.
+// Real rendered SupportOpsView card-to-transport regressions, offline only.
 import { after, afterEach, before, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -26,127 +26,115 @@ beforeEach(async () => {
   await page.waitForFunction(() => Boolean(window.supportReviewQA.target))
 })
 afterEach(async () => { await context?.close() })
-async function stage() {
-  await page.evaluate(() => window.supportReviewQA.propose())
-  await page.getByRole('dialog', { name: 'Review Support action', exact: true }).waitFor()
-  return page.evaluate(() => window.supportReviewQA.snapshot())
-}
-const approve = snapshot => page.evaluate(snapshot => window.supportReviewQA.approve(snapshot), snapshot)
+
+const dialog = () => page.getByRole('dialog', { name: 'Review Support action', exact: true })
+const sendButton = () => dialog().getByRole('button', { name: 'Approve action', exact: true })
 const approvals = () => page.evaluate(() => window.supportReviewQA.requests.filter(r => /\/voice\/reviews\/.*\/approve$/.test(r.path)))
 
-test('Queue voice reads actual routes before capture; exact rendered snapshot approves once with unmodified transport body', async () => {
-  const snapshot = await stage()
+async function stage() {
+  await page.evaluate(() => window.supportReviewQA.propose())
+  await dialog().waitFor()
+  return dialog().getByRole('textbox', { name: 'Reviewed support action text' }).inputValue()
+}
+
+async function sendAndWait() {
+  await sendButton().click()
+  await page.waitForFunction(() => window.supportReviewQA.requests.some(r => /\/voice\/reviews\/.*\/approve$/.test(r.path)))
+}
+
+test('Queue voice reads actual routes before capture and the rendered card sends the exact reviewed request once', async () => {
+  const rendered = await stage()
   const initial = await page.evaluate(() => ({ requests: window.supportReviewQA.requests, context: window.supportReviewQA.target.context }))
   assert.ok(initial.requests.some(r => r.path.endsWith('/health')))
   assert.ok(initial.requests.some(r => r.path.endsWith('/queue')))
   assert.ok(initial.requests.some(r => r.path.endsWith('/voice/read') && r.options.method === 'POST'))
   assert.match(JSON.stringify(initial.context), /Synthetic build issue/)
-  assert.equal(snapshot.text, 'Start investigation for Synthetic build issue.\nInspect the build. Do not change files.')
-  assert.deepEqual(await approve(snapshot), { ok: true })
-  assert.equal((await approve(snapshot)).ok, false)
+  assert.equal(rendered, 'Inspect the build. Do not change files.')
+  await sendAndWait()
+  await dialog().waitFor({ state: 'hidden' })
   const sent = await approvals()
   assert.equal(sent.length, 1)
   assert.equal(sent[0].host, 'host-one')
   assert.deepEqual(sent[0].body, { targetId: '100000000000000001', action: 'investigate', text: 'Inspect the build. Do not change files.' })
   assert.deepEqual(sent[0].options, { method: 'POST', timeoutMs: 30000 })
-  assert.equal(await page.evaluate(() => window.supportReviewQA.snapshot()), null)
   assert.equal(await page.evaluate(() => window.supportReviewQA.receipts.length), 1)
 })
 
-test('real textarea edit invalidates old snapshot and edited words survive rerender into exact approval', async () => {
-  const old = await stage()
-  await page.getByRole('textbox', { name: 'Reviewed support action text' }).fill('Do not edit files. Inspect [the exact] output only.')
+test('the real textarea edit survives rerender and only the edited card text is sent', async () => {
+  await stage()
+  const textbox = dialog().getByRole('textbox', { name: 'Reviewed support action text' })
+  await textbox.fill('Do not edit files. Inspect [the exact] output only.')
   await page.evaluate(() => window.supportReviewQA.rerender())
-  assert.equal((await approve(old)).ok, false)
-  assert.deepEqual(await approvals(), [])
-  const current = await page.evaluate(() => window.supportReviewQA.snapshot())
-  assert.match(current.text, /Do not edit files\. Inspect \[the exact\] output only\.$/)
-  assert.deepEqual(await approve(current), { ok: true })
+  assert.equal(await textbox.inputValue(), 'Do not edit files. Inspect [the exact] output only.')
+  await sendAndWait()
+  assert.equal((await approvals()).length, 1)
   assert.equal((await approvals())[0].body.text, 'Do not edit files. Inspect [the exact] output only.')
 })
 
-for (const via of ['UI', 'voice']) test(`${via} cancellation clears the ref immediately and rejects stale approval after rerender`, async () => {
-  const snapshot = await stage()
-  if (via === 'UI') await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-  else await page.evaluate(snapshot => window.supportReviewQA.cancel(snapshot), snapshot)
-  await page.evaluate(() => window.supportReviewQA.rerender())
-  assert.equal(await page.evaluate(() => window.supportReviewQA.snapshot()), null)
-  assert.equal((await approve(snapshot)).ok, false)
+test('only the visible Cancel button clears a pending card without sending it', async () => {
+  await stage()
+  await dialog().getByRole('button', { name: 'Cancel', exact: true }).click()
+  await dialog().waitFor({ state: 'hidden' })
   assert.deepEqual(await approvals(), [])
 })
 
-for (const first of ['UI', 'voice']) test(`${first}-first concurrent UI and voice approval sends at most one request`, async () => {
-  const snapshot = await stage()
+test('rapid repeated clicks on the visible Send button produce at most one request', async () => {
+  await stage()
   await page.evaluate(() => window.supportReviewQA.holdApproval())
-  if (first === 'UI') {
-    await page.getByRole('button', { name: 'Approve action', exact: true }).click()
-    assert.equal((await approve(snapshot)).ok, false)
-  } else {
-    await page.evaluate(snapshot => {
-      const button = [...document.querySelectorAll('button')].find(b => b.textContent === 'Approve action')
-      window.pendingSupportApproval = window.supportReviewQA.approve(snapshot)
-      // Same JS task, before the shared state can rerender disabled controls.
-      button.click()
-    }, snapshot)
-  }
+  await page.evaluate(() => {
+    const button = [...document.querySelectorAll('button')].find(candidate => candidate.textContent === 'Approve action')
+    button?.click()
+    button?.click()
+  })
+  await page.waitForFunction(() => window.supportReviewQA.requests.some(r => /\/approve$/.test(r.path)))
   assert.equal((await approvals()).length, 1)
   await page.evaluate(() => window.supportReviewQA.releaseApproval())
-  await page.waitForFunction(() => window.supportReviewQA.snapshot() === null)
+  await dialog().waitFor({ state: 'hidden' })
   assert.equal((await approvals()).length, 1)
-  assert.equal((await approve(snapshot)).ok, false)
 })
 
-for (const boundary of ['disconnect', 'replaceHost', 'unmount']) test(`${boundary} rejects the captured voice approval before transport`, async () => {
-  const snapshot = await stage()
-  await page.evaluate(boundary => window.supportReviewQA[boundary](), boundary)
-  assert.equal((await approve(snapshot)).ok, false)
-  assert.deepEqual(await approvals(), [])
-})
-
-for (const boundary of ['disconnect', 'replaceHost']) test(`${boundary} cannot send an old rendered UI review to the current transport`, async () => {
+for (const boundary of ['disconnect', 'replaceHost', 'unmount']) test(`${boundary} prevents an old rendered card from sending to any transport`, async () => {
   await stage()
   await page.evaluate(boundary => window.supportReviewQA[boundary](), boundary)
-  const button = page.getByRole('button', { name: 'Approve action', exact: true })
+  const button = sendButton()
   if (await button.count() && await button.isEnabled()) await button.click()
+  await page.waitForTimeout(100)
   assert.deepEqual(await approvals(), [])
 })
 
-test('voice-owned submission renders busy and prevents edit or cancellation while request is held', async () => {
-  const snapshot = await stage()
+test('card submission renders busy and prevents editing or cancellation while its request is held', async () => {
+  await stage()
   await page.evaluate(() => window.supportReviewQA.holdApproval())
-  await page.evaluate(snapshot => { window.pendingSupportApproval = window.supportReviewQA.approve(snapshot) }, snapshot)
+  await sendButton().click()
   await page.waitForFunction(() => window.supportReviewQA.requests.some(r => /\/approve$/.test(r.path)))
-  const dialog = page.getByRole('dialog', { name: 'Review Support action', exact: true })
-  assert.equal(await dialog.getByRole('textbox').isDisabled(), true)
-  assert.equal(await dialog.getByRole('button', { name: 'Cancel', exact: true }).isDisabled(), true)
-  assert.equal(await dialog.getByRole('button', { name: 'Submitting...', exact: true }).isDisabled(), true)
-  assert.doesNotMatch(await dialog.innerText(), /Nothing has run/)
-  await page.evaluate(snapshot => { try { window.supportReviewQA.cancel(snapshot) } catch {} }, snapshot)
-  assert.deepEqual(await page.evaluate(() => window.supportReviewQA.snapshot()), snapshot)
+  assert.equal(await dialog().getByRole('textbox').isDisabled(), true)
+  assert.equal(await dialog().getByRole('button', { name: 'Cancel', exact: true }).isDisabled(), true)
+  assert.equal(await dialog().getByRole('button', { name: 'Submitting...', exact: true }).isDisabled(), true)
+  assert.doesNotMatch(await dialog().innerText(), /Nothing has run/)
   await page.evaluate(() => window.supportReviewQA.releaseApproval())
-  assert.deepEqual(await page.evaluate(() => window.pendingSupportApproval), { ok: true })
+  await dialog().waitFor({ state: 'hidden' })
   assert.equal((await approvals()).length, 1)
 })
 
-for (const failure of ['refresh', 'receipt']) test(`accepted action remains accepted after ${failure} failure and cannot be sent again`, async () => {
-  const snapshot = await stage()
+for (const failure of ['refresh', 'receipt']) test(`accepted action stays accepted after ${failure} failure and cannot be sent again`, async () => {
+  await stage()
   await page.evaluate(failure => window.supportReviewQA.failAfterAccept(failure), failure)
-  assert.deepEqual(await approve(snapshot), { ok: true })
-  assert.equal(await page.evaluate(() => window.supportReviewQA.snapshot()), null)
-  assert.equal((await approve(snapshot)).ok, false)
+  await sendAndWait()
+  await dialog().waitFor({ state: 'hidden' })
   assert.equal((await approvals()).length, 1)
+  assert.equal(await sendButton().count(), 0)
   if (failure === 'receipt') assert.match(await page.locator('.support-ops-screen').innerText(), /action was submitted, but the Support view could not refresh/)
   else assert.ok(await page.evaluate(() => window.supportReviewQA.errors.includes('Synthetic refresh unavailable')))
 })
 
-test('unconfirmed request failure preserves review without claiming nothing ran or automatically resubmitting', async () => {
-  const snapshot = await stage()
+test('unconfirmed request failure preserves the exact card without automatically resubmitting', async () => {
+  const rendered = await stage()
   await page.evaluate(() => window.supportReviewQA.failSubmission())
-  assert.equal((await approve(snapshot)).ok, false)
-  assert.deepEqual(await page.evaluate(() => window.supportReviewQA.snapshot()), snapshot)
-  const dialog = page.getByRole('dialog', { name: 'Review Support action', exact: true })
-  assert.match(await dialog.innerText(), /Submission was not confirmed/)
-  assert.doesNotMatch(await dialog.innerText(), /Nothing has run/)
-  assert.equal(await dialog.getByRole('textbox').isEnabled(), true)
+  await sendAndWait()
+  await page.waitForFunction(() => document.querySelector('dialog')?.textContent?.includes('Submission was not confirmed'))
+  assert.equal(await dialog().getByRole('textbox').inputValue(), rendered)
+  assert.match(await dialog().innerText(), /Submission was not confirmed/)
+  assert.doesNotMatch(await dialog().innerText(), /Nothing has run/)
+  assert.equal(await dialog().getByRole('textbox').isEnabled(), true)
   assert.equal((await approvals()).length, 1)
 })

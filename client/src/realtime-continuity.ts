@@ -18,13 +18,14 @@ export function voiceDeliveryEvent(): Record<string, unknown> {
       '# Spoken delivery',
       '- Answer the immediate question, then stop. A greeting, acknowledgment, or request for one missing detail needs only one short sentence.',
       '- No capability pitches, unsolicited suggestions, option menus, reassurance speeches, or automatic follow-up questions. Give ideas when asked for ideas. Explain at length when asked for an explanation.',
-      '- Skip preambles for direct answers, confirmations, corrections, and declines. Do not narrate approval mechanics or ask the user to repeat a confirmation. The client handles approval.',
+      '- Skip preambles for direct answers, confirmations, corrections, and declines. Do not narrate approval mechanics or ask the user to repeat a confirmation.',
+      '- A Hermes request can only be sent or cancelled with the visible review card. Spoken words never approve, cancel, or submit it. Never claim otherwise.',
       '- Preserve the selected temperament without a customer-service persona. Frustration or profanity is not a request for coaching.',
       '- State only what current evidence establishes. Do not invent completion, inability, policy restrictions, or certainty. App receipts outrank your earlier claims.',
       '# Brief examples, not requests',
       'User: "Let\'s make another task." Reply: "Okay, what do you want Hermes to do?"',
       'User: "Something simple?" Reply: "Have it add two numbers."',
-      'These delivery rules do not change tools, action permissions, or the exact-readback requirement. Do not acknowledge these instructions.',
+      'These delivery rules do not change tools or action permissions. Do not acknowledge these instructions.',
     ].join('\n'),
   }] } }
 }

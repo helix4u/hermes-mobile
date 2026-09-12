@@ -39,6 +39,14 @@ export interface PetViewport {
   width: number
 }
 
+interface PetAvoidRect {
+  bottom: number
+  left: number
+  right: number
+  top: number
+  width: number
+}
+
 type PetGestureInput = 'pointer' | 'touch'
 
 const PET_SIZE = 72
@@ -111,6 +119,43 @@ function snapshotPetPerches(viewport: PetViewport): PetPerch[] {
       .filter(element => element.offsetParent !== null)
       .map(element => element.getBoundingClientRect()),
     viewport,
+  )
+}
+
+export function petAutomaticBounds(
+  viewport: PetViewport,
+  avoidRects: PetAvoidRect[],
+): { width: number; height: number } {
+  const viewportRight = viewport.left + viewport.width
+  const viewportBottom = viewport.top + viewport.height
+  const firstBlockedTop = avoidRects
+    .filter(
+      rect =>
+        rect.width > 0 &&
+        rect.bottom > viewport.top &&
+        rect.top < viewportBottom &&
+        rect.right > viewport.left &&
+        rect.left < viewportRight,
+    )
+    .reduce(
+      (top, rect) => Math.min(top, Math.max(viewport.top, rect.top)),
+      viewportBottom,
+    )
+  return {
+    height: Math.max(PET_SIZE, firstBlockedTop - viewport.top),
+    width: viewport.width,
+  }
+}
+
+function snapshotPetAutomaticBounds(viewport: PetViewport) {
+  if (typeof document === 'undefined') {
+    return { height: viewport.height, width: viewport.width }
+  }
+  return petAutomaticBounds(
+    viewport,
+    [...document.querySelectorAll<HTMLElement>('[data-pet-avoid]')]
+      .filter(element => element.offsetParent !== null)
+      .map(element => element.getBoundingClientRect()),
   )
 }
 
@@ -551,12 +596,22 @@ export function MobilePet({
     }
   }, [])
 
-  const setPoint = useCallback((point: Point, persist = false) => {
-    const area = bounds()
-    const next = {
+  const automaticBounds = useCallback(
+    () => snapshotPetAutomaticBounds(viewportRef.current),
+    [],
+  )
+
+  const clampPoint = useCallback(
+    (point: Point, area: { width: number; height: number }): Point => ({
       x: Math.max(0, Math.min(area.width - PET_SIZE, point.x)),
       y: Math.max(0, Math.min(area.height - PET_SIZE, point.y)),
-    }
+    }),
+    [],
+  )
+
+  const setPoint = useCallback((point: Point, persist = false) => {
+    const area = bounds()
+    const next = clampPoint(point, area)
     pointRef.current = next
     if (petRef.current) {
       petRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0)`
@@ -568,7 +623,7 @@ export function MobilePet({
         // A storage failure must not break direct manipulation of the pet.
       }
     }
-  }, [bounds, connectionId])
+  }, [bounds, clampPoint, connectionId])
 
   const freezeAtRenderedPosition = useCallback(() => {
     const active = animationRef.current
@@ -751,8 +806,9 @@ export function MobilePet({
   useEffect(() => {
     const saved = loadPosition(connectionId)
     const area = bounds()
-    setPoint(saved ?? { x: 12, y: Math.max(0, area.height - PET_SIZE - 12) })
-  }, [bounds, connectionId, setPoint])
+    const initial = saved ?? { x: 12, y: Math.max(0, area.height - PET_SIZE - 12) }
+    setPoint(roam ? clampPoint(initial, automaticBounds()) : initial)
+  }, [automaticBounds, bounds, clampPoint, connectionId, roam, setPoint])
 
   useEffect(() => {
     const reconcileViewport = () => {
@@ -766,7 +822,10 @@ export function MobilePet({
       const nextViewport = readPetViewport()
       viewportRef.current = nextViewport
       setViewport(nextViewport)
-      setPoint(pointRef.current, true)
+      setPoint(
+        roam ? clampPoint(pointRef.current, automaticBounds()) : pointRef.current,
+        true,
+      )
       setRoamRevision(current => current + 1)
     }
     window.addEventListener('resize', reconcileViewport)
@@ -784,7 +843,7 @@ export function MobilePet({
       window.visualViewport?.removeEventListener('scroll', reconcileViewport)
       observer?.disconnect()
     }
-  }, [freezeAtRenderedPosition, setPoint])
+  }, [automaticBounds, clampPoint, freezeAtRenderedPosition, roam, setPoint])
 
   useEffect(() => {
     let stopped = false
@@ -806,7 +865,7 @@ export function MobilePet({
         if (stopped || !movingAllowed || dragRef.current) return
         const step = nextPetRoamStep(
           pointRef.current,
-          bounds(),
+          automaticBounds(),
           Math.random,
           snapshotPetPerches(viewportRef.current),
           petWalkSpeed(info.loopMs),
@@ -849,7 +908,7 @@ export function MobilePet({
       stopped = true
       clear()
     }
-  }, [bounds, freezeAtRenderedPosition, info.loopMs, movingAllowed, roamRevision, setPoint])
+  }, [automaticBounds, freezeAtRenderedPosition, info.loopMs, movingAllowed, roamRevision, setPoint])
 
   useEffect(() => {
     const cancelActiveDrag = () => {
@@ -880,6 +939,7 @@ export function MobilePet({
     <div
       className="mobile-pet-stage"
       aria-label="Hermes pet companion"
+      data-roam={roam ? 'true' : 'false'}
       ref={stageRef}
       style={{
         height: `${viewport.height}px`,

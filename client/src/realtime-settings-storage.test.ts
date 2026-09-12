@@ -8,7 +8,7 @@ describe('voice settings storage', () => {
     const entries = new Map<string, string>()
     vi.stubGlobal('localStorage', { getItem: (key: string) => entries.get(key) ?? null, setItem: (key: string, value: string) => entries.set(key, value) })
     saveRealtimeSettings('connection-a', { model: 'gpt-realtime-2.1', effort: 'high' })
-    expect(loadRealtimeSettings('connection-a')).toEqual({ model: 'gpt-realtime-2.1', effort: 'high' })
+    expect(loadRealtimeSettings('connection-a')).toEqual({ engine: 'realtime', model: 'gpt-realtime-2.1', effort: 'high' })
     expect(loadRealtimeSettings('connection-b').effort).toBe('default')
   })
   it('remains usable if local storage is unavailable', () => {

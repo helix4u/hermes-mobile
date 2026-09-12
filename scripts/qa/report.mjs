@@ -17,7 +17,9 @@ export function automationFailure(error) {
 export function summarize(checks, manual = []) {
   const count = status => checks.filter(check => check.status === status).length
   return { passed: count('pass'), failed: count('fail'), skipped: count('skip'),
-    todo: [...checks.filter(check => check.status !== 'pass').map(check => ({ id: check.id, reason: check.reason })), ...manual] }
+    todo: checks.filter(check => check.status === 'fail').map(check => ({ id: check.id, reason: check.reason })),
+    notObserved: checks.filter(check => check.status === 'skip').map(check => ({ id: check.id, reason: check.reason })),
+    manual }
 }
 
 export async function saveReport(directory, report) {
@@ -32,6 +34,10 @@ export async function saveReport(directory, report) {
     '', '## Bug TODO after testing', '',
     ...summary.todo.map(c => `- [ ] ${c.id}: ${c.reason}`), '']
   if (!summary.todo.length) lines.push('No unresolved checks in this scoped run. This is not whole-app certification.', '')
+  if (summary.notObserved.length) lines.push('## Not observed in this run', '',
+    ...summary.notObserved.map(c => `- ${c.id}: ${c.reason}`), '')
+  if (summary.manual.length) lines.push('## Separate physical acceptance', '',
+    ...summary.manual.map(c => `- [ ] ${c.id}: ${c.reason}`), '')
   await writeFile(path.join(directory, 'report.md'), lines.join('\n'))
   return summary
 }

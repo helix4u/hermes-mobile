@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CloseIcon } from './UiIcons'
 import type { MobileCapabilities } from '../protocol/types'
 import type { BrowserConnection } from '../transport/browser-transport'
 import type {
@@ -78,7 +79,7 @@ export function ConnectionSheet(props: ConnectionSheetProps) {
             className="icon-button"
             onClick={props.onClose}
           >
-            ×
+            <CloseIcon />
           </button>
         </div>
 

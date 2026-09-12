@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CloseIcon } from './UiIcons'
 
 export function ImagePreview({
   alt,
@@ -46,7 +47,7 @@ export function ImagePreview({
               type="button"
               onClick={() => setFullScreen(false)}
             >
-              ×
+              <CloseIcon />
             </button>
           </span>
           <span

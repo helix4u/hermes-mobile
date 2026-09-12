@@ -20,7 +20,7 @@ const adb = (...args) => execFileSync(values.adb, ['-s', values.device, ...args]
   { encoding: 'utf8', timeout: 20000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 2 ** 20 }).trim()
 const require = createRequire(values['playwright-package']
   ? path.resolve(values['playwright-package']) : import.meta.url)
-let browser, port, page, options, wasExpanded
+let browser, port, page, options, wasExpanded, initialLandscape
 const original = new Map()
 const changed = new Set()
 const outcome = (id, status, reason, ms = 0, metrics) => report.checks.push({ id, status, reason, ms, ...(metrics ? { metrics } : {}) })
@@ -57,6 +57,7 @@ try {
   page = browser.contexts().flatMap(context => context.pages()).find(candidate => candidate.url() === 'https://localhost/')
   ensure(page && await page.title() === 'Hermes Mobile', 'Expected foreground Mobile page was not found.')
   ensure(await page.evaluate(() => document.visibilityState === 'visible'), 'Mobile is not visible. Foreground device testing is deferred.')
+  initialLandscape = await page.evaluate(() => innerWidth > innerHeight)
   page.setDefaultTimeout(4000)
   page.on('pageerror', () => pageErrors++)
   page.on('console', msg => {
@@ -71,15 +72,42 @@ try {
     const box = await rect(page.locator('.chat-view.active .composer-box'))
     ensure(viewport.scrollWidth <= viewport.width + 1, 'Document overflows horizontally.')
     ensure(box.x >= -1 && box.x + box.width <= viewport.width + 1 && box.y >= 0 && box.y + box.height <= viewport.height + 1, 'Composer is outside the viewport.')
-    return { viewport, composer: box }
+    const petStage = page.locator('.mobile-pet-stage[data-roam="true"]')
+    let pet
+    if (await petStage.count()) {
+      pet = await rect(petStage.locator('.mobile-pet'))
+      ensure(pet.y + pet.height <= box.y + 1, 'Automatically roaming pet overlaps the composer controls.')
+    }
+    return { viewport, composer: box, ...(pet ? { pet } : {}) }
   })
   await check('UI-002', async () => {
     const brand = await rect(page.locator('.brand-button'))
     const status = await rect(page.locator('.topbar-statuses'))
-    const overlap = Math.min(brand.x + brand.width, status.x + status.width) - Math.max(brand.x, status.x)
-    ensure(overlap <= 1, 'Header identity and status overlap.')
-    ensure(Math.abs(brand.y + brand.height / 2 - status.y - status.height / 2) < 12, 'Header controls unexpectedly stack.')
-    return { header: await rect(page.locator('.topbar')) }
+    const landscape = await page.evaluate(() => innerWidth > innerHeight)
+    const overlapX = Math.min(brand.x + brand.width, status.x + status.width) - Math.max(brand.x, status.x)
+    const overlapY = Math.min(brand.y + brand.height, status.y + status.height) - Math.max(brand.y, status.y)
+    ensure(overlapX <= 1 || overlapY <= 1, 'Header identity and status overlap.')
+    if (landscape) ensure(brand.y + brand.height <= status.y + 1, 'Landscape header status is not attached below its identity.')
+    else ensure(Math.abs(brand.y + brand.height / 2 - status.y - status.height / 2) < 12, 'Portrait header controls unexpectedly stack.')
+    const identity = await page.locator('.host-pill').evaluate(button => {
+      const machine = button.querySelector('.host-pill-copy strong')
+      const profile = button.querySelector('.host-pill-copy small')
+      const icon = button.querySelector('.host-chevron svg')
+      const buttonRect = button.getBoundingClientRect()
+      const iconRect = icon?.getBoundingClientRect()
+      return {
+        height: buttonRect.height,
+        radius: parseFloat(getComputedStyle(button).borderRadius),
+        machineVisible: Boolean(machine && machine.getBoundingClientRect().width > 0),
+        profileVisible: Boolean(profile && profile.getBoundingClientRect().width > 0),
+        profileFits: Boolean(profile && profile.scrollWidth <= profile.clientWidth + 1),
+        iconOffset: iconRect ? Math.abs(iconRect.y + iconRect.height / 2 - buttonRect.y - buttonRect.height / 2) : 99,
+      }
+    })
+    ensure(identity.height >= 40 && identity.radius >= 6 && identity.radius <= 12, 'Connection control does not use the shared rounded-square geometry.')
+    ensure(identity.machineVisible && identity.profileVisible && identity.profileFits, 'Machine and profile are not independently readable.')
+    ensure(identity.iconOffset <= 1, 'Connection glyph is not vertically centered.')
+    return { header: await rect(page.locator('.topbar')), identity, landscape }
   })
   await check('UI-003', async () => {
     const title = await page.locator('.chat-view.active .thread-heading h1').evaluate(el => ({ height: el.getBoundingClientRect().height, line: parseFloat(getComputedStyle(el).lineHeight) }))
@@ -161,19 +189,94 @@ try {
     const rotation = adb('shell', 'settings', 'get', 'system', 'user_rotation')
     ensure(/^[01]$/.test(auto) && /^[0-3]$/.test(rotation), 'Unknown rotation preference; leave unchanged.')
     try {
-      stage = 'open voice page'
-      await page.locator('.chat-view.active .thread-actions-trigger').click()
-      await page.getByRole('button', { name: 'Voice conversation', exact: true }).click()
       stage = 'rotate device and await landscape viewport'
       adb('shell', 'settings', 'put', 'system', 'accelerometer_rotation', '0')
       adb('shell', 'settings', 'put', 'system', 'user_rotation', '1')
       await page.waitForFunction(() => innerWidth > innerHeight, undefined, { timeout: 15000 })
+
+      stage = 'check landscape Chat geometry'
+      const chatGeometry = await page.locator('.chat-view.active').evaluate(node => {
+        const bounds = target => {
+          const r = target.getBoundingClientRect()
+          return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }
+        }
+        const transcript = node.querySelector('.transcript')
+        const composer = node.querySelector('.composer')
+        const composerBox = node.querySelector('.composer-box')
+        const host = document.querySelector('.topbar .host-pill')
+        const pet = document.querySelector('.mobile-pet-stage[data-roam="true"] .mobile-pet')
+        const machine = host?.querySelector('.host-pill-copy strong')
+        const profile = host?.querySelector('.host-pill-copy small')
+        if (!transcript || !composer || !composerBox || !host || !machine || !profile) throw new Error('Chat layout region is missing.')
+        return {
+          page: bounds(node),
+          transcript: bounds(transcript),
+          composer: bounds(composer),
+          composerBox: bounds(composerBox),
+          pet: pet ? bounds(pet) : null,
+          identity: {
+            host: bounds(host),
+            machineVisible: machine.getBoundingClientRect().width > 0 && machine.getBoundingClientRect().height > 0,
+            profileVisible: profile.getBoundingClientRect().width > 0 && profile.getBoundingClientRect().height > 0,
+            machineFits: machine.scrollHeight <= machine.clientHeight + 1 && machine.scrollWidth <= machine.clientWidth + 1,
+            profileFits: profile.scrollHeight <= profile.clientHeight + 1 && profile.scrollWidth <= profile.clientWidth + 1,
+          },
+          viewport: { width: innerWidth, height: innerHeight },
+        }
+      })
+      const chatInside = region => region.x >= chatGeometry.page.x - 1 && region.right <= chatGeometry.page.right + 1
+        && region.y >= chatGeometry.page.y - 1 && region.bottom <= chatGeometry.page.bottom + 1
+      ensure(chatInside(chatGeometry.transcript) && chatInside(chatGeometry.composer) && chatInside(chatGeometry.composerBox), 'A landscape Chat region escapes its page.')
+      ensure(chatGeometry.transcript.width >= chatGeometry.page.width * 0.9, 'Landscape transcript still gives away width to an empty composer rail.')
+      ensure(chatGeometry.composer.width >= chatGeometry.page.width * 0.9, 'Landscape composer is not attached across the Chat surface.')
+      ensure(chatGeometry.transcript.bottom <= chatGeometry.composer.y + 1, 'Landscape transcript overlaps or extends below the composer.')
+      ensure(chatGeometry.composer.height <= chatGeometry.viewport.height * 0.48, 'Landscape composer reserves an oversized empty column.')
+      ensure(chatGeometry.composerBox.y - chatGeometry.composer.y <= 12, 'Landscape composer input is stranded below unused space.')
+      if (chatGeometry.pet) ensure(chatGeometry.pet.bottom <= chatGeometry.composer.y + 1, 'Automatically roaming pet overlaps the landscape composer.')
+      ensure(chatGeometry.identity.machineVisible && chatGeometry.identity.profileVisible, 'Landscape hides the machine or profile identity.')
+      ensure(chatGeometry.identity.machineFits && chatGeometry.identity.profileFits, 'Landscape clips the machine or profile identity.')
+      await page.screenshot({ path: path.join(out, 'phone-chat-landscape.png') })
+
+      stage = 'open voice page'
+      await page.locator('.chat-view.active .thread-actions-trigger').click()
+      await page.getByRole('button', { name: 'Voice conversation', exact: true }).click()
       stage = 'check landscape geometry'
       const geometry = await page.locator('.voice-page').evaluate(node => {
-        const r = node.getBoundingClientRect()
-        return { x:r.x, y:r.y, right:r.right, bottom:r.bottom, width:innerWidth, height:innerHeight }
+        const bounds = target => {
+          const r = target.getBoundingClientRect()
+          return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }
+        }
+        const header = node.querySelector('.pet-sidechat-heading')
+        const sheet = node.querySelector('.pet-sidechat-sheet')
+        const controls = node.querySelector('.pet-realtime-controls')
+        const body = node.querySelector('.pet-sidechat-body')
+        const composer = node.querySelector('.pet-sidechat-composer')
+        const textarea = composer?.querySelector('textarea')
+        const actions = composer ? [...composer.querySelectorAll('button')].filter(button => button.getBoundingClientRect().height > 0) : []
+        if (!sheet || !header || !controls || !body || !composer || !textarea || actions.length < 2) throw new Error('Voice layout region is missing.')
+        return {
+          page: bounds(node),
+          sheet: bounds(sheet),
+          header: bounds(header),
+          controls: bounds(controls),
+          body: bounds(body),
+          composer: bounds(composer),
+          textarea: bounds(textarea),
+          actions: actions.map(bounds),
+          viewport: { width: innerWidth, height: innerHeight },
+        }
       })
-      ensure(geometry.x >= -1 && geometry.y >= -1 && geometry.right <= geometry.width + 1 && geometry.bottom <= geometry.height + 1, 'Landscape voice page escapes viewport.')
+      ensure(geometry.page.x >= -1 && geometry.page.y >= -1 && geometry.page.right <= geometry.viewport.width + 1 && geometry.page.bottom <= geometry.viewport.height + 1, 'Landscape voice page escapes viewport.')
+      const voiceInside = region => region.x >= geometry.sheet.x - 1 && region.right <= geometry.sheet.right + 1
+        && region.y >= geometry.sheet.y - 1 && region.bottom <= geometry.sheet.bottom + 1
+      ensure(voiceInside(geometry.sheet) && [geometry.header, geometry.controls, geometry.body, geometry.composer, geometry.textarea, ...geometry.actions].every(voiceInside), 'A landscape voice region escapes its safe-area sheet.')
+      ensure([geometry.header, geometry.controls, geometry.body, geometry.composer].every(region => region.width >= geometry.sheet.width * 0.98), 'Landscape voice content is trapped in a narrow side rail.')
+      ensure(geometry.header.bottom <= geometry.controls.y + 1 && geometry.controls.bottom <= geometry.body.y + 1 && geometry.body.bottom <= geometry.composer.y + 1, 'Landscape voice regions are detached or overlap.')
+      ensure(geometry.body.height >= 72, 'Landscape voice transcript has no usable height.')
+      ensure(geometry.composer.height <= geometry.viewport.height * 0.28, 'Landscape voice composer reserves excessive empty space.')
+      const actionCenters = geometry.actions.map(action => action.y + action.height / 2)
+      const textareaCenter = geometry.textarea.y + geometry.textarea.height / 2
+      ensure(Math.max(...actionCenters.map(center => Math.abs(center - textareaCenter))) < 10, 'Landscape voice composer actions are not aligned with the input.')
       stage = 'locate visible live voice control'
       await page.getByRole('button', { name:'Start live voice', exact:true }).waitFor({state:'visible'})
       await page.screenshot({path:path.join(out,'phone-voice-landscape.png')})
@@ -181,7 +284,7 @@ try {
       stage = 'verify native Back closes voice page'
       await page.locator('.voice-page').waitFor({state:'hidden'})
       ensure(!await page.locator('.mobile-workspace').evaluate(node => node.inert), 'Native Back left the session inert.')
-      return { geometry, nativeBack:true, callStarted:false }
+      return { chatGeometry, geometry, nativeBack:true, callStarted:false }
     } catch (error) {
       try { await page.screenshot({path:path.join(out,'phone-voice-landscape-failure.png')}) } catch {}
       throw Object.assign(new Error(`${stage}: ${automationFailure(error)}`), {
@@ -191,6 +294,13 @@ try {
       adb('shell','settings','put','system','user_rotation',rotation)
       adb('shell','settings','put','system','accelerometer_rotation',auto)
       ensure(adb('shell','settings','get','system','user_rotation') === rotation && adb('shell','settings','get','system','accelerometer_rotation') === auto, 'Rotation preferences were not restored.')
+      if (typeof initialLandscape === 'boolean') {
+        await page.waitForFunction(
+          expected => (innerWidth > innerHeight) === expected,
+          initialLandscape,
+          { timeout: 15000 },
+        )
+      }
       const close = page.getByRole('button', {name:'Close pet sidechat', exact:true})
       if(await close.isVisible()) await close.click()
     }
@@ -199,6 +309,29 @@ try {
   await check('UI-008', async () => {
     ensure(pageErrors === 0 && consoleErrors === 0, 'New runtime exception or console error during this run.')
     return { pageErrors, consoleErrors, safeAreaErrors, preAttachHistory: 'not observed' }
+  })
+  await check('UI-012', async () => {
+    const controlTab = page.locator('.bottom-nav button').filter({ hasText: /^Control$/ })
+    await controlTab.click()
+    const refresh = page.getByRole('button', { name: 'Refresh controls', exact: true })
+    await refresh.waitFor({ state: 'visible' })
+    const metrics = await refresh.evaluate(button => {
+      const buttonRect = button.getBoundingClientRect()
+      const iconRect = button.querySelector('svg')?.getBoundingClientRect()
+      return {
+        width: buttonRect.width,
+        height: buttonRect.height,
+        radius: parseFloat(getComputedStyle(button).borderRadius),
+        xOffset: iconRect ? Math.abs(iconRect.x + iconRect.width / 2 - buttonRect.x - buttonRect.width / 2) : 99,
+        yOffset: iconRect ? Math.abs(iconRect.y + iconRect.height / 2 - buttonRect.y - buttonRect.height / 2) : 99,
+      }
+    })
+    ensure(Math.abs(metrics.width - metrics.height) <= 1 && metrics.width >= 36, 'Refresh does not have a fixed square hit box.')
+    ensure(metrics.radius >= 6 && metrics.radius <= 12, 'Refresh does not use the shared theme radius.')
+    ensure(metrics.xOffset <= 1 && metrics.yOffset <= 1, 'Refresh glyph is not optically centered.')
+    await page.screenshot({ path: path.join(out, 'phone-control-header.png') })
+    await page.locator('.bottom-nav button').filter({ hasText: /^Chat$/ }).click()
+    return metrics
   })
 } catch (error) {
   outcome('HARNESS', 'fail', automationFailure(error))

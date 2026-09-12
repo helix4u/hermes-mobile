@@ -8,6 +8,7 @@ describe('mobile Control settings disclosures', () => {
     const html = renderToStaticMarkup(
       <EmbedPreferencesProvider connectionId="test">
         <ControlPanel
+          active
           activeSkinName="default"
           autoSpeak={false}
           wakeWordAvailable
@@ -26,6 +27,7 @@ describe('mobile Control settings disclosures', () => {
           themeSelection="mobile"
           transport={null}
           voicePhase="idle"
+          switchingProfile={false}
           voiceSelection={{ provider: '', speed: 1, voice: '' }}
           pet={{
             catalog: [],
@@ -82,11 +84,15 @@ describe('mobile Control settings disclosures', () => {
           onThemeSelectionChange={() => {}}
           onToolDetailModeChange={() => {}}
           onVoiceSelectionChange={() => {}}
+          onSwitchProfile={async () => true}
         />
       </EmbedPreferencesProvider>,
     )
 
     expect(html).toContain('Session workspace')
+    expect(html).toContain('<strong>Profile</strong>')
+    expect(html).toContain('<strong>Scheduled work</strong>')
+    expect(html).toContain('New scheduled job')
     expect(html).toContain('Mobile companion')
     expect(html).toContain('Rich link embeds')
     expect(html).toContain('API credentials and account sign-in')
@@ -94,6 +100,7 @@ describe('mobile Control settings disclosures', () => {
     expect(html).toContain('Transcribe and send automatically')
     expect(html).toContain('openWakeWord models')
     expect(html).toContain('Sherpa custom phrase')
+    expect(html).toMatch(/aria-label="Refresh controls"[\s\S]*?<svg/)
     expect(html).not.toMatch(/<details[^>]*\sopen(?:=|>)/)
   })
 })

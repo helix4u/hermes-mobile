@@ -11,12 +11,14 @@ test('automation diagnostics classify failure without leaking selectors or URLs'
   assert.ok(!automationFailure(new Error('private unknown content')).includes('private unknown content'))
 })
 
-test('skips and manual acceptance remain TODO, never counted as passes', () => {
+test('only failed checks remain bug TODO while skipped and physical checks stay separate', () => {
   const result = summarize([{ id: 'a', status: 'pass', reason: 'OK' },
     { id: 'b', status: 'skip', reason: 'No active turn' },
     { id: 'c', status: 'fail', reason: 'Overlap' }], [{ id: 'd', reason: 'Needs speech' }])
   assert.equal(result.passed, 1)
   assert.equal(result.failed, 1)
   assert.equal(result.skipped, 1)
-  assert.deepEqual(result.todo.map(c => c.id), ['b', 'c', 'd'])
+  assert.deepEqual(result.todo.map(c => c.id), ['c'])
+  assert.deepEqual(result.notObserved.map(c => c.id), ['b'])
+  assert.deepEqual(result.manual.map(c => c.id), ['d'])
 })

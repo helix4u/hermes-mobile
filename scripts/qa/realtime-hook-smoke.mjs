@@ -8,6 +8,7 @@ import { saveReport } from './report.mjs'
 import { voiceTranscriptCases } from './voice-transcript-cases.mjs'
 import { voiceApprovalCases } from './voice-approval-cases.mjs'
 import { voiceNoiseCases } from './voice-noise-cases.mjs'
+import { voiceLiveCases } from './voice-live-cases.mjs'
 import { supportVoiceApprovalCases } from './support-voice-approval-cases.mjs'
 
 const { values } = parseArgs({ options: { out: { type: 'string' },
@@ -19,7 +20,11 @@ const report = { schema: 1, layer: 'isolated-real-hook', startedAt: new Date().t
 let server, browser, context, page
 async function check(id, reason, action) {
   const started = performance.now()
-  try { await action(); report.checks.push({ id, reason, status: 'pass', ms: Math.round(performance.now() - started) }) }
+  try {
+    await action()
+    report.checks.push({ id, reason, status: 'pass', ms: Math.round(performance.now() - started) })
+    console.log(`${id}: pass`)
+  }
   catch (error) {
     // This page is entirely synthetic, so its error text cannot contain user data.
     const state = await page?.evaluate(() => window.qa ? {
@@ -29,6 +34,7 @@ async function check(id, reason, action) {
     } : null).catch(() => null)
     report.checks.push({ id, reason: `${reason} Failed: ${String(error.message).slice(0, 300)}`, state,
       status: 'fail', ms: Math.round(performance.now() - started) })
+    console.log(`${id}: fail`)
   }
 }
 try {
@@ -54,6 +60,30 @@ try {
     await page.evaluate(() => window.qa.realtime.start())
     await page.waitForFunction(() => window.qa.realtime.snapshot.status === 'listening')
   }
+  await check('HOOK-HEADER-CONTROLS', 'Top status controls use one themed rounded-square geometry. Machine and profile remain separate readable lines, and SVG glyphs are centered in their hit boxes.', async () => {
+    await page.goto(`${url}/qa/realtime.html`, { timeout: 30000 })
+    await page.waitForFunction(() => Boolean(window.qa))
+    const metrics = await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll('.topbar-statuses > button')]
+      const controls = buttons.map(button => {
+        const rect = button.getBoundingClientRect()
+        return { height: rect.height, radius: parseFloat(getComputedStyle(button).borderRadius) }
+      })
+      const host = document.querySelector('.host-pill')
+      const machine = host?.querySelector('.host-pill-copy strong')
+      const profile = host?.querySelector('.host-pill-copy small')
+      const icon = host?.querySelector('.host-chevron svg')
+      const hostRect = host?.getBoundingClientRect()
+      const iconRect = icon?.getBoundingClientRect()
+      return { controls, machine: machine ? { width: machine.clientWidth, scrollWidth: machine.scrollWidth } : null,
+        profile: profile ? { width: profile.clientWidth, scrollWidth: profile.scrollWidth } : null,
+        iconOffset: hostRect && iconRect ? Math.abs(iconRect.y + iconRect.height / 2 - hostRect.y - hostRect.height / 2) : 99 }
+    })
+    if (metrics.controls.length !== 2 || metrics.controls.some(control => control.height < 40 || control.radius < 6 || control.radius > 12)) throw new Error(`Header controls lost shared geometry: ${JSON.stringify(metrics.controls)}`)
+    if (!metrics.machine || metrics.machine.scrollWidth > metrics.machine.width + 1 || !metrics.profile || metrics.profile.scrollWidth > metrics.profile.width + 1) throw new Error('Machine or profile is not independently readable')
+    if (metrics.iconOffset > 1) throw new Error('Header glyph is not vertically centered')
+  })
+  await voiceLiveCases({ page, url, check })
   await check('HOOK-001', 'A fresh call starts unmuted with an enabled outgoing track.', async () => {
     await fresh()
     await page.waitForFunction(() => !window.qa.realtime.snapshot.microphoneMuted && window.qa.tracks.at(-1).enabled)
@@ -305,7 +335,7 @@ try {
     if (!state.sent.some(e => e.item?.content?.[0]?.text?.includes('submittedRequest'))) throw new Error('Voice has no receipt')
     if (state.sent.filter(e => e.type === 'response.create').length !== before) throw new Error('Receipt started unsolicited speech')
   })
-  await check('HOOK-VERBAL', 'Exact audible readback allows one clear verbal approval; no model-side submit authority.', async () => {
+  await check('HOOK-CARD-ONLY-LEGACY-SETTING', 'A legacy verbal setting migrates to card-only review. Spoken yes cannot submit or clear it.', async () => {
     await page.goto(`${url}/qa/realtime.html`)
     await page.waitForFunction(() => Boolean(window.qa))
     await page.evaluate(() => {
@@ -319,7 +349,7 @@ try {
       q.frame({type:'response.created',response:{id:'draft',metadata:q.sent.at(-1).response.metadata}})
       q.frame({type:'response.done',response:{id:'draft',status:'completed',output:[{type:'function_call',name:'draft_hermes_request',call_id:'draft-voice',arguments:JSON.stringify({message:'Inspect the build. Do not change files.'})}]}})
     })
-    await page.waitForFunction(() => window.qa.sent.some(e => e.item?.call_id === 'draft-voice'))
+    await page.waitForFunction(() => window.qa.realtime.snapshot.hermesDraftStatus === 'pending')
     if (await page.evaluate(() => window.qa.approved.length)) throw new Error('Draft was sent before readback')
     await page.evaluate(() => {
       const q = window.qa
@@ -331,9 +361,9 @@ try {
       q.frame({type:'input_audio_buffer.speech_started',item_id:'yes'})
       q.frame({type:'conversation.item.input_audio_transcription.completed',item_id:'yes',transcript:'Yes'})
     })
-    await page.waitForFunction(() => window.qa.approved.length === 1)
-    const request = await page.evaluate(() => window.qa.approved[0])
-    if (!request.displayText.endsWith('Inspect the build. Do not change files.')) throw new Error('Verbal approval changed the draft')
+    await page.waitForTimeout(100)
+    const state = await page.evaluate(() => ({ approved: window.qa.approved, snapshot: window.qa.realtime.snapshot }))
+    if (state.approved.length || state.snapshot.hermesDraftStatus !== 'pending' || state.snapshot.hermesDraft !== 'Inspect the build. Do not change files.') throw new Error('Spoken yes submitted, cleared, or changed the review')
   })
   await check('HOOK-WEB-OFFER', 'Web opening is an exact-address offer, not model-triggered navigation or a false opened receipt.', async () => {
     await fresh()

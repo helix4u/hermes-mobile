@@ -11,7 +11,7 @@ import type {
   PetPreferences,
   PetSpeechProfile,
 } from '../pet'
-import { modelConfigValue, nextRunLabel } from '../state/control'
+import { modelConfigValue } from '../state/control'
 import { MOBILE_THEME_OPTIONS, type MobileThemeSelection } from '../state/theme'
 import { formatDisplayValue, redactDisplayValue } from '../state/transcript'
 import type { HermesTransport } from '../transport/hermes-transport'
@@ -31,6 +31,8 @@ import { PetSettings } from './PetSettings'
 import { ProviderSetup } from './ProviderSetup'
 import { VoiceSettings } from './VoiceSettings'
 import { RealtimeInputSettings, type RealtimeInputSettingsProps } from './RealtimeInputSettings'
+import { ProfileAndScheduleSettings } from './ProfileAndScheduleSettings'
+import { RefreshIcon } from './UiIcons'
 
 interface ModelProvider {
   slug: string
@@ -54,18 +56,8 @@ interface ToolsetRow {
   tools?: string[]
 }
 
-interface CronJob {
-  job_id: string
-  name: string
-  prompt_preview?: string
-  schedule?: string
-  next_run_at?: string | number | null
-  last_status?: string | null
-  enabled?: boolean
-  state?: string
-}
-
 interface ControlPanelProps {
+  active: boolean
   realtimeInput?: RealtimeInputSettingsProps
   gateway: JsonRpcGatewayClient | null
   connected: boolean
@@ -88,6 +80,7 @@ interface ControlPanelProps {
   transport: HermesTransport | null
   voiceSelection: VoiceSelection
   voicePhase: VoicePhase
+  switchingProfile: boolean
   pet: {
     catalog: PetPersonalitySummary[]
     desktopSpeech: PetSpeechProfile | null
@@ -119,6 +112,7 @@ interface ControlPanelProps {
   onStopSpeech: () => void
   onToolDetailModeChange: (value: string) => void
   onVoiceSelectionChange: (selection: VoiceSelection) => void
+  onSwitchProfile: (name: string) => Promise<boolean>
 }
 
 interface ConfigValues {
@@ -224,6 +218,7 @@ function AppearanceSettings({
 }
 
 export function ControlPanel({
+  active,
   realtimeInput,
   activeSkinName,
   autoSpeak,
@@ -250,6 +245,7 @@ export function ControlPanel({
   transport,
   voiceSelection,
   voicePhase,
+  switchingProfile,
   wakeWordAvailable,
   wakeWordMode,
   wakeWordModelId,
@@ -259,6 +255,7 @@ export function ControlPanel({
   onSherpaVoiceWakePhraseChange,
   sherpaWakePhrase,
   wakeWordStatus,
+  onSwitchProfile,
 }: ControlPanelProps) {
   const [loading, setLoading] = useState(false)
   const [sherpaPhraseDraft, setSherpaPhraseDraft] = useState(sherpaWakePhrase)
@@ -277,10 +274,6 @@ export function ControlPanel({
   const [config, setConfig] = useState<ConfigValues>(emptyConfig)
   const [rawConfig, setRawConfig] = useState<unknown>(null)
   const [toolsets, setToolsets] = useState<ToolsetRow[]>([])
-  const [jobs, setJobs] = useState<CronJob[]>([])
-  const [cronName, setCronName] = useState('')
-  const [cronSchedule, setCronSchedule] = useState('')
-  const [cronPrompt, setCronPrompt] = useState('')
   const [advancedKey, setAdvancedKey] = useState('')
   const [advancedValue, setAdvancedValue] = useState('')
 
@@ -344,24 +337,12 @@ export function ControlPanel({
     setToolsets(result.toolsets ?? [])
   }, [request, runtimeSessionId])
 
-  const loadCron = useCallback(async () => {
-    const result = await request<{ jobs?: CronJob[] }>('cron.manage', {
-      action: 'list',
-    })
-    setJobs(result.jobs ?? [])
-  }, [request])
-
   const refresh = useCallback(async () => {
     if (!connected) return
     setLoading(true)
     setError('')
     try {
-      await Promise.all([
-        loadModels(),
-        loadConfig(),
-        loadToolsets(),
-        loadCron(),
-      ])
+      await Promise.all([loadModels(), loadConfig(), loadToolsets()])
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : String(loadError),
@@ -369,7 +350,7 @@ export function ControlPanel({
     } finally {
       setLoading(false)
     }
-  }, [connected, loadConfig, loadCron, loadModels, loadToolsets])
+  }, [connected, loadConfig, loadModels, loadToolsets])
 
   useEffect(() => {
     void refresh()
@@ -527,54 +508,6 @@ export function ControlPanel({
     }
   }
 
-  async function createCron(event: FormEvent) {
-    event.preventDefault()
-    if (!cronSchedule.trim() || !cronPrompt.trim()) return
-    setLoading(true)
-    setError('')
-    try {
-      await request('cron.manage', {
-        action: 'add',
-        name: cronName.trim(),
-        schedule: cronSchedule.trim(),
-        prompt: cronPrompt.trim(),
-      })
-      setCronName('')
-      setCronSchedule('')
-      setCronPrompt('')
-      onNotice('Cron job created')
-      await loadCron()
-    } catch (cronError) {
-      setError(
-        cronError instanceof Error ? cronError.message : String(cronError),
-      )
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function cronAction(
-    action: 'pause' | 'resume' | 'remove',
-    job: CronJob,
-  ) {
-    setLoading(true)
-    setError('')
-    try {
-      await request('cron.manage', {
-        action,
-        name: job.job_id,
-      })
-      onNotice(`${job.name} ${action === 'remove' ? 'removed' : `${action}d`}`)
-      await loadCron()
-    } catch (cronError) {
-      setError(
-        cronError instanceof Error ? cronError.message : String(cronError),
-      )
-    } finally {
-      setLoading(false)
-    }
-  }
-
   if (!connected) {
     return (
       <div className="control-panel">
@@ -590,6 +523,13 @@ export function ControlPanel({
             host. Mobile appearance remains available offline.
           </p>
         </div>
+        <ProfileAndScheduleSettings
+          active={false}
+          profile={profile}
+          switching={switchingProfile}
+          transport={transport}
+          onSwitchProfile={onSwitchProfile}
+        />
         <AppearanceSettings
           activeSkinName={activeSkinName}
           onThemeSelectionChange={onThemeSelectionChange}
@@ -636,11 +576,19 @@ export function ControlPanel({
           disabled={loading}
           onClick={() => void refresh()}
         >
-          ↻
+          <RefreshIcon />
         </button>
       </div>
 
       {error && <p className="error-message sticky-error">{error}</p>}
+
+      <ProfileAndScheduleSettings
+        active={active && connected}
+        profile={profile}
+        switching={switchingProfile}
+        transport={transport}
+        onSwitchProfile={onSwitchProfile}
+      />
 
       <details className="control-section">
         <summary>
@@ -1043,91 +991,6 @@ export function ControlPanel({
               </button>
             </div>
           ))}
-        </div>
-      </details>
-
-      <details className="control-section">
-        <summary>
-          <span>
-            <strong>Scheduled work</strong>
-            <small>{jobs.length} cron jobs</small>
-          </span>
-          <span className="disclosure-glyph">+</span>
-        </summary>
-        <div className="control-body">
-          <form
-            className="cron-form"
-            onSubmit={event => void createCron(event)}
-          >
-            <label>
-              <span>Name (optional)</span>
-              <input
-                placeholder="Morning brief"
-                value={cronName}
-                onChange={event => setCronName(event.target.value)}
-              />
-            </label>
-            <label>
-              <span>Schedule</span>
-              <input
-                placeholder="every monday 9am or 0 9 * * *"
-                value={cronSchedule}
-                onChange={event => setCronSchedule(event.target.value)}
-              />
-            </label>
-            <label>
-              <span>Prompt</span>
-              <textarea
-                placeholder="What should Hermes do?"
-                rows={3}
-                value={cronPrompt}
-                onChange={event => setCronPrompt(event.target.value)}
-              />
-            </label>
-            <button
-              className="primary-button"
-              disabled={loading || !cronSchedule.trim() || !cronPrompt.trim()}
-              type="submit"
-            >
-              Create job
-            </button>
-          </form>
-
-          <div className="cron-list">
-            {jobs.map(job => {
-              const paused = job.state === 'paused' || job.enabled === false
-              return (
-                <article className="cron-card" key={job.job_id}>
-                  <div>
-                    <strong>{job.name}</strong>
-                    <p>{job.prompt_preview}</p>
-                    <small>
-                      {job.schedule || 'Unknown schedule'} ·{' '}
-                      {nextRunLabel(job.next_run_at)}
-                    </small>
-                  </div>
-                  <div className="request-actions">
-                    <button
-                      className="quiet-button"
-                      disabled={loading}
-                      onClick={() =>
-                        void cronAction(paused ? 'resume' : 'pause', job)
-                      }
-                    >
-                      {paused ? 'Resume' : 'Pause'}
-                    </button>
-                    <button
-                      className="danger-button"
-                      disabled={loading}
-                      onClick={() => void cronAction('remove', job)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
         </div>
       </details>
 

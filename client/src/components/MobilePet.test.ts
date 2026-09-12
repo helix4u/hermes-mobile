@@ -8,6 +8,7 @@ import {
   MIN_PET_ROAM_SPEED,
   MobilePet,
   nextPetRoamStep,
+  petAutomaticBounds,
   PET_ROAM_BORDER_INSET,
   petPositionAtAnimationTime,
   petPositionFromPointer,
@@ -19,6 +20,29 @@ import {
 } from './MobilePet'
 
 describe('mobile pet roaming', () => {
+  it('keeps automatic movement above visible composer controls', () => {
+    expect(
+      petAutomaticBounds(
+        { height: 800, left: 0, top: 24, width: 360 },
+        [
+          { bottom: 790, left: 0, right: 360, top: 640, width: 360 },
+          { bottom: 824, left: 0, right: 360, top: 744, width: 360 },
+        ],
+      ),
+    ).toEqual({ height: 616, width: 360 })
+  })
+
+  it('retains full automatic bounds when no visible control blocks the stage', () => {
+    expect(
+      petAutomaticBounds(
+        { height: 800, left: 0, top: 24, width: 360 },
+        [
+          { bottom: 900, left: 480, right: 720, top: 820, width: 240 },
+        ],
+      ),
+    ).toEqual({ height: 800, width: 360 })
+  })
+
   it('never uses a locomotion pose while the pet is stationary during a turn', () => {
     expect(stationaryPetVisualState('run', false, false)).toBe('review')
     expect(stationaryPetVisualState('run', true, false)).toBe('run')

@@ -19,6 +19,7 @@ const BASIC_PHASES = `output.muted output.unmuted review.cancelled review.approv
 review.unverified microphone_muted microphone_unmuted provider_failure
 review.state.idle review.state.interrupted review.state.awaiting_transcript
 review.state.content_mismatch review.state.ready review.state.awaiting_audio
+review.delegation_waiting review.staged
 start.microphone start.credentials playback_failed microphone_ended
 capture_suspended capture_resumed microphone_acquired event_handler_failed
 start.connection_failed start.context_capacity start.requested start.permission
@@ -29,7 +30,9 @@ conversation.item.input_audio_transcription.failed response.created response.don
 output.unexpected_pause output.media_playing output.media_waiting output.media_unobservable
 output.media_recovered output.media_progress output.media_stalled
 response_waiting_for_playback response_requested playback_interrupted quiet barge_in
-playback_started playback_cleared playback_stopped`.split(/\s+/)
+playback_started playback_cleared playback_stopped session.started session.closed
+session.input_transcript.delta session.output_transcript.delta
+session.delegation.created`.split(/\s+/)
 const REASONS = `context_capacity cancel_already_complete response_busy empty_input
 rate_limited authentication session_expired session_missing context_backend_error
 disconnected timeout interrupted unknown`.split(/\s+/)
@@ -97,6 +100,12 @@ export class VoiceDiagnosticsHost {
     if (!this.active()) return
     const clean = sanitizeVoiceDiagnostic(entry)
     if (!clean) return
+    if (clean.phase === 'input.signal' || clean.phase === 'input.quiet') {
+      // Input telemetry is a heartbeat, not chronology. Keep only its newest
+      // sample so it cannot evict starts, provider events, or review state.
+      const prior = this.queue.findIndex(item => item.phase === 'input.signal' || item.phase === 'input.quiet')
+      if (prior >= 0) this.queue.splice(prior, 1)
+    }
     this.queue.push(clean)
     if (this.queue.length > VOICE_DIAGNOSTICS_MAX_ENTRIES) this.queue.shift()
     this.schedule()

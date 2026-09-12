@@ -89,6 +89,29 @@ describe('opt-in host voice diagnostics', () => {
     expect(host.requestJson).toHaveBeenCalledTimes(2)
   })
 
+  it('coalesces input heartbeats so meaningful chronology survives a noisy microphone', async () => {
+    const host = transport()
+    uploader.configure({ transport: host, enabled: true })
+    uploader.record({ ...event, phase: 'start.requested', epoch: 4 })
+    for (let epoch = 0; epoch < 1000; epoch++) {
+      uploader.record({ ...event, phase: epoch % 2 ? 'input.signal' : 'input.quiet', epoch })
+    }
+    uploader.record({ ...event, phase: 'session.delegation.created', epoch: 4 })
+    uploader.record({ ...event, phase: 'review.delegation_waiting', epoch: 4 })
+    uploader.record({ ...event, phase: 'review.staged', epoch: 4 })
+    await vi.advanceTimersByTimeAsync(10000)
+    const batch = vi.mocked(host.requestJson).mock.calls[0][1]?.entries as typeof event[]
+    expect(batch).toHaveLength(5)
+    expect(batch.map(item => item.phase)).toEqual([
+      'start.requested',
+      'input.signal',
+      'session.delegation.created',
+      'review.delegation_waiting',
+      'review.staged',
+    ])
+    expect(batch[1].epoch).toBe(999)
+  })
+
   it('never overlaps requests and a late old failure cannot disable the replacement', async () => {
     let reject!: (reason: Error) => void
     const first = transport('first')

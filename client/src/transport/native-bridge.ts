@@ -125,7 +125,10 @@ interface HermesNativePlugin {
   getAudioInputInventory(): Promise<{ inputs: Array<{ label: string; type: number; channels: number[]; sampleRates: number[] }>; communicationRoute?: string }>
   retainRealtimeVoice(options: {
     leaseId: string
-  }): Promise<{ retained: boolean }>
+  }): Promise<{ retained: boolean; outputRoute: string }>
+  ensureRealtimeVoiceOutput(options: {
+    leaseId: string
+  }): Promise<{ outputRoute: string }>
   traceRealtimeVoice(options: { phase: string; epoch: number; muted: boolean; tracks: number; elapsedMs?: number }): Promise<void>
   releaseRealtimeVoice(options: { leaseId: string }): Promise<void>
   startRecording(): Promise<{ status: 'recording' }>

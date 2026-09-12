@@ -5,7 +5,7 @@ export async function voiceNoiseCases({ page, url, check }) {
     await page.waitForFunction(() => Boolean(window.qa))
     await page.evaluate(async review => {
       const q = window.qa
-      if (review) q.realtime.setSettings({ ...q.realtime.settings, approval: 'verbal' })
+      if (review) q.realtime.setSettings({ ...q.realtime.settings, approval: 'on' })
       await q.realtime.start()
     }, review)
     await page.waitForFunction(() => window.qa.realtime.snapshot.status === 'listening')
@@ -25,20 +25,9 @@ export async function voiceNoiseCases({ page, url, check }) {
           arguments: JSON.stringify({ message: 'Inspect the build. Do not change files.' }) },
       ] } })
     })
-    await page.waitForFunction(() => window.qa.realtime.snapshot.hermesDraftStatus === 'pending' &&
-      window.qa.sent.filter(e => e.type === 'response.create').at(-1).response.tool_choice === 'none')
-    await page.evaluate(() => {
-      const q = window.qa
-      const metadata = q.sent.filter(e => e.type === 'response.create').at(-1).response.metadata
-      q.frame({ type: 'response.created', response: { id: 'readback', metadata } })
-      q.frame({ type: 'output_audio_buffer.started', response_id: 'readback' })
-      q.frame({ type: 'response.output_audio_transcript.done', response_id: 'readback', transcript: 'Inspect the build. Do not change files. Send that?' })
-      q.frame({ type: 'response.done', response: { id: 'readback', status: 'completed', output: [] } })
-    })
+    await page.waitForFunction(() => window.qa.realtime.snapshot.hermesDraftStatus === 'pending')
   }
-  async function drain() {
-    await page.evaluate(() => window.qa.frame({ type: 'output_audio_buffer.stopped', response_id: 'readback' }))
-  }
+  async function drain() {}
   async function start(id) {
     await page.evaluate(id => window.qa.frame({ type: 'input_audio_buffer.speech_started', item_id: id }), id)
   }
@@ -75,7 +64,7 @@ export async function voiceNoiseCases({ page, url, check }) {
     if (vad?.interrupt_response !== false || vad?.create_response !== false) throw new Error('Reconnect lost VAD policy')
   })
 
-  await check('HOOK-NOISE-PLAYBACK', 'Raw VAD, empty input and arbitrary/nested bracket labels preserve playback, preview and response epoch.', async () => {
+  await check('HOOK-NOISE-PLAYBACK', 'Raw VAD, empty input and arbitrary or nested bracket labels preserve the pending review without executing it.', async () => {
     await draft()
     for (const [index, text] of ['[noise]', '[]', '[arbitrary [nested] label]', '[x] [y]...', ''].entries()) {
       await noInterruption(async () => {
@@ -83,12 +72,12 @@ export async function voiceNoiseCases({ page, url, check }) {
         await page.evaluate(id => window.qa.frame({ type: 'input_audio_buffer.speech_stopped', item_id: id }), `noise-${index}`)
         await asr(`noise-${index}`, text)
       })
-      if (await page.evaluate(() => window.qa.realtime.snapshot.status !== 'speaking')) throw new Error('Noise hid active playback')
     }
     await drain()
     await say('approval', 'Yes [arbitrary].')
-    await page.waitForFunction(() => window.qa.approved.length === 1)
-    if (await page.evaluate(() => window.qa.approved[0].displayText !== 'Inspect the build. Do not change files.')) throw new Error('Noise changed the approved draft')
+    await page.waitForTimeout(100)
+    const state = await page.evaluate(() => ({ approved: window.qa.approved, snapshot: window.qa.realtime.snapshot }))
+    if (state.approved.length || state.snapshot.hermesDraftStatus !== 'pending' || state.snapshot.hermesDraft !== 'Inspect the build. Do not change files.') throw new Error('Speech executed or changed the review')
   })
 
   await check('HOOK-NOISE-GENERATING', 'Noise preserves active generation; confirmed stop still records the interrupted turn without another reply.', async () => {
@@ -114,56 +103,57 @@ export async function voiceNoiseCases({ page, url, check }) {
     if (state.requests !== before || state.record.userText !== 'Explain the task.' || state.record.petText !== 'A partial answer.' || state.status !== 'listening') throw new Error('Confirmed stop lost history or began a reply')
   })
 
-  await check('HOOK-NOISE-READY', 'Noise after a drained exact readback does not consume its approval readiness.', async () => {
+  await check('HOOK-NOISE-READY', 'Noise and a later spoken yes cannot approve the visible review card.', async () => {
     await draft(); await drain()
     await noInterruption(() => say('ready-noise', '[door opens]'))
     await say('approval', 'Yes.')
-    await page.waitForFunction(() => window.qa.approved.length === 1)
+    await page.waitForTimeout(100)
+    if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending')) throw new Error('Speech approved or cleared the review')
   })
 
-  await check('HOOK-NOISE-DELAYED', 'Noise that begins before drain but transcribes afterward must not invalidate a complete readback.', async () => {
+  await check('HOOK-NOISE-DELAYED', 'Delayed noise and spoken approval cannot mutate the review card.', async () => {
     await draft()
     await start('delayed-noise'); await drain(); await asr('delayed-noise', '[unknown sound]')
     await say('approval', 'Yes.')
-    await page.waitForFunction(() => window.qa.approved.length === 1)
+    await page.waitForTimeout(100)
+    if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending')) throw new Error('Delayed speech approved or cleared the review')
   })
 
-  await check('HOOK-NOISE-EARLY-YES', 'Speech onset before drain cannot approve merely because its ASR arrives after drain.', async () => {
+  await check('HOOK-NOISE-EARLY-YES', 'Speech onset and ASR timing never grant approval authority.', async () => {
     await draft()
     await start('early-yes'); await drain(); await asr('early-yes', '[noise] Yes.')
-    await page.waitForFunction(() => window.qa.sent.filter(e => e.type === 'response.create').length === 3)
-    const state = await page.evaluate(() => ({ approved: window.qa.approved.length, retry: window.qa.sent.filter(e => e.type === 'response.create').at(-1).response }))
-    if (state.approved || state.retry.tool_choice !== 'none' || !state.retry.instructions.includes('Do not change files.')) throw new Error('Early yes approved or escaped constrained reread')
+    await page.waitForTimeout(100)
+    if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending')) throw new Error('Early yes approved or cleared the review')
   })
 
-  await check('HOOK-NOISE-NEGATIVE', 'Mixed labels do not strip negative approval words or turn cancellation into send.', async () => {
+  await check('HOOK-NOISE-NEGATIVE', 'Mixed labels and spoken cancellation cannot cancel or send the review.', async () => {
     await draft(); await drain()
     await say('negative', '[noise] Do not [other sound] send.')
-    await page.waitForFunction(() => window.qa.realtime.snapshot.hermesDraftStatus === 'idle')
-    if (await page.evaluate(() => window.qa.approved.length)) throw new Error('Negative approved a draft')
+    await page.waitForTimeout(100)
+    if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending')) throw new Error('Spoken cancellation mutated the review')
   })
 
-  await check('HOOK-NOISE-OLD-ASR', 'Old, duplicate and changed duplicate ASR cannot cancel output or approve a newer review.', async () => {
+  await check('HOOK-NOISE-OLD-ASR', 'Old, duplicate and changed duplicate ASR cannot approve, cancel, clear, or overwrite a newer review.', async () => {
     await draft(true); await drain()
     await say('new-noise', '[noise]')
-    await noInterruption(async () => {
-      await asr('old-input', 'Yes.')
-      await asr('new-noise', 'Yes.')
-      await asr('old-input', 'Stop talking.')
-    })
-    if (await page.evaluate(() => window.qa.approved.length)) throw new Error('Stale ASR approved')
+    await asr('old-input', 'Yes.')
+    await asr('new-noise', 'Yes.')
+    await asr('old-input', 'Stop talking.')
+    await page.waitForTimeout(100)
+    if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending' || window.qa.realtime.snapshot.hermesDraft !== 'Inspect the build. Do not change files.')) throw new Error('Stale ASR mutated the review')
     await say('current-yes', 'Yes.')
-    await page.waitForFunction(() => window.qa.approved.length === 1)
+    await page.waitForTimeout(100)
+    if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending')) throw new Error('Current speech mutated the review')
   })
 
-  await check('HOOK-NOISE-PENDING-YES', 'A newer noise utterance does not supersede valid approval whose transcription is delayed.', async () => {
+  await check('HOOK-NOISE-PENDING-YES', 'Delayed and duplicate approval transcripts cannot submit a review.', async () => {
     await draft(); await drain()
     await start('pending-yes')
     await say('later-noise', '[arbitrary sound]')
     await asr('pending-yes', 'Yes [noise].')
-    await page.waitForFunction(() => window.qa.approved.length === 1)
+    await page.waitForTimeout(100)
     await asr('pending-yes', 'Yes [noise].')
-    if (await page.evaluate(() => window.qa.approved.length !== 1)) throw new Error('Delayed yes submitted more than once')
+    if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending')) throw new Error('Delayed yes submitted or cleared the review')
   })
 
   await check('HOOK-NOISE-READ-CONTINUES', 'Noise preserves an in-flight read and its continuation waits for playback drain.', async () => {

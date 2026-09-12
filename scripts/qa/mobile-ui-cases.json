@@ -1,66 +1,354 @@
 {
   "schema": 1,
-  "revisionReason": "Voice must preserve every selected record whole and recover older attached context through exact read-only search or paging, never arbitrary string clipping. It must also preserve complete conversation turns, bind late provider item IDs to their speech epochs, verify media transport for every output buffer, and keep approvals and settings visible outside the pet sheet.",
+  "revisionReason": "Live captions are display data, not completed user turns or tool arguments. Drafts and exact revisions arrive through completed Responses function items. Visible card buttons own sending and cancellation. Atomic historical startup context and on-demand readers replace continuous backlog injection.",
   "fixtureCorrections": [
     "SUPPORT-REVIEW-CONCURRENCY: the real rendered review left editing and cancellation enabled during voice-owned dispatch. Shared submitting state now covers UI and voice, and a synchronous guard prevents same-task double dispatch. Accepted submission is retired before view refresh, whose failure cannot make the action available again. Fifteen real StrictMode rendered checks cover both racing paths, cancellation, target/host changes, dispatch errors and refresh errors.",
-    "SUPPORT-VERBAL-APPROVAL: Support proposals previously required a button with no spoken submission path. The application now binds exact review identity, target, action and text to complete spoken readback and playback drain. Editing, cancellation or target replacement rejects old evidence. UI and voice share one dispatch guard. The model gains no approval tool or Discord posting authority.",
-    "MOBILE-PROFILES-CRONS: selected host/profile now scopes session routing, local persistence and native notification identity. Cron controls call real profile-scoped routes and never replay a trigger after ambiguous failure. UI-010/011 use Options then Voice conversation because the redundant top launcher was explicitly removed. The active microphone control remains.",
+    "SUPPORT-CARD-ONLY-APPROVAL: every Support proposal remains behind its visible editable card. Spoken yes, no, filler, corrections, and timing cannot submit or clear it. Only the card actions share the guarded dispatch path. The model gains no approval tool or Discord posting authority.",
+    "MOBILE-PROFILES-CRONS: selected host/profile scopes session routing, local persistence and native notification identity. The standalone block above Controls duplicated Scheduled work with mismatched typography and layout. Profile is now a normal collapsed Controls section, and the existing Scheduled work section owns profile scope, live running state, Run now, pause/resume, removal, progress, messages, saved output and creation.",
+    "UI-HEADER-POLISH: pill-shaped header controls crowded machine and profile into one truncating line, while text glyphs made Refresh and Close look optically off-center. Header status controls now use the project's rounded-square geometry and matched heights. Machine and profile occupy separate lines with the profile protected from the machine ellipsis. Header action glyphs use the same centered stroke SVG system and fixed square hit boxes.",
     "HOST-VOICE-EVIDENCE: opt-in diagnostics now reach the authenticated selected host/profile. Real StrictMode hook checks cover transport/profile switches, opt-out, unmount and late callbacks. Upload payloads exclude transcripts, audio, secrets and customer text.",
-    "VOICE-NOISE-ASR-FLOOR: operator explicitly accepts ASR-latency barge-in. VAD records input identity and readback onset ordering without cancelling playback, generation or approval. Empty and arbitrary square-bracket labels preserve the floor. Mixed input keeps all outside words, especially negation. Speech alone invalidates obsolete responses; duplicate/old ASR cannot cancel or approve. HOOK-016 now supplies a real stop transcript before expecting interrupted tool reads to stay silent.",
-    "VOICE-APPROVAL-LOOP: exact draft words remain mandatory but bounded harmless readback introductions no longer invalidate yes. Initial and one recovery readback are tool-disabled. A rejected yes cannot fall through to free-form model speech. Natural local-draft cancellation and UI cancellation append silent receipts. VOICE-DELIVERY: both session and pet modes receive brief delivery rules at connection creation, without model changes or truncating evidence.",
+    "VOICE-NOISE-ASR-FLOOR: empty and arbitrary square-bracket labels are never treated as user speech. They preserve playback and pending reviews. Mixed input keeps all outside words, especially negation. No transcript, old or new, has approval authority. HOOK-016 still supplies a real stop transcript before expecting interrupted tool reads to stay silent.",
+    "VOICE-APPROVAL-LOOP: Replaced caption extraction, filler filters, quiet-period staging and opaque client delegation with the documented Live Responses tool loop. Collect complete function items through response.completed, return all function outputs, then one response.create. A structured draft is complete and editable. expectedDraft prevents stale or cross-target revisions, including while submitting or after cancel/send. User captions never approve or overwrite. Realtime retains its separate transport. Existing helper-only parser tests were testing the wrong authority and are replaced by real-hook structured-event checks.",
     "VOICE-HISTORY-RECEIPT: the production pet.realtime.record RPC returns only the newly stored turn, not full history. The fixture now matches that contract. Refresh pet.sidechat.history and verify receipt membership before replacing the sidechat. VOICE-CURRENT-REVIEW-STATE: read tools expose current app-owned pending-review/submission state separately from historical receipts and identify the whole latest assistant message without mistaking tool activity for an answer or acceptance for completion.",
     "VOICE-TRANSCRIPT-HANDOFF: completed voice text stayed in both authoritative history and the active-call preview. Hand off only after history publication, scoped to the exact turn and text. Retain pending/failed previews, fence older receipts from newer turns, and prevent repeated final events from resurrecting a published card. The real-hook harness renders the production voice page for both session and local-context paths.",
     "EMBED-YOUTUBE-153: Mobile session transcript embeds must not suppress YouTube's required HTTP referrer. After consent, use strict-origin-when-cross-origin for YouTube only; retain other providers' no-referrer policy and existing sandbox. Render the actual Transcript in regression tests, not just the URL detector.",
     "REVIEW-HERE: required Hermes and Support approvals use a top-layer review over the current screen, not navigation to pet/Support. Long editable text grows before scrolling, with compact actions. Dialog toggle triggers measurement after showModal; safe-inset assertions wait for the actual viewport resize rather than reading stale portrait geometry.",
-    "VOICE-READBACK: verbal approval requires the entire exact draft and Send that question in one drained response; partial readback, interruption, edits, reconnect and other discussion invalidate it. UI review remains available and its action row must not stretch into the flex-allocated review height. Rolling provider context preserves instructions and exposes scoped complete-record voice history reads.",
+    "VOICE-REVIEW-CARD: review state is visible, editable, and app-owned. Only explicit card buttons send or cancel. Speech remains ordinary conversation and has no review mutation path. The action row must not stretch into the flex-allocated review height. Rolling provider context preserves instructions and exposes scoped complete-record voice history reads.",
     "VOICE-CAPACITY: initial source evidence is negotiated separately from standing instructions. The real hook must deliver all lossless frames in order before requesting the greeting. Explicit microphone selection stays strict, but the System default alias follows changing hardware and must not be compared to a concrete Bluetooth device ID. Capacity errors must stop rather than retry unchanged payloads.",
     "VOICE-NOTEBOOK: negotiated recall/save/forget operations use the separate host voice notebook; legacy read_voice_memory keeps its older host contract. Saves retain the original attached target, revision and exact source fields, and never send an agent prompt or rebuild the active prompt. The refresh harness counter lives outside React's replaceable fixture facade so renders cannot erase the test witness.",
     "SUPPORT-REFRESH: the real voice hook must route get_context_snapshot to the attached application, publish actual read records in context preview, and never claim that replaying identity through the session RPC refreshed Support. Initial Support voice requires an authenticated queue or whole-thread read before microphone/token startup.",
     "Support voice default index reads now follow the current visible filter and query on every call. Explicit filters retain their own scope. The regression executes the adapter across a live filter change rather than snapshotting instruction text.",
     "Worker and page-awareness hook checks require quiet append-only UI metadata without a new voice connection or retargeting; worker steering must send only the edited approved text to the attached parent's owned worker. The ownership assertion uses the real snapshot field attachedContextId, not a nonexistent attachedSessionId.",
     "UI-009 now records which restoration phase failed and a private screenshot. An intermittent post-rotation cleanup timeout must remain attributable; a passing rerun does not erase the failed receipt.",
-    "UI-011 must query the actual accessible name Start live voice, not the visible caption Live voice. A private physical screenshot proved the control was present during the old selector timeout. Preserve the visibility and native Back assertions; no live call is started.",
+    "UI-011 must query the actual accessible name Start live voice, not the visible caption Live voice. Physical landscape checks cover the internal Chat and voice regions, not merely the page boundary: the composer must stay attached below the transcript, voice controls must sit above the transcript, and no oversized empty composer rail may pass. The landscape identity rail must also render the complete machine and profile text rather than collapsing to unlabeled dots. Preserve visibility and native Back assertions; no live call is started.",
     "ADB-DISCOVERY: discover only the explicitly authorized host, prefer one connected endpoint, never confuse a pairing port with a connect port, and report ambiguity or missing transport without port scans, server resets, or automatic trust.",
     "UI-011 now records the exact fixed phase label and a private failure screenshot after a physical rotation check timed out. This changes diagnostics only, not acceptance. Transport loss still fails; original rotation settings must be restored.",
+    "HEADER-VOICE-SHORTCUT: the idle top-level wake/voice shortcut duplicated controls already available in session Options and stole the width needed by machine/profile identity. Remove it from the header. Keep the in-call microphone control because it directly controls an active audio lease.",
     "HOOK-BILLING and realtimeUsage tests: response usage must be counted once even when playback is cancelled, persist across reconnect, reset on a fresh call, and label missing pricing/transcription honestly. Voice cost stays reachable with conversation text hidden.",
     "The main Voice shortcut opens the conversation without opening settings or starting a call. Explicit settings stay in Options and on the voice page. Rotation/Back checks exercise that separate navigation, and the installed UI check opens settings from inside the page.",
     "Operator rejected the half-height voice rail. VOICE-PAGE-ROTATE now requires a dedicated whole-viewport page across rotation and keyboard sizes, preserving draft/call state and restoring underlying session interaction on Back. PET-UI-HIDE must keep page geometry stable instead of shrinking a sheet.",
     "Superseded rail experiment: fixtures retain actual shell ancestry, but voice is now a dedicated page. Native cutout/navigation insets must survive short landscape viewports.",
     "Installed visibility was insufficient: settings and approvals must intersect the sidechat scroll viewport after history hydration. Classify automation failures without logging private selectors or page content.",
-    "Cold Vite compilation is navigation setup, not voice latency; allow a separate 30-second setup budget while preserving five-second behavioral guards.",
+    "Cold Vite compilation is navigation setup, not voice latency; allow the first transcript fixture a separate 60-second setup budget while preserving 30-second later navigation and five-second behavioral guards.",
     "Synthetic media mocks are configurable because live fixture edits otherwise fail HMR with Cannot redefine property; this is not a native microphone fix.",
     "ADB reconnect can remove the task forward before cleanup. Confirmed absence satisfies cleanup, but failed UI restoration remains a failed check."
   ],
   "checks": [
-    { "id": "VOICE-APPROVAL-LOOP", "name": "Verbal yes submits once", "reason": "A readback introduction invalidated approval and yes was sent back to the model, causing repeated review instead of submission. Retain exact draft and audio-drain checks, constrain recovery, and report app cancellation state.", "owners": ["client/src/voice-readback.ts", "client/src/voice-readback.test.ts", "client/src/usePetRealtime.ts", "scripts/qa/voice-approval-cases.mjs"] },
-    { "id": "VOICE-DELIVERY", "name": "Concise voice in both modes", "reason": "Session mode discards the pet prompt. Deliver short spoken-style instructions once at connection creation in both modes, preserve model selection, and keep real model behavior as manual acceptance.", "owners": ["client/src/realtime-continuity.ts", "client/src/usePetRealtime.ts", "scripts/qa/voice-approval-cases.mjs"] },
-    { "id": "VOICE-CURRENT-REVIEW-STATE", "name": "Current approval and result evidence", "reason": "Old pending-review receipts were the only explicit review state in read results. Return current session-scoped pending review and last submission, plus the latest whole assistant message when supplied by the host. A previous acceptance never approves a new draft or proves completion.", "owners": ["client/src/usePetRealtime.ts", "client/src/voice-session-evidence.ts", "client/src/voice-session-evidence.test.ts", "scripts/qa/voice-transcript-cases.mjs"] },
-    { "id": "VOICE-TRANSCRIPT-HANDOFF", "name": "One card per completed voice turn", "reason": "Saved history and live preview previously displayed the same completed reply. Six production-hook/page cases cover successful, pending, failed and history-less receipts, repeated or late finals, identical next-turn wording, and local-context history.", "owners": ["client/src/usePetRealtime.ts", "client/qa/realtime.tsx", "scripts/qa/voice-transcript-cases.mjs"] },
-    { "id": "UI-011", "name": "Physical voice rotation and Back", "reason": "Operator reported broken landscape voice. Verify actual Android rotation, contained full-page geometry and native Back, restoring the original rotation settings and never starting a call.", "owners": ["client/src/components/PetSidechatSheet.tsx", "client/src/styles.css"] },
-    { "id": "VOICE-DIAGNOSTICS", "name": "Private failure classification", "reason": "A real attached-context failure and generic provider error events had no actionable reason. Log only fixed allowlisted failure labels and duration, never raw provider errors, private messages or tool arguments. Unknown failures stay unknown.", "owners": ["client/src/realtime-diagnostics.ts", "client/src/realtime-diagnostics.test.ts", "client/src/usePetRealtime.ts"] },
-    { "id": "VOICE-PLAYBACK", "name": "Audio floor and media owner", "reason": "Late item IDs retain their speech epoch, old ASR cannot clear newer playback, and each claimed output buffer must show inbound media progress or receive one bounded stream rebind before a visible failure. Recovery never survives interruption.", "owners": ["client/src/realtime-playback.ts", "client/src/pet-realtime-floor.ts", "client/src/usePetRealtime.ts"] },
-    { "id": "VOICE-WAKE", "name": "One recognizer with three routes", "reason": "Editable connection-scoped live voice phrase releases native wake capture before Realtime, without transcription or agent send.", "owners": ["client/src/wake-word.ts", "client/src/App.tsx", "client/src/components/ControlPanel.tsx"] },
-    { "id": "VOICE-CONTINUITY", "name": "Continuous scoped conversation", "reason": "Track discussed targets and identities across turns. Exact Support state requires an exact read; failed, stale, or warning-bearing evidence is labeled and cannot be silently replaced with queue-index guesses. Interrupted reads finish their function output without resuming obsolete speech.", "owners": ["client/src/realtime-continuity.ts", "client/src/support-voice.ts", "client/src/usePetRealtime.ts", "scripts/qa/realtime-hook-smoke.mjs"] },
-    { "id": "VOICE-LOSSLESS-CONTEXT", "name": "Whole-record attached context", "reason": "Initial snapshots select complete messages and tools. Rolling updates retain every changed row. Exact Support reads gather all stable-revision pages and fail instead of returning partial context.", "owners": ["client/src/pet.ts", "client/src/pet-realtime-events.ts", "client/src/realtime-continuity.ts", "client/src/support-voice.ts", "client/src/usePetRealtime.ts"] },
-    { "id": "VOICE-REVIEW", "name": "Review on the current page", "reason": "Review-required requests open over the current page without pet navigation. Compact actions and an expanding editor use the viewport; Later preserves the draft, and Back closes only the review. Hide text never hides approvals or controls.", "owners": ["client/src/components/VoiceReviewDialog.tsx", "client/src/components/VoiceReviewText.tsx", "client/src/App.tsx", "scripts/qa/pet-sheet-smoke.mjs"] },
-    { "id": "HOOK-WEB-OFFER", "name": "User-owned webpage opening", "reason": "A voice tool offers the exact validated HTTP address without opening a page or falsely reporting success. Only a deliberate user click opens it.", "owners": ["client/src/usePetRealtime.ts", "client/src/voice-webpage.ts", "scripts/qa/realtime-hook-smoke.mjs"] },
-    { "id": "HOOK-LARGE-READ", "name": "Lossless bounded tool transport", "reason": "Complete tool results can exceed WebRTC message sizes. Transport frames retain every character and one function completion; webpage routing is exercised through the actual hook.", "owners": ["client/src/usePetRealtime.ts", "client/src/voice-tool-result.ts", "scripts/qa/realtime-hook-smoke.mjs"] },
-    { "id": "CONNECT-STARTUP", "name": "Recover pre-transport startup", "reason": "A saved host health 502 during Desktop restart previously cleared connection intent before normal reconnect existed. Bound health retries, preserve auth gates, and cancel on disconnect or host replacement.", "owners": ["client/src/transport/direct-auth.ts", "client/src/App.tsx"] },
-    { "id": "PET-UI", "name": "Dedicated voice page", "reason": "Portrait, landscape and keyboard-sized controls stay contained with native safe insets. Hide text preserves controls and geometry. Back restores the session without ending voice or losing drafts.", "owners": ["client/src/components/PetSidechatSheet.tsx", "scripts/qa/pet-sheet-smoke.mjs"] },
-    { "id": "PET-AUDIO-LEASE", "name": "Realtime owns pet audio", "reason": "Pending commentary and clicks must not speak over live voice; ending voice restores unchanged preferences.", "owners": ["client/src/usePetCompanion.ts", "client/src/App.tsx"] },
-    { "id": "UI-001", "name": "Viewport containment", "reason": "Prevent horizontal overflow and off-screen composer after layout or inset changes.", "owners": ["client/src/styles.css", "client/src/App.tsx"] },
-    { "id": "UI-002", "name": "Compact identity header", "reason": "Mic and connection state must not overlap the logo or create another header row.", "owners": ["client/src/styles.css", "client/src/components/LiveVoiceMicrophoneButton.tsx"] },
-    { "id": "UI-003", "name": "Single-line session title", "reason": "Long session titles must not consume the transcript viewport.", "owners": ["client/src/styles.css", "client/src/App.tsx"] },
-    { "id": "UI-004", "name": "Readable options", "reason": "Wake, Replies, and During turn belong in Options with complete values and usable targets, not a permanent row.", "owners": ["client/src/components/SessionVoiceControls.tsx", "client/src/styles.css"] },
-    { "id": "UI-005", "name": "Cycle and restore safe preferences", "reason": "Replies and steering should round-trip without native selector dialogs; live wake transitions are deliberately excluded.", "owners": ["client/src/components/SessionVoiceControls.tsx", "client/src/App.tsx"] },
-    { "id": "UI-006", "name": "Composer action placement", "reason": "Running turns need enabled Stop in the Send slot, with follow-up Send inline rather than another row.", "owners": ["client/src/App.tsx", "client/src/styles.css"] },
-    { "id": "UI-007", "name": "Work placement", "reason": "Only current work may appear, directly above the composer. An absent Work card is not proof of its active layout.", "owners": ["client/src/components/WorkStatus.tsx", "client/src/work-status.ts", "client/src/App.tsx"] },
-    { "id": "UI-008", "name": "New runtime exceptions", "reason": "Catch new page exceptions and known early-DOM framework errors separately without recording conversation data.", "owners": ["client/src/App.tsx", "client/android/app/src/main/java/dev/hermes/mobile/MainActivity.java"] },
-    { "id": "UI-009", "name": "Restore test state", "reason": "A smoke test must not leave preferences or menu visibility changed.", "owners": ["scripts/qa/mobile-ui-smoke.mjs"] },
-    { "id": "UI-010", "name": "Settings viewport ownership", "reason": "The installed app opened settings then autoscrolled them away behind old history. Check actual scroll-viewport containment without starting voice or changing preferences.", "owners": ["client/src/components/PetSidechatSheet.tsx", "scripts/qa/pet-sheet-smoke.mjs", "scripts/qa/mobile-ui-smoke.mjs"] }
+    {
+      "id": "VOICE-APPROVAL-LOOP",
+      "name": "Visible card is the only approval authority",
+      "reason": "VOICE-APPROVAL-LOOP: Replaced caption extraction, filler filters, quiet-period staging and opaque client delegation with the documented Live Responses tool loop. Collect complete function items through response.completed, return all function outputs, then one response.create. A structured draft is complete and editable. expectedDraft prevents stale or cross-target revisions, including while submitting or after cancel/send. User captions never approve or overwrite. Realtime retains its separate transport. Existing helper-only parser tests were testing the wrong authority and are replaced by real-hook structured-event checks.",
+      "owners": [
+        "client/src/gpt-live-events.ts",
+        "client/src/gpt-live-events.test.ts",
+        "client/src/usePetRealtime.ts",
+        "client/src/support-voice.ts",
+        "scripts/qa/realtime-hook-smoke.mjs",
+        "scripts/qa/voice-approval-cases.mjs",
+        "scripts/qa/support-voice-approval-cases.mjs",
+        "client/src/live-tool-calls.ts",
+        "client/src/live-tool-calls.test.ts",
+        "scripts/qa/voice-live-cases.mjs"
+      ]
+    },
+    {
+      "id": "MOB-VOICE-CONVERSATION-008",
+      "name": "One coherent user-started GPT-Live call",
+      "reason": "Atomic server startup contains bounded whole historical records and an explicit new-call boundary. No greeting, saved transcript replay, or repeated UI/session context appends are generated by the client. Do not conceal model inference with a mute gate. Interleaved captions do not split every spoken sentence into a completed turn. Single-flight startup and visible disconnect failure remain. Real silence and speech behavior require hardware/provider acceptance.",
+      "owners": [
+        "client/src/usePetRealtime.ts",
+        "client/src/gpt-live-events.ts",
+        "client/src/voice-diagnostics-host.ts",
+        "client/src/gpt-live-events.test.ts",
+        "client/src/voice-diagnostics-host.test.ts",
+        "scripts/qa/realtime-hook-smoke.mjs",
+        "scripts/qa/voice-live-cases.mjs"
+      ]
+    },
+    {
+      "id": "VOICE-DELIVERY",
+      "name": "Concise voice in both modes",
+      "reason": "Live uses server-created WebRTC with a separate Responses reasoning backend and the full existing history, memory, and draft tool catalog. Frontend and backend prompts have separate roles. On-demand readers carry full tool results through response.item.create, not 500-token commentary snippets. Small application receipts retain bounded Live append delivery. Realtime defaults remain unchanged.",
+      "owners": [
+        "client/src/realtime-continuity.ts",
+        "client/src/usePetRealtime.ts",
+        "client/src/gpt-live-events.ts",
+        "client/src/gpt-live-events.test.ts",
+        "scripts/qa/realtime-hook-smoke.mjs",
+        "scripts/qa/voice-approval-cases.mjs"
+      ]
+    },
+    {
+      "id": "MOBILE-PROFILES-CRONS",
+      "name": "Integrated profile and scheduled work controls",
+      "reason": "Profile selection and cron parity must live inside the existing collapsed Controls section system. Scheduled work exposes real profile-scoped running state, Run now, history, output and lifecycle actions without a duplicate top-level panel.",
+      "owners": [
+        "client/src/components/ControlPanel.tsx",
+        "client/src/components/ProfileAndScheduleSettings.tsx",
+        "client/src/components/CronOutputs.tsx",
+        "client/src/cron.ts",
+        "client/src/styles.css"
+      ]
+    },
+    {
+      "id": "VOICE-CURRENT-REVIEW-STATE",
+      "name": "Current approval and result evidence",
+      "reason": "Old pending-review receipts were the only explicit review state in read results. Return current session-scoped pending review and last submission, plus the latest whole assistant message when supplied by the host. A previous acceptance never approves a new draft or proves completion.",
+      "owners": [
+        "client/src/usePetRealtime.ts",
+        "client/src/voice-session-evidence.ts",
+        "client/src/voice-session-evidence.test.ts",
+        "scripts/qa/voice-transcript-cases.mjs"
+      ]
+    },
+    {
+      "id": "VOICE-TRANSCRIPT-HANDOFF",
+      "name": "One card per completed voice turn",
+      "reason": "Saved history and live preview previously displayed the same completed reply. Six production-hook/page cases cover successful, pending, failed and history-less receipts, repeated or late finals, identical next-turn wording, and local-context history.",
+      "owners": [
+        "client/src/usePetRealtime.ts",
+        "client/qa/realtime.tsx",
+        "scripts/qa/voice-transcript-cases.mjs"
+      ]
+    },
+    {
+      "id": "UI-011",
+      "name": "Physical Chat and voice landscape",
+      "reason": "Operator reported a blank composer rail and broken landscape voice. Verify actual Android rotation, contained internal Chat and voice geometry, compact bottom composers, full-width transcript ownership and native Back. Restore the original rotation settings and never start a call.",
+      "owners": [
+        "client/src/App.tsx",
+        "client/src/components/PetSidechatSheet.tsx",
+        "client/src/styles.css",
+        "scripts/qa/mobile-ui-smoke.mjs"
+      ]
+    },
+    {
+      "id": "UI-012",
+      "name": "Centered square header actions",
+      "reason": "Refresh and Close controls must use fixed square hit boxes and centered theme-matched SVG strokes instead of font glyphs whose baselines drift.",
+      "owners": [
+        "client/src/components/UiIcons.tsx",
+        "client/src/components/ControlPanel.tsx",
+        "client/src/components/SessionsView.tsx",
+        "client/src/styles.css",
+        "scripts/qa/mobile-ui-smoke.mjs"
+      ]
+    },
+    {
+      "id": "VOICE-DIAGNOSTICS",
+      "name": "Private failure classification",
+      "reason": "A real attached-context failure and generic provider error events had no actionable reason. Log only fixed allowlisted failure labels and duration, never raw provider errors, private messages or tool arguments. Unknown failures stay unknown.",
+      "owners": [
+        "client/src/realtime-diagnostics.ts",
+        "client/src/realtime-diagnostics.test.ts",
+        "client/src/usePetRealtime.ts"
+      ]
+    },
+    {
+      "id": "VOICE-PLAYBACK",
+      "name": "Audio floor, output route and media owner",
+      "reason": "Android WebRTC selected the call receiver because live voice retained microphone ownership without owning the communication output. A native lease now preserves an already active headset, otherwise selects speakerphone even when dormant Bluetooth devices are available, reasserts after WebRTC route changes, and restores Android audio state after the final lease. Late item IDs retain their speech epoch, old ASR cannot clear newer playback, and each claimed output buffer must show inbound media progress or receive one bounded stream rebind before a visible failure.",
+      "owners": [
+        "client/android/app/src/main/java/dev/hermes/mobile/RealtimeVoiceAudioRoute.java",
+        "client/android/app/src/main/java/dev/hermes/mobile/AndroidRealtimeVoiceAudioBackend.java",
+        "client/android/app/src/test/java/dev/hermes/mobile/RealtimeVoiceAudioRouteTest.java",
+        "client/src/realtime-playback.ts",
+        "client/src/pet-realtime-floor.ts",
+        "client/src/usePetRealtime.ts"
+      ]
+    },
+    {
+      "id": "VOICE-WAKE",
+      "name": "One recognizer with three routes",
+      "reason": "Editable connection-scoped live voice phrase releases native wake capture before Realtime, without transcription or agent send.",
+      "owners": [
+        "client/src/wake-word.ts",
+        "client/src/App.tsx",
+        "client/src/components/ControlPanel.tsx"
+      ]
+    },
+    {
+      "id": "VOICE-CONTINUITY",
+      "name": "Continuous scoped conversation",
+      "reason": "Track discussed targets and identities across turns. Exact Support state requires an exact read; failed, stale, or warning-bearing evidence is labeled and cannot be silently replaced with queue-index guesses. Interrupted reads finish their function output without resuming obsolete speech.",
+      "owners": [
+        "client/src/realtime-continuity.ts",
+        "client/src/support-voice.ts",
+        "client/src/usePetRealtime.ts",
+        "scripts/qa/realtime-hook-smoke.mjs"
+      ]
+    },
+    {
+      "id": "VOICE-LOSSLESS-CONTEXT",
+      "name": "Whole-record attached context",
+      "reason": "Initial snapshots select complete messages and tools. Rolling updates retain every changed row. Exact Support reads gather all stable-revision pages and fail instead of returning partial context.",
+      "owners": [
+        "client/src/pet.ts",
+        "client/src/pet-realtime-events.ts",
+        "client/src/realtime-continuity.ts",
+        "client/src/support-voice.ts",
+        "client/src/usePetRealtime.ts"
+      ]
+    },
+    {
+      "id": "VOICE-REVIEW",
+      "name": "Review on the current page",
+      "reason": "Review-required requests open over the current page without pet navigation. Compact actions and an expanding editor use the viewport; Later preserves the draft, and Back closes only the review. Hide text never hides approvals or controls.",
+      "owners": [
+        "client/src/components/VoiceReviewDialog.tsx",
+        "client/src/components/VoiceReviewText.tsx",
+        "client/src/App.tsx",
+        "scripts/qa/pet-sheet-smoke.mjs"
+      ]
+    },
+    {
+      "id": "HOOK-WEB-OFFER",
+      "name": "User-owned webpage opening",
+      "reason": "A voice tool offers the exact validated HTTP address without opening a page or falsely reporting success. Only a deliberate user click opens it.",
+      "owners": [
+        "client/src/usePetRealtime.ts",
+        "client/src/voice-webpage.ts",
+        "scripts/qa/realtime-hook-smoke.mjs"
+      ]
+    },
+    {
+      "id": "HOOK-LARGE-READ",
+      "name": "Lossless bounded tool transport",
+      "reason": "Complete tool results can exceed WebRTC message sizes. Transport frames retain every character and one function completion; webpage routing is exercised through the actual hook.",
+      "owners": [
+        "client/src/usePetRealtime.ts",
+        "client/src/voice-tool-result.ts",
+        "scripts/qa/realtime-hook-smoke.mjs"
+      ]
+    },
+    {
+      "id": "CONNECT-STARTUP",
+      "name": "Recover pre-transport startup",
+      "reason": "A saved host health 502 during Desktop restart previously cleared connection intent before normal reconnect existed. Bound health retries, preserve auth gates, and cancel on disconnect or host replacement.",
+      "owners": [
+        "client/src/transport/direct-auth.ts",
+        "client/src/App.tsx"
+      ]
+    },
+    {
+      "id": "PET-UI",
+      "name": "Dedicated voice page",
+      "reason": "Portrait, landscape and keyboard-sized controls stay contained with native safe insets. Hide text preserves controls and geometry. Back restores the session without ending voice or losing drafts.",
+      "owners": [
+        "client/src/components/PetSidechatSheet.tsx",
+        "scripts/qa/pet-sheet-smoke.mjs"
+      ]
+    },
+    {
+      "id": "PET-AUDIO-LEASE",
+      "name": "Realtime owns pet audio",
+      "reason": "Pending commentary and clicks must not speak over live voice; ending voice restores unchanged preferences.",
+      "owners": [
+        "client/src/usePetCompanion.ts",
+        "client/src/App.tsx"
+      ]
+    },
+    {
+      "id": "UI-001",
+      "name": "Viewport containment",
+      "reason": "Prevent horizontal overflow and off-screen composer after layout or inset changes. Automatic pet roaming must stay above the composer while manual dragging retains the full viewport.",
+      "owners": [
+        "client/src/styles.css",
+        "client/src/App.tsx",
+        "client/src/components/MobilePet.tsx",
+        "scripts/qa/mobile-ui-smoke.mjs"
+      ]
+    },
+    {
+      "id": "UI-002",
+      "name": "Compact readable identity header",
+      "reason": "Mic and connection state must not overlap the logo or create another portrait row. The redundant idle wake/voice shortcut stays out of the header, while the direct in-call microphone remains. Status controls use matched themed rounded-square geometry, machine and profile stay independently readable in both orientations, and header glyphs are centered SVGs instead of font characters.",
+      "owners": [
+        "client/src/App.tsx",
+        "client/src/styles.css",
+        "client/src/components/LiveVoiceMicrophoneButton.tsx",
+        "client/src/components/UiIcons.tsx",
+        "scripts/qa/mobile-ui-smoke.mjs",
+        "scripts/qa/realtime-hook-smoke.mjs"
+      ]
+    },
+    {
+      "id": "UI-003",
+      "name": "Single-line session title",
+      "reason": "Long session titles must not consume the transcript viewport.",
+      "owners": [
+        "client/src/styles.css",
+        "client/src/App.tsx"
+      ]
+    },
+    {
+      "id": "UI-004",
+      "name": "Readable options",
+      "reason": "Wake, Replies, and During turn belong in Options with complete values and usable targets, not a permanent row.",
+      "owners": [
+        "client/src/components/SessionVoiceControls.tsx",
+        "client/src/styles.css"
+      ]
+    },
+    {
+      "id": "UI-005",
+      "name": "Cycle and restore safe preferences",
+      "reason": "Replies and steering should round-trip without native selector dialogs; live wake transitions are deliberately excluded.",
+      "owners": [
+        "client/src/components/SessionVoiceControls.tsx",
+        "client/src/App.tsx"
+      ]
+    },
+    {
+      "id": "UI-006",
+      "name": "Composer action placement",
+      "reason": "Running turns need enabled Stop in the Send slot, with follow-up Send inline rather than another row.",
+      "owners": [
+        "client/src/App.tsx",
+        "client/src/styles.css"
+      ]
+    },
+    {
+      "id": "UI-007",
+      "name": "Work placement",
+      "reason": "Only current work may appear, directly above the composer. An absent Work card is not proof of its active layout.",
+      "owners": [
+        "client/src/components/WorkStatus.tsx",
+        "client/src/work-status.ts",
+        "client/src/App.tsx"
+      ]
+    },
+    {
+      "id": "UI-008",
+      "name": "New runtime exceptions",
+      "reason": "Catch new page exceptions and known early-DOM framework errors separately without recording conversation data.",
+      "owners": [
+        "client/src/App.tsx",
+        "client/android/app/src/main/java/dev/hermes/mobile/MainActivity.java"
+      ]
+    },
+    {
+      "id": "UI-009",
+      "name": "Restore test state",
+      "reason": "A smoke test must not leave preferences or menu visibility changed.",
+      "owners": [
+        "scripts/qa/mobile-ui-smoke.mjs"
+      ]
+    },
+    {
+      "id": "UI-010",
+      "name": "Settings viewport ownership",
+      "reason": "The installed app opened settings then autoscrolled them away behind old history. Check actual scroll-viewport containment without starting voice or changing preferences.",
+      "owners": [
+        "client/src/components/PetSidechatSheet.tsx",
+        "scripts/qa/pet-sheet-smoke.mjs",
+        "scripts/qa/mobile-ui-smoke.mjs"
+      ]
+    }
   ],
   "focusedTargets": [
     "client/src/voice-session-evidence.test.ts",
+    "client/src/gpt-live-events.test.ts",
     "client/src/embeds-render.test.tsx",
     "client/src/embeds.test.ts",
     "client/src/voice-webpage.test.ts",
@@ -89,12 +377,25 @@
     "client/src/pet-realtime-floor.test.ts",
     "client/src/pet-realtime-settings.test.ts",
     "client/src/realtime-settings-storage.test.ts",
-    "client/src/work-status.test.ts"
+    "client/src/work-status.test.ts",
+    "client/src/live-tool-calls.test.ts"
   ],
   "manual": [
-    { "id": "VOICE-001", "reason": "Actual speech after greeting; microphone mute/unmute; no silent active call." },
-    { "id": "VOICE-002", "reason": "Barge-in, cough/noise, stop-speaking silence, and recovery after interruption." },
-    { "id": "VOICE-003", "reason": "Screen-off/background/reconnect audio and Support-thread context continuity." },
-    { "id": "TURN-001", "reason": "Authorized real turn: immediate Stop, current Work, inline steering, and scroll stability." }
+    {
+      "id": "VOICE-001",
+      "reason": "Actual speech after greeting; microphone mute/unmute; no silent active call."
+    },
+    {
+      "id": "VOICE-002",
+      "reason": "Barge-in, cough/noise, stop-speaking silence, and recovery after interruption."
+    },
+    {
+      "id": "VOICE-003",
+      "reason": "Screen-off/background/reconnect audio and Support-thread context continuity."
+    },
+    {
+      "id": "TURN-001",
+      "reason": "Authorized real turn: immediate Stop, current Work, inline steering, and scroll stability."
+    }
   ]
 }

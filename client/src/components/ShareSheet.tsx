@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { CloseIcon } from './UiIcons'
 import type { SessionSummary } from '../protocol/types'
 import {
   canSendSharedContent,
@@ -145,7 +146,7 @@ export function ShareSheet({
             disabled={sending}
             onClick={onClose}
           >
-            ×
+            <CloseIcon />
           </button>
         </div>
 

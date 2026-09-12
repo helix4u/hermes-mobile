@@ -3,11 +3,11 @@ import { createRoot } from 'react-dom/client'
 import { SessionVoiceControls } from '../src/components/SessionVoiceControls'
 import { LiveVoiceMicrophoneButton } from '../src/components/LiveVoiceMicrophoneButton'
 import { WorkStatus } from '../src/components/WorkStatus'
+import { ChevronDownIcon } from '../src/components/UiIcons'
 import { PetSidechatSheet } from '../src/components/PetSidechatSheet'
 import type { PetSidechatMessage } from '../src/pet'
 import { usePetRealtime } from '../src/usePetRealtime'
 import { supportVoiceContext, supportReviewSnapshot, type SupportVoiceReview } from '../src/support-voice'
-import { sameVoiceReview } from '../src/voice-context-review'
 import '../src/styles.css'
 
 const sent: any[] = []
@@ -56,11 +56,15 @@ let channel: any
 class Peer {
   constructor() { peers.push(this) }
   connectionState = 'new'
+  iceGatheringState = 'complete'
+  localDescription: any = null
   createDataChannel() { channel = { readyState: 'open', send: (data: string) => sent.push(JSON.parse(data)), close() {} }; return channel }
+  addEventListener() {}
+  removeEventListener() {}
   addTrack() {}
   getStats() { return Promise.resolve(new Map()) }
   createOffer() { return Promise.resolve({ sdp: 'synthetic' }) }
-  setLocalDescription() { return Promise.resolve() }
+  setLocalDescription(value: any) { this.localDescription = value; return Promise.resolve() }
   setRemoteDescription() { queueMicrotask(() => channel.onopen()); return Promise.resolve() }
   close() {}
 }
@@ -94,6 +98,9 @@ const gateway = { request: async (method: string, params:unknown) => {
   if (method !== 'pet.realtime.session') return {}
   sessionRequests++
   if (holdCredentials) return new Promise(resolve => { credentialsResolve = resolve })
+  if ((params as any)?.voiceEngine === 'live') return { voiceEngine: 'live', sdpAnswer: 'synthetic-live-answer',
+    liveSessionId: 'live_synthetic', model: 'gpt-live-1', requestDelegationLimit: true,
+    initialContext: null, liveDelegation: 'responses', contextStats: { messages: 1, characters: 34 } }
   return credentials
 } }
 
@@ -111,24 +118,18 @@ function Fixture() {
     onReply: () => {}, personalityId: 'synthetic', personalityName: 'Companion', prompt: 'Synthetic test.' })
   ;(window as any).qa = { realtime, sent, tracks, peers, failPlayback: () => { playbackFails = true; peers.at(-1).ontrack({ streams: [new MediaStream()] }) }, disconnect: () => { const peer = peers.at(-1); peer.connectionState = 'disconnected'; peer.onconnectionstatechange() }, frame: (data: any) => channel.onmessage({ data: JSON.stringify(data) }) }
   Object.assign((window as any).qa, { constraints, get sessionRequests() { return sessionRequests }, get contextsClosed() { return contextsClosed },
+    startLive: async () => { realtime.setSettings({ ...realtime.settings, engine: 'live' }); await realtime.start() },
+    useRealtime: () => { realtime.stop(); realtime.setSettings({ ...realtime.settings, engine: 'realtime' }) },
     supportApprovals, supportSnapshot: () => supportReviewSnapshot(supportReview),
     editSupport: (patch: Partial<SupportVoiceReview>) => { if (supportReview) supportReview = { ...supportReview, ...patch } },
     cancelSupport: () => { supportReview = null },
     startSupport: async () => {
-      realtime.setSettings({ ...realtime.settings, approval: 'verbal' })
+      realtime.setSettings({ ...realtime.settings, approval: 'on' })
       await realtime.startContext(supportVoiceContext('synthetic-fixture', undefined,
         async (path, body) => path === '/voice/propose'
           ? { id: 'review-one', targetId: '100000000000000001', title: 'Synthetic issue', action: 'investigate', text: 'Inspect the failure. Do not change files.', status: 'pending_approval' }
           : { threads: [], matching: 0 },
-        review => { supportReview = review }, undefined, {
-          current: () => supportReviewSnapshot(supportReview),
-          approve: async snapshot => {
-            if (!supportReview || !sameVoiceReview(snapshot, supportReviewSnapshot(supportReview))) throw new Error('Review changed')
-            supportApprovals.push(supportReview)
-            supportReview = null
-          },
-          cancel: snapshot => { if (sameVoiceReview(snapshot, supportReviewSnapshot(supportReview))) supportReview = null },
-        }))
+        review => { supportReview = review }))
     },
     releaseRecord, setRecordMode: (mode: string) => { recordMode = mode },
     setSessionContext: (value: Record<string, unknown>) => { sessionContext = value },
@@ -142,7 +143,7 @@ function Fixture() {
     realtime={realtime} voicePhase="idle" voiceRecordingAvailable={false} />
   return <main className="app-shell">
     <header className="topbar"><button className="brand-button"><span className="brand-mark-shell"><img className="brand-mark" src="/nous-sidecar-128.png"/><span className="brand-exp-badge">EXP</span></span><span><small>Hermes</small><strong>Mobile</strong></span></button>
-      <div className="topbar-statuses"><LiveVoiceMicrophoneButton muted={!!realtime.snapshot.microphoneMuted} onChange={realtime.setMicrophoneMuted}/><button className="host-pill"><span className="host-dot"/><span>Workstation</span><span>⌄</span></button></div></header>
+      <div className="topbar-statuses"><LiveVoiceMicrophoneButton muted={!!realtime.snapshot.microphoneMuted} onChange={realtime.setMicrophoneMuted}/><button aria-label="Connection: Workstation. Profile: default" className="host-pill" title="Workstation · default"><span className="host-dot"/><span className="host-pill-copy"><strong>Workstation</strong><small>default</small></span><span className="host-chevron"><ChevronDownIcon/></span></button></div></header>
     <div className="mobile-workspace"><section className="app-view chat-view active">
       <div className="thread-heading"><div className="thread-heading-copy"><p className="eyebrow">Live</p><h1>A long synthetic session title that must never wrap</h1></div><div className="thread-actions"><button className="thread-actions-trigger quiet-button" onClick={() => setMenu(!menu)}>Options</button>{menu && <div className="thread-actions-popover"><button className="thread-menu-action" onClick={() => void realtime.start()}>Start test voice</button><SessionVoiceControls nativeClient wakeWordMode={wake} autoSpeak={auto} activeTurnInputMode={mode} onWakeChange={setWake} onAutoSpeakChange={setAuto} onInputModeChange={setMode}/></div>}</div></div>
       <div className="session-workspace-button">Session workspace</div>
