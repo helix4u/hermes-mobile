@@ -76,6 +76,7 @@ import {
 import { projectSessionRows } from './state/sessions'
 import { LiveVoiceMicrophoneButton } from './components/LiveVoiceMicrophoneButton'
 import { ChevronDownIcon } from './components/UiIcons'
+import { loadMuteAutoplayDuringVoice, saveMuteAutoplayDuringVoice, shouldAutoplay } from './voice-autoplay'
 import {
   eventTargetsSelectedSession,
   loadSelectedSession,
@@ -441,6 +442,10 @@ export function App() {
   const autoConnectStartedRef = useRef(false)
   const directConnectAbortRef = useRef<AbortController | null>(null)
   const autoSpeakRef = useRef(autoSpeak)
+  const [muteAutoplayDuringVoice, setMuteAutoplayDuringVoice] = useState(() => loadMuteAutoplayDuringVoice(initialConnection.id))
+  const muteAutoplayDuringVoiceRef = useRef(muteAutoplayDuringVoice)
+  muteAutoplayDuringVoiceRef.current = muteAutoplayDuringVoice
+  const voiceOwnsPlaybackRef = useRef(false)
   const wakeWordModeRef = useRef(wakeWordMode)
   const connectionRef = useRef(connection)
   const selectedStoredIdRef = useRef(selectedStoredId)
@@ -710,6 +715,7 @@ export function App() {
     },
     onMessages: pet.sidechat.replace,
     onMicrophoneOwnershipChange: owned => {
+      voiceOwnsPlaybackRef.current = owned
       pet.setVoiceActive(owned)
       if (owned) stopPlayback()
       setRealtimeVoiceOwnsMicrophone(owned)
@@ -848,7 +854,7 @@ export function App() {
           preview: text || 'Your Hermes session has a result.',
         }).catch(() => undefined)
       }
-      if (!autoSpeakRef.current) return
+      if (!shouldAutoplay(autoSpeakRef.current, muteAutoplayDuringVoiceRef.current, voiceOwnsPlaybackRef.current)) return
       const delta = assistantDeltaText(event)
       if (delta) {
         appendIncrementalSpeech(delta, 'auto-response', getDefaultTtsConfig())
@@ -979,6 +985,7 @@ export function App() {
   }, [connected, connection.id, connection.profile, preferredWorkspace])
   useEffect(() => {
     setAutoSpeak(loadAutoSpeak(connection.id))
+    setMuteAutoplayDuringVoice(loadMuteAutoplayDuringVoice(connection.id))
     const nextWakeWordMode = loadWakeWordMode(connection.id)
     setWakeWordMode(nextWakeWordMode)
     wakeWordModeRef.current = nextWakeWordMode
@@ -3407,6 +3414,12 @@ export function App() {
               activeSkinName={activeSkinName}
               themeSelection={themeSelection}
               autoSpeak={autoSpeak}
+              autoplayDuringVoice={{ muted: muteAutoplayDuringVoice, onChange: muted => {
+                setMuteAutoplayDuringVoice(muted)
+                muteAutoplayDuringVoiceRef.current = muted
+                saveMuteAutoplayDuringVoice(connection.id, muted)
+                if (muted && voiceOwnsPlaybackRef.current) stopPlayback()
+              } }}
               wakeWordAvailable={nativeClient}
               wakeWordMode={wakeWordMode}
               wakeWordModelId={wakeWordModelId}
@@ -3569,6 +3582,13 @@ export function App() {
             await connect(connection)
           }}
           onConnectionChange={setConnection}
+          onPair={async code => {
+            const target = { ...connection, token: '', authMode: 'token' as const }
+            await HermesNative.redeemPairing({ connectionId: target.id, baseUrl: target.baseUrl, code })
+            if (connectionRef.current.id !== target.id || connectionRef.current.baseUrl !== target.baseUrl)
+              throw new Error('Pairing saved for the original connection. The selected connection changed, so it was not opened.')
+            await connect(target)
+          }}
           onDisconnect={disconnect}
           onDeleteConnection={deleteSavedConnection}
           onEditConnection={editSavedConnection}

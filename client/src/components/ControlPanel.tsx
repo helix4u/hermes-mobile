@@ -68,6 +68,7 @@ interface ControlPanelProps {
   activeSkinName: string
   themeSelection: MobileThemeSelection
   autoSpeak: boolean
+  autoplayDuringVoice?: { muted: boolean; onChange: (muted: boolean) => void }
   wakeWordAvailable: boolean
   wakeWordMode: WakeWordMode
   wakeWordModelId: WakeWordModelId
@@ -222,6 +223,7 @@ export function ControlPanel({
   realtimeInput,
   activeSkinName,
   autoSpeak,
+  autoplayDuringVoice,
   connected,
   gateway,
   onAutoSpeakChange,
@@ -833,6 +835,11 @@ export function ControlPanel({
             />
             <span>Automatically read completed replies aloud</span>
           </label>
+          {autoplayDuringVoice && <label className="toggle-row">
+            <input type="checkbox" checked={autoplayDuringVoice.muted}
+              onChange={event => autoplayDuringVoice.onChange(event.target.checked)} />
+            <span>Mute automatic reply playback during a live voice conversation</span>
+          </label>}
           <label>
             <span>
               {wakeWordLabel(

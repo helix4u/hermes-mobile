@@ -3,6 +3,8 @@ export function voiceFailureReason(value: unknown): string {
   const error = value && typeof value === 'object' ? value as { code?: unknown; message?: unknown } : {}
   const code = error.code
   const message = typeof error.message === 'string' ? error.message : ''
+  if (/pending function call outputs/i.test(message)) return 'pending_tool_outputs'
+  if (/message.*(?:too large|maximum size)|exceeds.*(?:message|evidence).*capacity/i.test(message)) return 'tool_result_capacity'
   if (/instructions cannot be longer|context_length_exceeded|maximum context length|too many tokens/i.test(message)) return 'context_capacity'
   const codes: Record<string, string> = {
     response_cancel_not_active: 'cancel_already_complete',

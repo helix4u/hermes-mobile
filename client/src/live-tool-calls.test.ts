@@ -9,6 +9,51 @@ const call = (call_id = 'call-a', name = 'draft_hermes_request') => envelope({
 })
 
 describe('Live structured tool boundary', () => {
+  it('keeps unfinished responses on the same delegation until their own terminal events', () => {
+    const state = new LiveToolCalls()
+    state.accept(start('response-a'))
+    state.accept(call('call-a'))
+    state.accept(start('response-b'))
+    state.accept(call('call-b'))
+    expect(state.accept(done('response-a'))?.map(call => call.callId)).toEqual(['call-a'])
+    const sent: Record<string, unknown>[] = []
+    const send = (event: Record<string, unknown>) => { sent.push(event); return true }
+    state.returnResult('call-a', { ok: true }, send)
+    expect(sent.map(event => event.type)).toEqual(['response.item.create'])
+    expect(state.accept(done('response-b'))?.map(call => call.callId)).toEqual(['call-b'])
+    state.returnResult('call-b', { ok: true }, send)
+    expect(sent.map(event => event.type)).toEqual(['response.item.create', 'response.item.create', 'response.create'])
+  })
+  it('does not continue after a failed result send and permits delivery retry without rerunning the tool', () => {
+    const state = new LiveToolCalls()
+    state.accept(start())
+    state.accept(call())
+    state.accept(done())
+    const sent: Record<string, unknown>[] = []
+    expect(() => state.returnResult('call-a', { ok: true }, () => false)).toThrow('deliver')
+    state.continueIfReady(event => { sent.push(event); return true })
+    expect(sent).toEqual([])
+    state.returnResult('call-a', { ok: true }, event => { sent.push(event); return true })
+    expect(sent.map(event => event.type)).toEqual(['response.item.create', 'response.create'])
+  })
+  it('waits for a still-generating response and forgets old pending outputs on reset', () => {
+    const state = new LiveToolCalls()
+    const sent: Record<string, unknown>[] = []
+    const send = (event: Record<string, unknown>) => { sent.push(event); return true }
+    state.accept(start())
+    state.accept(call())
+    state.accept(done())
+    state.accept(envelope({ type: 'response.created', response: { id: 'response-b' } }, 'delegation-b'))
+    state.returnResult('call-a', { ok: true }, send)
+    expect(sent.map(event => event.type)).toEqual(['response.item.create'])
+    state.accept(envelope({ type: 'response.completed', response: { id: 'response-b', output: [] } }, 'delegation-b'))
+    state.continueIfReady(send)
+    expect(sent.map(event => event.type)).toEqual(['response.item.create', 'response.create'])
+    state.reset()
+    state.returnResult('call-a', { ok: true }, send)
+    state.continueIfReady(send)
+    expect(sent).toHaveLength(2)
+  })
   it('ignores captions, opaque client delegations and partial arguments', () => {
     const state = new LiveToolCalls()
     state.accept(start())

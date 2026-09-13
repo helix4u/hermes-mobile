@@ -717,6 +717,50 @@ public class HermesNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void redeemPairing(PluginCall call) {
+        String connectionId = requireConnectionId(call);
+        String baseUrl = call.getString("baseUrl", "");
+        String code = call.getString("code", "").replace("-", "").replace(" ", "").toUpperCase(java.util.Locale.ROOT);
+        if (connectionId == null || !requireSecureUrl(call, baseUrl, false)) return;
+        if (!code.matches("[A-Z2-9]{12}")) {
+            call.reject("Enter the 12-character pairing code from this host.");
+            return;
+        }
+        okhttp3.HttpUrl base = okhttp3.HttpUrl.parse(baseUrl);
+        if (base == null || base.query() != null || base.fragment() != null || !base.username().isEmpty() || !base.password().isEmpty()) {
+            call.reject("Use the Hermes host URL without credentials, query or fragment.");
+            return;
+        }
+        String path = base.encodedPath().replaceAll("/+$", "") + "/_hermes-mobile/pair/redeem";
+        JSObject body = new JSObject();
+        body.put("code", code);
+        Request request = new Request.Builder().url(base.newBuilder().encodedPath(path).build())
+            .post(RequestBody.create(body.toString(), MediaType.get("application/json"))).build();
+        // No existing credentials or cookies are sent, and redirects cannot move a code to another host.
+        httpClient.newBuilder().followRedirects(false).followSslRedirects(false)
+            .callTimeout(15, TimeUnit.SECONDS).build().newCall(request).enqueue(new Callback() {
+                @Override public void onFailure(Call ignored, java.io.IOException error) {
+                    call.reject("Could not reach the pairing host. Check its URL and connection.");
+                }
+                @Override public void onResponse(Call ignored, Response response) {
+                    try (response) {
+                        if (!response.isSuccessful() || response.body() == null) {
+                            call.reject("Pairing failed. Generate a fresh code on the host and retry.");
+                            return;
+                        }
+                        String token = new org.json.JSONObject(response.peekBody(8192).string()).optString("token", "");
+                        if (token.length() < 32 || token.length() > 4096) throw new IllegalStateException();
+                        boolean saved = preferences().edit().putString(CREDENTIAL_PREFIX + connectionId, encrypt(token)).commit();
+                        if (!saved) throw new IllegalStateException();
+                        call.resolve();
+                    } catch (Exception error) {
+                        call.reject("Could not securely save the paired connection. Generate a fresh code and retry.");
+                    }
+                }
+            });
+    }
+
+    @PluginMethod
     public void hasCredential(PluginCall call) {
         String connectionId = requireConnectionId(call);
         if (connectionId == null) {

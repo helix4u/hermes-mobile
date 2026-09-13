@@ -19,6 +19,33 @@ export async function voiceLiveCases({ page, url, check }) {
     }, { id, name, args })
     await page.waitForFunction(id => window.qa.sent.some(e => e.type === 'response.item.create' && e.item?.call_id === id), id)
   }
+  await check('HOOK-GPT-LIVE-LARGE-RESULT', 'A real hook returns bounded tool pages, keeps evidence out of user turns, and reads the full original result losslessly.', async () => {
+    await fresh()
+    await page.evaluate(() => window.qa.setKnowledgeResult({ content: 'Long synthetic evidence 漢字 '.repeat(5000) }))
+    await tool('large-read', 'read_voice_webpage', { url: 'https://example.com' })
+    let part = await page.evaluate(() => JSON.parse(window.qa.sent.find(e => e.item?.call_id === 'large-read').item.output))
+    let all = part.content
+    let index = 0
+    while (part.nextOffset !== null) {
+      const id = `read-page-${++index}`
+      await tool(id, 'read_voice_tool_result', { resultId: part.resultId, offset: part.nextOffset })
+      part = await page.evaluate(id => JSON.parse(window.qa.sent.find(e => e.item?.call_id === id).item.output), id)
+      all += part.content
+    }
+    if (JSON.parse(all).content !== 'Long synthetic evidence 漢字 '.repeat(5000)) throw new Error('Evidence was lost')
+    const valid = await page.evaluate(() => window.qa.sent.every(e => e.type !== 'conversation.item.create' && new TextEncoder().encode(JSON.stringify(e)).length < 16384))
+    if (!valid) throw new Error('Unbounded wire packet or synthetic user turn')
+  })
+  await check('HOOK-GPT-LIVE-TRANSPORT-ERROR', 'A rejected tool conversation releases voice resources and preserves the review instead of speaking imaginary progress.', async () => {
+    await fresh()
+    await tool('transport-draft', 'draft_hermes_request', { message: 'Inspect the build.' })
+    await page.evaluate(() => window.qa.frame({type:'error',error:{message:'Submit the pending function call outputs before response.create.'}}))
+    await page.waitForFunction(() => !window.qa.realtime.snapshot.active && window.qa.realtime.snapshot.status === 'error')
+    if (await page.evaluate(() => window.qa.realtime.snapshot.hermesDraft !== 'Inspect the build.' || window.qa.approved.length)) throw new Error('Review lost or sent')
+    await page.evaluate(() => window.qa.realtime.approveHermesDraft())
+    await page.waitForFunction(() => window.qa.approved.length === 1 && window.qa.realtime.snapshot.hermesDraftStatus === 'sent')
+    if (await page.evaluate(() => window.qa.approved[0].displayText !== 'Inspect the build.')) throw new Error('Recovered review sent incorrect text')
+  })
   await check('HOOK-GPT-LIVE', 'Only completed structured tools create and revise drafts. Speech remains conversation, with no magic words or automatic send.', async () => {
     await fresh()
     await page.evaluate(() => {
@@ -44,6 +71,18 @@ export async function voiceLiveCases({ page, url, check }) {
     if (sent.some(e => ['conversation.item.create', 'response.cancel', 'output_audio_buffer.clear'].includes(e.type))) throw new Error('Realtime command entered Live')
     await tool('late-revision', 'draft_hermes_request', { expectedDraft: 'Inspect the build and startup timing.', message: 'Late edit.' })
     if (await page.evaluate(() => window.qa.realtime.snapshot.hermesDraftStatus !== 'sent')) throw new Error('Late revision recreated a sent review')
+  })
+  await check('HOOK-GPT-LIVE-EMPTY-REVISION', 'An empty optional revision field creates a new draft. Stale edits remain blocked and explain how the model can retry a new request itself.', async () => {
+    await fresh()
+    await tool('empty-revision', 'draft_hermes_request', { message: 'Research the recovery design.', expectedDraft: '' })
+    await page.waitForFunction(() => window.qa.realtime.snapshot.hermesDraft === 'Research the recovery design.')
+    await page.evaluate(() => window.qa.realtime.cancelHermesDraft())
+    await tool('stale-new-request', 'draft_hermes_request', { message: 'Research a new topic.', expectedDraft: 'Research the recovery design.' })
+    const result = await page.evaluate(() => window.qa.sent.find(e => e.item?.call_id === 'stale-new-request')?.item?.output)
+    if (!JSON.parse(result).error.includes('omit expectedDraft')) throw new Error('No actionable model recovery instruction')
+    await tool('retry-new-request', 'draft_hermes_request', { message: 'Research a new topic.' })
+    await page.waitForFunction(() => window.qa.realtime.snapshot.hermesDraft === 'Research a new topic.')
+    if (await page.evaluate(() => window.qa.approved.length)) throw new Error('Draft creation dispatched work')
   })
   await check('HOOK-GPT-LIVE-STARTUP-SILENCE', 'Startup installs context on the server, sends no greeting or transcript backlog from the client, and does not hide a running model behind mute.', async () => {
     await fresh()
@@ -95,6 +134,29 @@ export async function voiceLiveCases({ page, url, check }) {
     const read = calls.find(c => c.method === 'pet.realtime.context')
     if (save?.params.operation !== 'voice_memory_save' || save.params.session_id !== 'synthetic-session' || JSON.stringify(save.params.memory) !== JSON.stringify(memory)) throw new Error('Memory not wired to scoped RPC')
     if (read?.params.beforeRowId !== 123 || read.params.contextLimit !== 8 || read.params.session_id !== 'synthetic-session') throw new Error('History paging not wired')
+  })
+  await check('HOOK-GPT-LIVE-PENDING-TOOLS', 'Overlapping delegated tools return every output before the session-wide continuation.', async () => {
+    await fresh()
+    await page.evaluate(() => {
+      window.qa.holdContext()
+      const frame = (delegation_id, event) => window.qa.frame({ type: 'response.event', delegation_id, event })
+      frame('slow-delegation', { type: 'response.created', response: { id: 'slow-response' } })
+      frame('slow-delegation', { type: 'response.output_item.done', item: {
+        type: 'function_call', call_id: 'slow-history', name: 'read_session_context', arguments: '{}'
+      } })
+      frame('slow-delegation', { type: 'response.completed', response: { id: 'slow-response', output: [] } })
+    })
+    await page.waitForFunction(() => window.qa.gatewayCalls.some(c => c.method === 'pet.realtime.context'))
+    await tool('fast-ui', 'get_ui_context', {})
+    if (await page.evaluate(() => window.qa.sent.some(e => e.type === 'response.create')))
+      throw new Error('Continued with the history tool still pending')
+    await page.evaluate(() => window.qa.releaseContext())
+    await page.waitForFunction(() => window.qa.sent.some(e => e.type === 'response.create'))
+    const sequence = await page.evaluate(() => window.qa.sent
+      .filter(e => e.type === 'response.item.create' || e.type === 'response.create')
+      .map(e => e.item?.call_id || e.type))
+    if (JSON.stringify(sequence) !== JSON.stringify(['fast-ui', 'slow-history', 'response.create']))
+      throw new Error('Missing, duplicated, or prematurely continued tool output')
   })
   await check('HOOK-GPT-LIVE-SINGLE-START', 'Concurrent Start keeps one owner. Disconnect ends without automatically greeting in a new call.', async () => {
     await page.goto(`${url}/qa/realtime.html`, { timeout: 30000 })

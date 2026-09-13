@@ -1014,7 +1014,8 @@ export function usePetCompanion({
           maxSegmentChars: 360,
           onPlaybackStart: () => {
             activeSpeechBubbleRef.current = bubbleOwner
-            if (sidechatBubbleText) showBubble(sidechatBubbleText, 0)
+            const audibleText = sidechatBubbleText || compactPetBubbleText(sidechatStreamedText)
+            if (audibleText) showBubble(audibleText, 0)
             setSpeaking(true)
           },
           priority: 20,

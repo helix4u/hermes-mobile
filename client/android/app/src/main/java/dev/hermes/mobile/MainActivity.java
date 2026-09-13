@@ -6,6 +6,8 @@ import android.os.Bundle;
 import android.os.Build;
 import android.util.Log;
 import android.view.ViewGroup;
+import android.view.View;
+import android.util.DisplayMetrics;
 import android.view.ViewParent;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebView;
@@ -129,19 +131,33 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void configureSystemInsets(WebView webView) {
-        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+        View container = (View) webView.getParent();
+        ViewCompat.setOnApplyWindowInsetsListener(container, (view, windowInsets) -> {
             Insets insets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() |
                 WindowInsetsCompat.Type.displayCutout()
             );
-            systemInsetTop = insets.top;
-            systemInsetRight = insets.right;
-            systemInsetBottom = insets.bottom;
-            systemInsetLeft = insets.left;
+            DisplayMetrics display = new DisplayMetrics();
+            getWindowManager().getDefaultDisplay().getRealMetrics(display);
+            int[] location = new int[2];
+            view.getLocationOnScreen(location);
+            int bottomExcluded = Math.max(0, display.heightPixels - location[1] - view.getHeight());
+            int ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
+            int keyboardPadding = WindowViewportInsets.remainingInset(ime, bottomExcluded);
+            view.setPadding(0, 0, 0, keyboardPadding);
+            systemInsetTop = WindowViewportInsets.remainingInset(insets.top, location[1]);
+            systemInsetRight = WindowViewportInsets.remainingInset(insets.right,
+                display.widthPixels - location[0] - view.getWidth());
+            systemInsetBottom = ime > 0 ? 0 : WindowViewportInsets.remainingInset(insets.bottom, bottomExcluded);
+            systemInsetLeft = WindowViewportInsets.remainingInset(insets.left, location[0]);
             applySystemInsetsCss(webView);
             return windowInsets;
         });
-        ViewCompat.requestApplyInsets(webView);
+        container.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom)
+                ViewCompat.requestApplyInsets(container);
+        });
+        ViewCompat.requestApplyInsets(container);
     }
 
     private void applySystemInsetsCss(WebView webView) {

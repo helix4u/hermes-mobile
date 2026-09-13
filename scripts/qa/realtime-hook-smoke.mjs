@@ -388,15 +388,27 @@ try {
       q.frame({type:'response.done',response:{id:'page-read',status:'completed',output:[{type:'function_call',name:'read_voice_webpage',call_id:'read-page',arguments:JSON.stringify({url:'https://example.test/report'})}]}})
     })
     await page.waitForFunction(() => window.qa.sent.some(e=>e.item?.call_id==='read-page'))
+    let part = await page.evaluate(() => JSON.parse(window.qa.sent.find(e => e.item?.call_id === 'read-page').item.output))
+    let full = part.content
+    let index = 0
+    while (part.nextOffset !== null) {
+      const id = `result-page-${++index}`
+      await page.evaluate(({id,part}) => {
+        const q = window.qa
+        q.frame({type:'response.created',response:{id,metadata:q.sent.at(-1).response.metadata}})
+        q.frame({type:'response.done',response:{id,status:'completed',output:[{type:'function_call',name:'read_voice_tool_result',call_id:id,arguments:JSON.stringify({resultId:part.resultId,offset:part.nextOffset})}]}})
+      }, {id,part})
+      await page.waitForFunction(id => window.qa.sent.some(e=>e.item?.call_id===id), id)
+      part = await page.evaluate(id => JSON.parse(window.qa.sent.find(e=>e.item?.call_id===id).item.output), id)
+      full += part.content
+    }
     const result = await page.evaluate(() => {
       const events = window.qa.sent
-      const parts = events.flatMap(e=>{try {const p=JSON.parse(e.item?.content?.[0]?.text); return p.callId==='read-page'?[p]:[]} catch{return []}})
-      const text = parts.sort((a,b)=>a.index-b.index).map(p=>p.body).join('')
-      return {text:JSON.parse(text).text, outputs:events.filter(e=>e.item?.call_id==='read-page').length,
+      return {outputs:events.filter(e=>e.item?.call_id==='read-page').length,
         max:Math.max(...events.map(e=>new TextEncoder().encode(JSON.stringify(e)).length)),
         request:window.qa.gatewayCalls.find(c=>c.method==='pet.realtime.knowledge')}
     })
-    if (result.text !== 'complete evidence '.repeat(5000) || result.outputs !== 1 || result.max > 16384 || result.request.params.operation !== 'webpage') throw new Error('Whole result transport or webpage routing failed')
+    if (JSON.parse(full).text !== 'complete evidence '.repeat(5000) || result.outputs !== 1 || result.max > 16384 || result.request.params.operation !== 'webpage') throw new Error('Whole result transport or webpage routing failed')
   })
   await check('HOOK-018', 'External context replays only its own completed voice turns on reconnect.', async () => {
     await page.goto(`${url}/qa/realtime.html`)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CloseIcon } from './UiIcons'
 import type { MobileCapabilities } from '../protocol/types'
 import type { BrowserConnection } from '../transport/browser-transport'
@@ -30,6 +30,7 @@ interface ConnectionSheetProps {
   onSaveConnection: () => void
   onDeleteConnection: (connection: BrowserConnection) => Promise<void>
   onConnect: () => Promise<void>
+  onPair?: (code: string) => Promise<void>
   onDisconnect: () => void
   onCloudLogin: () => Promise<void>
   onCloudLogout: () => Promise<void>
@@ -40,6 +41,10 @@ interface ConnectionSheetProps {
 
 export function ConnectionSheet(props: ConnectionSheetProps) {
   const [editingId, setEditingId] = useState('')
+  const [pairCode, setPairCode] = useState('')
+  const [pairBusy, setPairBusy] = useState(false)
+  const [pairError, setPairError] = useState('')
+  useEffect(() => { setPairCode(''); setPairError('') }, [props.open, props.connection.id, props.connection.baseUrl])
   if (!props.open) return null
   const {
     busy,
@@ -256,6 +261,18 @@ export function ConnectionSheet(props: ConnectionSheetProps) {
                 </p>
               </div>
             </div>
+            {nativeClient && props.onPair && connection.connectionType !== 'cloud' && <div className="connection-pairing">
+              <label><span>One-use pairing code</span>
+                <input value={pairCode} placeholder="ABCD-EFGH-JKLM" autoComplete="off" autoCapitalize="characters"
+                  onChange={event => setPairCode(event.target.value)} disabled={pairBusy || busy} />
+              </label>
+              <p>On the PC, run <code>python scripts/mobile_host.py pair</code>. Enter its host URL below and the one-use code here.</p>
+              <button className="quiet-button" disabled={busy || pairBusy || !pairCode.trim() || !connection.baseUrl}
+                onClick={() => { setPairBusy(true); setPairError(''); void props.onPair!(pairCode)
+                  .then(() => setPairCode('')).catch(error => setPairError(error instanceof Error ? error.message : 'Pairing failed.'))
+                  .finally(() => setPairBusy(false)) }}>Pair and connect</button>
+              {pairError && <p role="alert">{pairError}</p>}
+            </div>}
             <div className="field-grid">
             {connection.connectionType === 'cloud' ? (
               <label>

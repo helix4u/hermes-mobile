@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { observeSpeechPlaybackStart } from './speech-playback-start'
 import {
   createAsyncTaskLimiter,
   createPreparedSpeechInput,
@@ -1066,6 +1067,13 @@ export function useVoice({
         let settled = false
         let started = false
         let durationRecorded = false
+        const releasePlaybackStart = observeSpeechPlaybackStart(audio,
+          () => !settled && !playbackPausedRef.current && generation === speechGenerationRef.current,
+          () => {
+            started = true
+            setPhase('speaking')
+            onPlaybackStart?.()
+          })
         const recordDuration = () => {
           if (
             durationRecorded ||
@@ -1092,6 +1100,7 @@ export function useVoice({
           audio.removeEventListener('durationchange', recordDuration)
           audio.removeEventListener('canplay', recordDuration)
           releasePlaybackRate()
+          releasePlaybackStart()
           if (audioRef.current === audio) audioRef.current = null
           if (started) onPlaybackEnd?.()
           if (error) reject(error)
@@ -1112,11 +1121,6 @@ export function useVoice({
             .play()
             .then(() => {
               applySpeechPlaybackRate(audio, playbackRate)
-              if (generation === speechGenerationRef.current) {
-                started = true
-                setPhase('speaking')
-                onPlaybackStart?.()
-              }
             })
             .catch(() =>
               finish(new Error('The device could not play Hermes speech audio')),

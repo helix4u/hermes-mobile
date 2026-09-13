@@ -174,6 +174,9 @@ def create_app(
         actual = _host_without_port(value).rstrip(".")
         return actual in {expected_host, "127.0.0.1", "localhost"}
 
+    from mobile_pairing import install_pairing_routes
+    install_pairing_routes(app, client_token, host_allowed)
+
     @app.on_event("shutdown")
     async def close_client() -> None:
         await client.aclose()

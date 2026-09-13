@@ -114,6 +114,20 @@ reuse.
 
 ## Put the connection on the phone
 
+For an updated desktop-bound Mobile host, use a short one-use code:
+
+```text
+python scripts/mobile_host.py pair
+```
+
+Enter its HTTPS host address and pairing code in Mobile's Connections editor,
+then tap **Pair and connect**. Codes expire after five minutes, work once, and
+are replaced when the host creates another code. Five failed attempts invalidate
+the current code. The Android app saves the returned credential directly in its
+native encrypted store, without exposing it to the web client or clipboard.
+This pairing route is currently available only on desktop-bound Mobile hosts.
+Persistent and other existing hosts retain the manual connection path below.
+
 The user should run this command locally. Agents and captured automation should
 not run it because `--reveal-token` intentionally prints the credential:
 

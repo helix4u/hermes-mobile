@@ -10,6 +10,7 @@ const config: CapacitorConfig = {
   android: {
     loggingBehavior: 'none',
   },
+  plugins: { SystemBars: { insetsHandling: 'disable' } },
 }
 
 export default config

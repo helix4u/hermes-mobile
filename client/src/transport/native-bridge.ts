@@ -115,6 +115,7 @@ export interface SessionOpenTarget {
 }
 
 interface HermesNativePlugin {
+  redeemPairing(options: { connectionId: string; baseUrl: string; code: string }): Promise<void>
   setCredential(options: { connectionId: string; token: string }): Promise<void>
   hasCredential(options: {
     connectionId: string

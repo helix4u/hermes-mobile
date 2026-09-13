@@ -818,6 +818,24 @@ def show(args: argparse.Namespace) -> None:
         print("Rerun with --reveal-token only while entering it on the phone.")
 
 
+def pair(args: argparse.Namespace) -> None:
+    hermes_home = Path(args.hermes_home).expanduser().resolve()
+    token = state_paths(hermes_home)["token"].read_text(encoding="utf-8").strip()
+    request = Request(f"http://127.0.0.1:{PROXY_PORT}/_hermes-mobile/pair/start",
+                      data=b"{}", headers={"x-hermes-session-token": token,
+                                           "Content-Type": "application/json"})
+    try:
+        with urlopen(request, timeout=10) as response:
+            result = json.load(response)
+    except (HTTPError, URLError) as exc:
+        raise HostInstallError("Pairing unavailable. Start the updated desktop-bound Mobile host first.") from exc
+    dns_name, _ = tailscale_identity(locate_tailscale())
+    code = result["code"]
+    print(f"Host: https://{dns_name}")
+    print(f"Pairing code: {code[:4]}-{code[4:8]}-{code[8:]}")
+    print("In Mobile Connections, enter the host and pairing code. Expires in 5 minutes and works once.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -858,6 +876,8 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show", help="Show connection fields")
     add_common(show_parser)
     show_parser.add_argument("--reveal-token", action="store_true")
+    pair_parser = subparsers.add_parser("pair", help="Show a one-use pairing code, never the session token")
+    add_common(pair_parser)
 
     uninstall_parser = subparsers.add_parser("uninstall", help="Remove the native service definition")
     add_common(uninstall_parser)
@@ -900,6 +920,8 @@ def main() -> int:
             print(json.dumps(report, indent=2, sort_keys=True))
         elif args.command == "show":
             show(args)
+        elif args.command == "pair":
+            pair(args)
         elif args.command == "uninstall":
             uninstall_service()
         return 0

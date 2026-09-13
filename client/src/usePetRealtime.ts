@@ -1,4 +1,4 @@
-import { LiveToolCalls, liveToolResultEvent, liveBackendError } from "./live-tool-calls";
+import { LiveToolCalls, liveBackendError } from "./live-tool-calls";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   VoiceUiContextFeed,
@@ -26,6 +26,7 @@ import {
 } from "./voice-diagnostics-host";
 import { readVoiceHistory } from "./voice-history";
 import { voiceToolResultEvents } from "./voice-tool-result";
+import { VoiceResultPages } from "./voice-result-pages";
 import {
   sessionVoiceEvidence,
   type VoiceSubmission,
@@ -511,6 +512,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
   });
   const handledCallsRef = useRef(new Set<string>());
   const liveToolCallsRef = useRef(new LiveToolCalls());
+  const resultPagesRef = useRef(new VoiceResultPages());
   const liveLastUserEndRef = useRef<number | null>(null);
   const suppressResponseRef = useRef(false);
   const responseActiveRef = useRef(false);
@@ -583,6 +585,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
     };
     handledCallsRef.current.clear();
     liveToolCallsRef.current.reset();
+    resultPagesRef.current.reset();
     liveAwaitingHermesRef.current = false;
     liveLastUserEndRef.current = null;
     responseActiveRef.current = false;
@@ -641,7 +644,13 @@ export function usePetRealtime(options: PetRealtimeOptions) {
       !gptLiveClientEventAllowed(event)
     )
       return false;
-    channel.send(JSON.stringify(event));
+    const wireEvent = event.event_id ? event : { ...event,
+      event_id: `hermes_mobile_${generationRef.current}_${++liveEventCounterRef.current}` };
+    const wire = JSON.stringify(wireEvent);
+    const maxSize = resourcesRef.current.peer?.sctp?.maxMessageSize;
+    if (maxSize && Number.isFinite(maxSize) && new TextEncoder().encode(wire).length > maxSize)
+      throw new Error("Voice message exceeds the negotiated transport message size. No continuation was sent.");
+    channel.send(wire);
     return true;
   }, []);
 
@@ -858,7 +867,10 @@ export function usePetRealtime(options: PetRealtimeOptions) {
               "Read cancelled by user interruption; request again if still needed.",
             );
           const args = parsedFunctionArguments(call.arguments);
-          if (call.name === "wait_for_user") {
+          if (call.name === "read_voice_tool_result") {
+            shouldRespond = true;
+            output = resultPagesRef.current.read(args);
+          } else if (call.name === "wait_for_user") {
             ignoredNoise = true;
             output = {
               message:
@@ -1029,8 +1041,8 @@ export function usePetRealtime(options: PetRealtimeOptions) {
               const existingDraft = pendingHermesDraftRef.current;
               if (approvalBusyRef.current)
                 throw new Error("The reviewed request is being submitted. Do not replace it.");
-              if (args.expectedDraft !== undefined && !existingDraft)
-                throw new Error("That draft is no longer pending. Do not recreate it.");
+              if (completeString(args.expectedDraft) && !existingDraft)
+                throw new Error("No draft is pending. To create the new request the user asked for, call draft_hermes_request again with message only and omit expectedDraft. Do not ask the user to rephrase or supply tool syntax.");
               if (existingDraft && (pendingHermesSessionRef.current !== target.sessionId || pendingWorkerRef.current !== workerId))
                 throw new Error("A different target owns the current draft. Do not replace it.");
               if (existingDraft && args.expectedDraft !== existingDraft) {
@@ -1202,11 +1214,15 @@ export function usePetRealtime(options: PetRealtimeOptions) {
           ),
           performance.now() - toolStarted,
         );
-        if (voiceEngineRef.current === "live") sendEvent(liveToolResultEvent(call.callId, output));
-        else for (const event of voiceToolResultEvents(call.callId, output)) sendEvent(event);
+        let delivered: unknown;
+        try { delivered = resultPagesRef.current.prepare(output); }
+        catch (error) { delivered = { status: "error", error: String(error), verified: false }; }
+        if (voiceEngineRef.current === "live") liveToolCallsRef.current.returnResult(call.callId, delivered, sendEvent);
+        else for (const event of voiceToolResultEvents(call.callId, delivered)) {
+          if (!sendEvent(event)) throw new Error("Could not deliver the voice tool result. Reconnect voice.");
+        }
       }
       if (voiceEngineRef.current === "live") {
-        sendEvent({ type: "response.create" });
         return;
       }
       if (floorRef.current!.epoch !== floorEpoch) return;
@@ -1228,11 +1244,39 @@ export function usePetRealtime(options: PetRealtimeOptions) {
     [patchSnapshot, sendEvent, traceVoice],
   );
 
+  const failLiveToolTransport = useCallback((error: unknown) => {
+    traceVoice(`provider.error.${voiceFailureReason(error)}`);
+    // A broken tool conversation must not keep narrating imaginary progress.
+    // Preserve the app-owned review, which can still be edited/sent explicitly.
+    const draft = pendingHermesDraftRef.current;
+    const sessionId = pendingHermesSessionRef.current;
+    const target = targetRef.current;
+    const identity = identityRef.current;
+    const worker = pendingWorkerRef.current;
+    const delegationLimit = requestDelegationLimitRef.current;
+    stop();
+    pendingHermesDraftRef.current = draft;
+    pendingHermesSessionRef.current = sessionId;
+    if (draft) {
+      targetRef.current = target;
+      identityRef.current = identity;
+      pendingWorkerRef.current = worker;
+      requestDelegationLimitRef.current = delegationLimit;
+    }
+    patchSnapshot({ active: false, status: "error",
+      error: `${error instanceof Error ? error.message : String(error)} Voice stopped. Your pending review is preserved.`,
+      hermesDraft: draft, hermesDraftStatus: draft ? "pending" : "idle" });
+  }, [patchSnapshot, stop, traceVoice]);
+
   const handleLiveServerEvent = useCallback((raw: unknown) => {
     const calls = liveToolCallsRef.current.accept(raw);
-    if (calls?.length) void handleFunctionCalls(calls);
+    if (calls?.length) void handleFunctionCalls(calls).catch(error => {
+      failLiveToolTransport(error);
+    });
+    if (calls && !calls.length) liveToolCallsRef.current.continueIfReady(sendEvent);
     const backendError = liveBackendError(raw);
     if (backendError) {
+      traceVoice(`provider.response_failed.${voiceFailureReason({ message: backendError })}`);
       patchSnapshot({ error: backendError, status: "listening" });
       return;
     }
@@ -1240,7 +1284,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
     const event = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
     if (type === "error") {
       const error = event.error as { message?: string } | undefined;
-      patchSnapshot({ error: error?.message || "GPT-Live command failed." });
+      failLiveToolTransport(new Error(error?.message || "GPT-Live command failed."));
       return;
     }
     if (type === "session.started") {
@@ -1270,7 +1314,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
       turnRef.current.pet += fragment.text;
       patchSnapshot({ status: "speaking", transcript: turnRef.current.pet });
     }
-  }, [handleFunctionCalls, patchSnapshot, recordCompletedTurn, stop]);
+  }, [failLiveToolTransport, handleFunctionCalls, patchSnapshot, recordCompletedTurn, stop, traceVoice, sendEvent]);
 
   const handleServerEvent = useCallback(
     (raw: unknown) => {
@@ -1497,6 +1541,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
           "pet.realtime.session",
           {
             uiContextTools: true,
+            toolResultPaging: true,
             knowledgeTools: true,
             webpageTools: true,
             webpageOpen: true,

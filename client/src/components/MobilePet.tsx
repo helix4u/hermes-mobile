@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { PetSpritePainter } from '../pet-sprite'
 import {
   petFrameCount,
   petRowForState,
@@ -404,52 +405,34 @@ function PetCanvas({
   state: MobilePetState
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const poseRef = useRef({ direction, info, state })
+  poseRef.current = { direction, info, state }
+  const imageSource = info.spritesheetUrl || (info.spritesheetBase64
+    ? `data:${info.mime || 'image/png'};base64,${info.spritesheetBase64}` : '')
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const imageSource = info.spritesheetUrl
-      ? info.spritesheetUrl
-      : info.spritesheetBase64
-        ? `data:${info.mime || 'image/png'};base64,${info.spritesheetBase64}`
-        : ''
     if (!canvas || !imageSource) return
-    const context = canvas.getContext('2d')
-    if (!context) return
-
     const image = new Image()
+    const painter = new PetSpritePainter()
+    let disposed = false
     let frameRequest = 0
     let startedAt = performance.now()
-    const row = petRowForState(info, state, direction)
-    const rowIndex = Math.max(0, (info.stateRows ?? []).indexOf(row))
-    const frameWidth = Math.max(1, info.frameW ?? 32)
-    const frameHeight = Math.max(1, info.frameH ?? 32)
-    const frameCount = petFrameCount(info, row, state)
-    const loopMs = Math.max(250, info.loopMs ?? 900)
-
-    canvas.width = frameWidth
-    canvas.height = frameHeight
-    context.imageSmoothingEnabled = false
 
     const draw = (now: number) => {
+      if (disposed || document.visibilityState !== 'visible') return
+      const { info, state, direction } = poseRef.current
+      const row = petRowForState(info, state, direction)
+      const frameCount = petFrameCount(info, row, state)
+      const loopMs = Math.max(250, info.loopMs ?? 900)
       const frame = Math.floor(((now - startedAt) % loopMs) / (loopMs / frameCount))
-      context.clearRect(0, 0, frameWidth, frameHeight)
-      context.imageSmoothingEnabled = false
-      context.drawImage(
-        image,
-        frame * frameWidth,
-        rowIndex * frameHeight,
-        frameWidth,
-        frameHeight,
-        0,
-        0,
-        frameWidth,
-        frameHeight,
-      )
+      painter.paint(canvas, image, { frame, row: Math.max(0, (info.stateRows ?? []).indexOf(row)),
+        width: Math.max(1, info.frameW ?? 32), height: Math.max(1, info.frameH ?? 32) })
       frameRequest = requestAnimationFrame(draw)
     }
     const resume = () => {
-      if (document.visibilityState !== 'visible' || !image.complete) return
       cancelAnimationFrame(frameRequest)
+      if (disposed || document.visibilityState !== 'visible' || !image.complete) return
       startedAt = performance.now()
       frameRequest = requestAnimationFrame(draw)
     }
@@ -457,10 +440,12 @@ function PetCanvas({
     image.src = imageSource
     document.addEventListener('visibilitychange', resume)
     return () => {
+      disposed = true
+      image.onload = null
       cancelAnimationFrame(frameRequest)
       document.removeEventListener('visibilitychange', resume)
     }
-  }, [direction, info, state])
+  }, [imageSource])
 
   return <canvas aria-hidden="true" className="mobile-pet-canvas" ref={canvasRef} />
 }
