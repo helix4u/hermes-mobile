@@ -70,6 +70,11 @@ backend within a few seconds. A plugin-owned one-minute scheduled recovery
 trigger restores the supervisor if it is killed independently; its windowless
 launcher does not flash a terminal, and duplicate ticks are ignored while the
 supervisor is healthy.
+Desktop's selected Cloud/remote view does not retire an already verified local
+Workstation bridge. On supervisor startup, a published external route may use
+exactly one Desktop-owned local backend after process identity, credential scope,
+loopback socket and authenticated Mobile health validation. Ambiguous ownership
+or malformed route data waits rather than choosing a different host/profile.
 `persistent` keeps Mobile reachable independently after Desktop quits.
 `manual` registers no automatic trigger and runs only after an explicit start.
 Re-running install with a different policy safely replaces the prior task and
@@ -91,6 +96,9 @@ When a desktop-bound host is idle, status reports `waiting-for-desktop`; both
 listeners are stopped and only the windowless supervisor remains. Reconnection
 after Desktop opens normally takes one polling interval. The one-minute Task
 Scheduler interval is only the fallback when that supervisor was lost.
+If Desktop is open but its local backend cannot be resolved, status reports
+`waiting-for-local-backend`. A missing proxy reports `bridge-unavailable`.
+Task Scheduler's `Running` state alone does not prove Mobile is reachable.
 
 ## Start, stop, restart, or remove the host
 

@@ -23,14 +23,37 @@ try {
         ConvertTo-Json |
         Set-Content -LiteralPath (Join-Path $testRoot 'active-backend-route.json')
     $external = Get-HermesDesktopRoutePreference -UserDataDirectory $testRoot
-    if (-not $external.Published -or $external.Local) {
-        throw 'An external route must fail closed instead of selecting a local fallback'
+    if (-not $external.Published -or $external.Local -or -not $external.External) {
+        throw 'An explicit external route must be distinguished from malformed route data'
+    }
+    $ownedBackend = [pscustomobject]@{ profile = 'default'; parentPid = 42; command = 'serve --host 127.0.0.1' }
+    if ((Select-HermesMobileLocalProfile -RoutePreference $external -OwnershipEntries @($ownedBackend) -DesktopProcessIds @(42)) -ne 'default') {
+        throw 'A unique Desktop-owned local backend must remain usable when Desktop selects Cloud'
+    }
+    if ($null -ne (Select-HermesMobileLocalProfile -RoutePreference $external -OwnershipEntries @($ownedBackend, $ownedBackend) -DesktopProcessIds @(42))) {
+        throw 'An ambiguous external-route backend must fail closed'
+    }
+    if ($null -ne (Select-HermesMobileLocalProfile -RoutePreference $external -OwnershipEntries @($ownedBackend) -DesktopProcessIds @(99))) {
+        throw 'An external-route backend not owned by this Desktop must fail closed'
     }
 
     Set-Content -LiteralPath (Join-Path $testRoot 'active-backend-route.json') -Value '{bad json'
     $malformed = Get-HermesDesktopRoutePreference -UserDataDirectory $testRoot
-    if (-not $malformed.Published -or $malformed.Local) {
+    if (-not $malformed.Published -or $malformed.Local -or $malformed.External) {
         throw 'A malformed published route must fail closed'
+    }
+    if ($null -ne (Select-HermesMobileLocalProfile -RoutePreference $malformed -OwnershipEntries @($ownedBackend) -DesktopProcessIds @(42))) {
+        throw 'Malformed route data must not select even a plausible local backend'
+    }
+    foreach ($route in @($local, $external, $local)) {
+        if (-not (Test-HermesMobileBackendRoute -RoutePreference $route -Profile 'inbox-triage')) {
+            throw 'Local to Cloud to the same local profile must retain the verified bridge'
+        }
+    }
+    foreach ($route in @($local, $malformed)) {
+        if (Test-HermesMobileBackendRoute -RoutePreference $route -Profile 'another-profile') {
+            throw 'Changed profile or malformed route must retire the previous binding'
+        }
     }
 
     $candidates = @(

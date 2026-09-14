@@ -6,6 +6,7 @@ function Get-HermesDesktopRoutePreference {
         return [pscustomobject]@{
             Published = $false
             Local = $false
+            External = $false
             Profile = ''
         }
     }
@@ -14,10 +15,19 @@ function Get-HermesDesktopRoutePreference {
         $route = Get-Content -LiteralPath $routePath -Raw | ConvertFrom-Json
         $profile = [string]$route.profile
         $validProfile = $profile -eq 'default' -or $profile -match '^[a-z0-9][a-z0-9_-]{0,63}$'
+        if ([int]$route.version -eq 1 -and $route.local -eq $false -and -not $profile) {
+            return [pscustomobject]@{
+                Published = $true
+                Local = $false
+                External = $true
+                Profile = ''
+            }
+        }
         if ([int]$route.version -ne 1 -or -not [bool]$route.local -or -not $validProfile) {
             return [pscustomobject]@{
                 Published = $true
                 Local = $false
+                External = $false
                 Profile = ''
             }
         }
@@ -25,6 +35,7 @@ function Get-HermesDesktopRoutePreference {
         return [pscustomobject]@{
             Published = $true
             Local = $true
+            External = $false
             Profile = $profile
         }
     } catch {
@@ -33,9 +44,55 @@ function Get-HermesDesktopRoutePreference {
         return [pscustomobject]@{
             Published = $true
             Local = $false
+            External = $false
             Profile = ''
         }
     }
+}
+
+function Select-HermesMobileLocalProfile {
+    param(
+        [Parameter(Mandatory = $true)]$RoutePreference,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$OwnershipEntries,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][int[]]$DesktopProcessIds
+    )
+
+    if ($RoutePreference.Local) {
+        return [string]$RoutePreference.Profile
+    }
+    if (-not $RoutePreference.External) {
+        return $null
+    }
+
+    # Cloud is the current Desktop UI route, not the phone's Workstation target.
+    # Bind only when there is one plausible Desktop-owned local backend. The
+    # caller still verifies its process tree, start markers, token file and
+    # authenticated Mobile health before accepting the endpoint.
+    $eligibleEntries = @(
+        $OwnershipEntries |
+            Where-Object {
+                [int]$_.parentPid -in $DesktopProcessIds -and
+                [string]$_.command -match '(?i)(?:^|\s)serve(?:\s|$)' -and
+                ([string]$_.profile -eq 'default' -or [string]$_.profile -match '^[a-z0-9][a-z0-9_-]{0,63}$')
+            }
+    )
+    if ($eligibleEntries.Count -ne 1) {
+        return $null
+    }
+    return [string]$eligibleEntries[0].profile
+}
+
+function Test-HermesMobileBackendRoute {
+    param(
+        [Parameter(Mandatory = $true)]$RoutePreference,
+        [Parameter(Mandatory = $true)][string]$Profile
+    )
+
+    # A Cloud tab does not change an already verified Workstation binding.
+    # Explicit local profile changes and malformed publications still retire it.
+    return $RoutePreference.External -or (
+        $RoutePreference.Local -and [string]$RoutePreference.Profile -eq $Profile
+    )
 }
 
 function Select-HermesDesktopBackendCandidate {

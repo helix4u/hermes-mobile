@@ -19,6 +19,21 @@ SPEC.loader.exec_module(mobile_host)
 
 
 class MobileHostTests(unittest.TestCase):
+    def test_windows_status_distinguishes_idle_desktop_from_broken_bridges(self) -> None:
+        metadata = {
+            "Installed": True, "TaskState": "Running", "StartupMode": "desktop",
+            "DesktopRunning": False, "BackendListening": False, "ProxyListening": False,
+        }
+        self.assertEqual(mobile_host.windows_service_state(metadata), "waiting-for-desktop")
+        metadata["DesktopRunning"] = True
+        self.assertEqual(mobile_host.windows_service_state(metadata), "waiting-for-local-backend")
+        metadata["BackendListening"] = True
+        self.assertEqual(mobile_host.windows_service_state(metadata), "bridge-unavailable")
+        metadata["ProxyListening"] = True
+        self.assertEqual(mobile_host.windows_service_state(metadata), "running")
+        metadata["TaskState"] = "Ready"
+        self.assertEqual(mobile_host.windows_service_state(metadata), "ready")
+
     def test_tailscale_identity_normalizes_dns_and_selects_ipv4(self) -> None:
         runner = Mock()
         runner.return_value.stdout = json.dumps(

@@ -170,12 +170,21 @@ function Get-DesktopBackendEndpoint {
         return $null
     }
 
+    try {
+        $entries = @((Get-Content -LiteralPath $ownershipPath -Raw | ConvertFrom-Json).backends)
+    } catch {
+        return $null
+    }
+
     $routePreference = Get-HermesDesktopRoutePreference -UserDataDirectory $userDataDirectory
     if ($routePreference.Published) {
-        if (-not $routePreference.Local) {
+        $activeProfile = Select-HermesMobileLocalProfile `
+            -RoutePreference $routePreference `
+            -OwnershipEntries $entries `
+            -DesktopProcessIds $desktopPids
+        if (-not $activeProfile) {
             return $null
         }
-        $activeProfile = [string]$routePreference.Profile
     } else {
         $activeProfile = 'default'
         $activeProfilePath = Join-Path $userDataDirectory 'active-profile.json'
@@ -189,12 +198,6 @@ function Get-DesktopBackendEndpoint {
                 $activeProfile = 'default'
             }
         }
-    }
-
-    try {
-        $entries = @((Get-Content -LiteralPath $ownershipPath -Raw | ConvertFrom-Json).backends)
-    } catch {
-        return $null
     }
 
     $listenerSnapshot = $null
@@ -311,10 +314,7 @@ function Get-DesktopBackendStability {
     }
     $routePreference = Get-HermesDesktopRoutePreference -UserDataDirectory (Join-Path $env:APPDATA 'Hermes')
     if ($routePreference.Published) {
-        if (
-            -not $routePreference.Local -or
-            [string]$routePreference.Profile -ne [string]$ExpectedBackend.Profile
-        ) {
+        if (-not (Test-HermesMobileBackendRoute -RoutePreference $routePreference -Profile ([string]$ExpectedBackend.Profile))) {
             return [pscustomobject]@{
                 Stable = $false
                 Transient = $false

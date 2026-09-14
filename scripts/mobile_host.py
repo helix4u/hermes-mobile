@@ -550,6 +550,21 @@ def configure_tailscale_serve(tailscale: Path) -> None:
     run_checked([tailscale, "serve", "--bg", "--yes", str(PROXY_PORT)])
 
 
+def windows_service_state(metadata: dict[str, Any]) -> str:
+    if not metadata.get("Installed"):
+        return "not-installed"
+    state = str(metadata.get("TaskState", "stopped")).lower()
+    if state != "running":
+        return state
+    if not metadata.get("BackendListening"):
+        if metadata.get("StartupMode") == "desktop":
+            return "waiting-for-local-backend" if metadata.get("DesktopRunning") else "waiting-for-desktop"
+        return "bridge-unavailable"
+    if not metadata.get("ProxyListening"):
+        return "bridge-unavailable"
+    return "running"
+
+
 def service_state() -> str:
     if sys.platform == "darwin":
         result = run_checked(
@@ -566,17 +581,7 @@ def service_state() -> str:
         )
         return result.stdout.strip() or "stopped"
     if os.name == "nt":
-        metadata = manage_windows("Status")
-        if not metadata.get("Installed"):
-            return "not-installed"
-        state = str(metadata.get("TaskState", "stopped")).lower()
-        if (
-            state == "running"
-            and metadata.get("StartupMode") == "desktop"
-            and not metadata.get("BackendListening")
-        ):
-            return "waiting-for-desktop"
-        return state
+        return windows_service_state(manage_windows("Status"))
     return "unsupported"
 
 
