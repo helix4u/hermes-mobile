@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { pollSupportAvailability } from './support-availability-poller'
+import { sendRequestResponse } from './request-response'
 import { hostConnectionPresentation } from './connection-presentation'
 import { EmbedPreferencesProvider } from './embeds'
 import { ConnectionSheet } from './components/ConnectionSheet'
@@ -2365,30 +2366,19 @@ export function App() {
   ) {
     const transport = transportRef.current
     if (!transport) throw new Error('Connect to Hermes first')
+    const sessionId = runtimeSessionIdRef.current
+    const selectionEpoch = sessionSelectionEpochRef.current
     setError('')
     try {
-      if (request.kind === 'approval') {
-        await transport.gateway.request('approval.respond', {
-          session_id: runtimeSessionId,
-          choice: value === 'approve' ? 'once' : 'deny',
-        })
-      } else {
-        const key =
-          request.kind === 'clarify'
-            ? 'answer'
-            : request.kind === 'sudo'
-              ? 'password'
-              : 'value'
-        await transport.gateway.request(`${request.kind}.respond`, {
-          request_id: request.requestId,
-          [key]: value,
-        })
-      }
+      await sendRequestResponse(transport.gateway, request, value, sessionId)
+      if (transportRef.current !== transport || runtimeSessionIdRef.current !== sessionId ||
+          sessionSelectionEpochRef.current !== selectionEpoch) return
       setTranscript((current) =>
         markRequestAnswered(current, request.requestId),
       )
     } catch (responseError) {
-      setError(
+      if (transportRef.current === transport && runtimeSessionIdRef.current === sessionId &&
+          sessionSelectionEpochRef.current === selectionEpoch) setError(
         responseError instanceof Error
           ? responseError.message
           : String(responseError),

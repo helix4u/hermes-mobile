@@ -22,7 +22,7 @@ let sessionContext: Record<string, unknown> = { context: [] }
 const approved: any[] = []
 const histories: any[] = []
 const gatewayCalls: Array<{method:string;params:unknown}> = []
-let knowledgeResult: unknown = {}
+let knowledgeResult: unknown = { records: [{ key: 'synthetic-note' }] }
 let credentialsResolve: ((value: any) => void) | null = null
 let holdCredentials = false
 let connectionFails = false
@@ -78,7 +78,11 @@ Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: tr
   return { getAudioTracks: () => [track], getTracks: () => [track] }
 }})
 window.fetch = async () => { if (connectionFails) throw new Error('Synthetic connection failure'); return new Response('synthetic-answer') }
-const credentials = { initialContextEvents: [1, 2].map(index => ({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `Synthetic complete context part ${index}/2` }] } })), requestDelegationLimit: true, endpoint: '/synthetic', clientSecret: 'synthetic', openingInstruction: 'Hey.', model: 'gpt-realtime', contextStats: { messages: 1, characters: 20 } }
+const credentials = { initialContextEvents: [1, 2].map(index => ({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `Synthetic complete context part ${index}/2` }] } })), requestDelegationLimit: true, endpoint: '/synthetic', clientSecret: 'synthetic', openingInstruction: 'Hey.', model: 'gpt-realtime',
+  context: Array.from({length:12}, (_, index) => ({ role:'user', content:`Synthetic context ${index + 1}` })),
+  coverage: { returnedMessages:12, totalMessages:48, hasOlder:true, hasNewer:false },
+  session: { sessionId:'synthetic-session', title:'Synthetic task', observedAt:new Date().toISOString() },
+  contextStats: { messages: 1, characters: 20 } }
 const gateway = { request: async (method: string, params:unknown) => {
   gatewayCalls.push({method,params})
   if (method === 'pet.realtime.record') {

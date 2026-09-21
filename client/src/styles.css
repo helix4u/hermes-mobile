@@ -1129,14 +1129,60 @@ h3 {
 }
 
 .pet-sidechat-body > * { flex-shrink: 0; }
-.pet-realtime-context-target {
+.pet-realtime-context-status {
+  display: grid;
+  gap: .35rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--stroke) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 62%, transparent);
+  padding: .55rem .7rem;
+  font-size: .72rem;
+}
+.pet-realtime-context-status > header,
+.pet-realtime-context-status dd {
+  display: flex;
   min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: .45rem;
+}
+.pet-realtime-context-status > header span,
+.pet-realtime-context-status .context-freshness {
+  border: 1px solid var(--stroke);
+  padding: .08rem .35rem;
+  color: var(--muted);
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.pet-realtime-context-status .context-freshness.fresh {
+  border-color: color-mix(in srgb, var(--gold) 48%, var(--stroke));
+  color: var(--gold);
+}
+.pet-realtime-context-title {
   overflow: hidden;
+  margin: 0;
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: .75rem;
-  opacity: .8;
 }
+.pet-realtime-context-status dl {
+  display: grid;
+  gap: .22rem;
+  margin: 0;
+}
+.pet-realtime-context-status dl > div {
+  display: grid;
+  grid-template-columns: 7.25rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: .45rem;
+}
+.pet-realtime-context-status dt { color: var(--muted); }
+.pet-realtime-context-status dd { margin: 0; justify-content: flex-start; }
+.pet-realtime-context-status dd strong { font-size: inherit; }
+.pet-realtime-context-status dd small { color: var(--muted); }
 .pet-sidechat-body > .pet-sidechat-messages { order: 4; flex: 1 1 14rem; }
 .pet-sidechat-body > .pet-realtime-settings,
 .pet-sidechat-body > .pet-realtime-hermes-draft,
@@ -1221,6 +1267,48 @@ h3 {
     min-height: 0;
   }
 
+  .voice-page .pet-realtime-context-status {
+    grid-template-columns: auto minmax(8rem, 1fr) auto auto auto;
+    align-items: center;
+    gap: .45rem;
+    padding: .2rem .55rem;
+    font-size: .62rem;
+  }
+
+  .voice-page .pet-realtime-context-status > header,
+  .voice-page .pet-realtime-context-status dl,
+  .voice-page .pet-realtime-context-status dl > div {
+    display: contents;
+  }
+
+  .voice-page .pet-realtime-context-status > header strong,
+  .voice-page .pet-realtime-context-status dt,
+  .voice-page .pet-realtime-context-status dd small {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .voice-page .pet-realtime-context-status dd,
+  .voice-page .pet-realtime-context-title {
+    min-width: 0;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .voice-page .pet-realtime-context-status dd {
+    display: flex;
+    gap: .25rem;
+  }
+
+  .voice-page .pet-realtime-context-title {
+    font-size: .68rem;
+  }
+
   .voice-page .pet-sidechat-messages {
     padding: 0.65rem clamp(0.65rem, 3vw, 1.5rem);
     gap: 0.65rem;
@@ -1247,6 +1335,49 @@ h3 {
     min-width: 0;
     min-height: 2.35rem;
     max-height: min(4.5rem, 24dvh);
+  }
+}
+
+@media (orientation: landscape) and (min-width: 600px) and (max-height: 260px) {
+  .voice-page .pet-sidechat-body {
+    position: relative;
+  }
+
+  .voice-page .pet-realtime-context-status {
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    right: 0;
+    left: 0;
+    box-sizing: border-box;
+  }
+
+  .voice-page .pet-sidechat-messages {
+    padding-top: 1.9rem;
+  }
+
+  .voice-page .pet-sidechat-heading {
+    min-height: 2rem;
+    padding: .1rem .4rem;
+  }
+
+  .voice-page .pet-sidechat-heading .pet-sidechat-icon-button,
+  .voice-page .pet-sidechat-text-toggle,
+  .voice-page .pet-realtime-button {
+    min-height: 2rem;
+    height: 2rem;
+  }
+
+  .voice-page .pet-sidechat-heading .pet-sidechat-icon-button {
+    width: 2rem;
+  }
+
+  .voice-page .pet-realtime-controls {
+    padding: .12rem .45rem;
+  }
+
+  .voice-page .pet-realtime-context-status {
+    padding-block: .08rem;
   }
 }
 
@@ -1886,6 +2017,34 @@ h3 {
 
 .markdown-body > :first-child {
   margin-top: 0;
+}
+
+/* Equations scroll within the message, never widen the chat/composer shell.
+   Keep KaTeX's internal geometry intact instead of applying prose wrapping. */
+.markdown-body .katex {
+  font-size: 1.05em;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.markdown-body .katex-display {
+  max-width: 100%;
+  margin: 0.8em 0;
+  padding: 0.2em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: left;
+  overscroll-behavior-x: contain;
+}
+
+.markdown-body .katex-display > .katex {
+  text-align: left;
+}
+
+.markdown-body .katex-error {
+  color: var(--muted) !important;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .markdown-body > :last-child {

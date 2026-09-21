@@ -22,7 +22,7 @@ export function sharedImageAttachParams(
   share: SharedContent,
   dataUrl: string,
   sessionId: string,
-): Record<string, string> {
+) {
   return {
     session_id: sessionId,
     content_base64: dataUrl,

@@ -84,6 +84,98 @@ describe('PetSidechatSheet', () => {
     expect(html).not.toContain('Stop mic')
   })
 
+  it('labels an attached session preview, freshness, and saved voice memory', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-15T23:30:00-06:00'))
+    const html = renderSidechat({
+      realtime: {
+        approveHermesDraft: vi.fn(async () => true),
+        cancelHermesDraft: vi.fn(),
+        snapshot: {
+          active: true,
+          activity: [],
+          attachedContextId: 'session-1',
+          attachedContextTitle: 'Project Phoenix',
+          commentary: [],
+          contextPreview: [],
+          contextStats: null,
+          contextStatus: {
+            loadState: 'preview',
+            loadedMessages: 12,
+            memoryRecords: 3,
+            memoryState: 'available',
+            observedAt: '2026-09-15T23:29:45-06:00',
+            totalMessages: 48,
+          },
+          error: '',
+          hermesDraft: '',
+          hermesDraftStatus: 'idle',
+          status: 'listening',
+          transcript: '',
+        },
+        start: vi.fn(async () => true),
+        stop: vi.fn(),
+        updateHermesDraft: vi.fn(),
+        voice: 'marin',
+        setVoice: vi.fn(),
+      },
+    })
+
+    expect(html).toContain('Attached session')
+    expect(html).toContain('Project Phoenix')
+    expect(html).toContain('Preview loaded')
+    expect(html).toContain('12 of 48 messages')
+    expect(html).toContain('Last observed')
+    expect(html).toContain('Fresh')
+    expect(html).toContain('Saved voice memory')
+    expect(html).toContain('3 notes available')
+    vi.useRealTimers()
+  })
+
+  it('labels a fully loaded stale transcript with no saved voice notes', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-15T23:30:00-06:00'))
+    const html = renderSidechat({
+      realtime: {
+        approveHermesDraft: vi.fn(async () => true),
+        cancelHermesDraft: vi.fn(),
+        snapshot: {
+          active: true,
+          activity: [],
+          attachedContextId: 'session-2',
+          attachedContextTitle: 'Complete Session',
+          commentary: [],
+          contextPreview: [],
+          contextStats: null,
+          contextStatus: {
+            loadState: 'full',
+            loadedMessages: 48,
+            memoryRecords: 0,
+            memoryState: 'empty',
+            observedAt: '2026-09-15T23:20:00-06:00',
+            totalMessages: 48,
+          },
+          error: '',
+          hermesDraft: '',
+          hermesDraftStatus: 'idle',
+          status: 'listening',
+          transcript: '',
+        },
+        start: vi.fn(async () => true),
+        stop: vi.fn(),
+        updateHermesDraft: vi.fn(),
+        voice: 'marin',
+        setVoice: vi.fn(),
+      },
+    })
+
+    expect(html).toContain('Full transcript loaded')
+    expect(html).toContain('All 48 messages')
+    expect(html).toContain('Stale')
+    expect(html).toContain('No saved notes')
+    vi.useRealTimers()
+  })
+
   it('keeps full replies and a compact Hermes handoff', () => {
     const reply =
       'A substantial private answer with **Markdown** and attached-session context.'

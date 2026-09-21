@@ -55,6 +55,25 @@ interface SidechatMessage {
   text: string
 }
 
+function contextFreshness(observedAt?: string): string {
+  if (!observedAt) return 'Unknown'
+  const observed = Date.parse(observedAt)
+  if (!Number.isFinite(observed)) return 'Unknown'
+  const age = Math.max(0, Date.now() - observed)
+  if (age < 60_000) return 'Fresh'
+  if (age < 5 * 60_000) return 'Aging'
+  return 'Stale'
+}
+
+function observedTime(observedAt?: string): string {
+  if (!observedAt || !Number.isFinite(Date.parse(observedAt))) return 'Not observed yet'
+  return new Date(observedAt).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
 interface PetSidechatSheetProps {
   externalReview?: boolean
   settingsRequest?: number
@@ -222,6 +241,24 @@ export function PetSidechatSheet({
       : 'Record a pet sidechat message'
   const realtimeActive = realtime.snapshot.active || realtime.snapshot.status === 'connecting'
   const stats = realtime.snapshot.contextStats
+  const contextStatus = realtime.snapshot.contextStatus
+  const transcriptStatus = contextStatus?.loadState === 'full'
+    ? 'Full transcript loaded'
+    : contextStatus?.loadState === 'preview'
+      ? 'Preview loaded'
+      : 'Loading session data'
+  const transcriptCoverage = contextStatus?.loadState === 'full' && contextStatus.totalMessages !== undefined
+    ? `All ${contextStatus.totalMessages} messages`
+    : contextStatus?.totalMessages === undefined
+      ? `${contextStatus?.loadedMessages ?? 0} messages loaded`
+      : `${contextStatus.loadedMessages} of ${contextStatus.totalMessages} messages`
+  const memoryStatus = contextStatus?.memoryState === 'available'
+    ? `${contextStatus.memoryRecords} note${contextStatus.memoryRecords === 1 ? '' : 's'} available`
+    : contextStatus?.memoryState === 'empty'
+      ? 'No saved notes'
+      : contextStatus?.memoryState === 'unavailable'
+        ? 'Unavailable'
+        : 'Checking'
 
   return (
     <div className="pet-sidechat-popout voice-page" ref={pageRef} role="presentation">
@@ -291,9 +328,23 @@ export function PetSidechatSheet({
           </span>
         </div>
         <div className="pet-sidechat-body">
-        {realtime.snapshot.attachedContextTitle && <div className="pet-realtime-context-target" role="status">
-          {realtime.snapshot.status === 'connecting' ? 'Connecting to: ' : 'Voice context: '}{realtime.snapshot.attachedContextTitle}
-        </div>}
+        {realtime.snapshot.attachedContextTitle && <section className="pet-realtime-context-status" aria-label="Attached voice session status">
+          <header>
+            <strong>Attached session</strong>
+            <span>{realtime.snapshot.status === 'connecting' ? 'Connecting' : 'Attached'}</span>
+          </header>
+          <p className="pet-realtime-context-title" title={realtime.snapshot.attachedContextId}>
+            {realtime.snapshot.attachedContextTitle}
+          </p>
+          <dl>
+            <div><dt>Transcript</dt><dd><strong>{transcriptStatus}</strong><small>{transcriptCoverage}</small></dd></div>
+            <div><dt>Last observed</dt><dd><time dateTime={contextStatus?.observedAt}>{observedTime(contextStatus?.observedAt)}</time>
+              <small className={`context-freshness ${contextFreshness(contextStatus?.observedAt).toLowerCase()}`}>
+                {contextFreshness(contextStatus?.observedAt)}
+              </small></dd></div>
+            <div><dt>Saved voice memory</dt><dd>{memoryStatus}</dd></div>
+          </dl>
+        </section>}
         {showTranscript && <div className="pet-sidechat-messages" ref={scrollRef} onScroll={event => {
           const node = event.currentTarget
           followRef.current = node.scrollHeight - node.clientHeight - node.scrollTop < 48

@@ -29,7 +29,7 @@ export function sessionCreateParams({
   cwd: string
   preview?: string
   profile: string
-}): Record<string, unknown> {
+}) {
   const resolvedCwd = cwd.trim()
   return {
     profile: profile === 'default' ? '' : profile,

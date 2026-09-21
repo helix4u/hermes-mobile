@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { writeClipboardText } from '../clipboard'
 import { displayTextForMediaMarkers } from '../media-markers'
 import type { PreviewDocument } from '../preview'
@@ -262,15 +262,23 @@ function RequestCard({
 }) {
   const [value, setValue] = useState('')
   const [sending, setSending] = useState(false)
+  const inFlight = useRef(false)
+  const [responseError, setResponseError] = useState('')
   const masked = request.kind === 'sudo' || request.kind === 'secret'
 
   async function respond(nextValue = value) {
+    if (inFlight.current || request.answered || request.expired) return
     if (!nextValue && request.kind !== 'approval') return
+    inFlight.current = true
+    setResponseError('')
     setSending(true)
     try {
       await onRespond(request, nextValue)
       setValue('')
+    } catch (error) {
+      setResponseError(error instanceof Error ? error.message : String(error))
     } finally {
+      inFlight.current = false
       setSending(false)
     }
   }
@@ -281,7 +289,9 @@ function RequestCard({
       <MarkdownContent className="request-markdown">
         {request.question}
       </MarkdownContent>
-      {request.answered ? (
+      {request.expired ? (
+        <span className="request-resolved">No longer pending</span>
+      ) : request.answered ? (
         <span className="request-resolved">Answered</span>
       ) : request.kind === 'approval' ? (
         <div className="request-actions">
@@ -337,6 +347,7 @@ function RequestCard({
           </button>
         </form>
       )}
+      {responseError && !request.expired && <p role="alert">{responseError}</p>}
     </article>
   )
 }

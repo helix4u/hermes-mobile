@@ -130,7 +130,7 @@ export async function voiceLiveCases({ page, url, check }) {
     await tool('save-memory', 'save_voice_memory', memory)
     await tool('read-history', 'read_session_context', { beforeRowId: 123, limit: 8 })
     const calls = await page.evaluate(() => window.qa.gatewayCalls)
-    const save = calls.find(c => c.method === 'pet.realtime.knowledge')
+    const save = calls.find(c => c.method === 'pet.realtime.knowledge' && c.params?.operation === 'voice_memory_save')
     const read = calls.find(c => c.method === 'pet.realtime.context')
     if (save?.params.operation !== 'voice_memory_save' || save.params.session_id !== 'synthetic-session' || JSON.stringify(save.params.memory) !== JSON.stringify(memory)) throw new Error('Memory not wired to scoped RPC')
     if (read?.params.beforeRowId !== 123 || read.params.contextLimit !== 8 || read.params.session_id !== 'synthetic-session') throw new Error('History paging not wired')

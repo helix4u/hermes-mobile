@@ -8,6 +8,10 @@ import {
 } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
+import { normalizeMathDelimiters } from '../markdown-math'
 import { writeClipboardText } from '../clipboard'
 import { detectEmbed, RichEmbed } from '../embeds'
 import { safeMarkdownUrl } from '../markdown'
@@ -105,9 +109,10 @@ export function MarkdownContent({
   resolveMediaMarkers = false,
   transport = null,
 }: MarkdownContentProps) {
-  const renderedChildren = resolveMediaMarkers
-    ? renderMediaMarkers(children)
-    : children
+  const renderedChildren = useMemo(
+    () => normalizeMathDelimiters(resolveMediaMarkers ? renderMediaMarkers(children) : children),
+    [children, resolveMediaMarkers],
+  )
   const renderContext = useRef({
     connectionId,
     onOpenDocumentPreviewer,
@@ -199,7 +204,8 @@ export function MarkdownContent({
     <div className={`markdown-body ${className}`.trim()}>
       <ReactMarkdown
         skipHtml
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[[rehypeKatex, { trust: false, maxExpand: 1000, maxSize: 10, strict: 'ignore' }]]}
         components={components}
       >
         {renderedChildren}

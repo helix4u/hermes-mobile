@@ -35,6 +35,18 @@ try {
     })
     if (!visible) throw new Error('Requested control is clipped outside the sidechat scroll viewport')
   }
+  await check('PET-UI-CONTEXT-STATUS', 'The attached voice-session card visibly distinguishes preview depth, freshness, and saved memory without clipping the voice page.', async () => {
+    await page.setViewportSize({width:360,height:780})
+    await page.goto(`${origin}/qa/pet-sheet.html`,{timeout:30000})
+    await page.waitForFunction(()=>window.petQa?.pet.status==='ready')
+    const card = page.getByRole('region',{name:'Attached voice session status',exact:true})
+    await card.getByText('Synthetic attached session',{exact:true}).waitFor()
+    for (const text of ['Attached','Preview loaded','12 of 48 messages','Fresh','2 notes available']) {
+      if (!await card.getByText(text,{exact:true}).isVisible()) throw new Error(`Missing context status: ${text}`)
+    }
+    const box = await card.boundingBox()
+    if (!box || box.x < 0 || box.y < 0 || box.x + box.width > 361 || box.y + box.height > 780) throw new Error('Attached-session status is clipped')
+  })
   await check('PET-UI-COST', 'Voice estimate remains accessible with text hidden, without widening the page.', async () => {
     await page.setViewportSize({width:360,height:780})
     await page.goto(`${origin}/qa/pet-sheet.html`,{timeout:30000})

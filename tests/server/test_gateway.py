@@ -64,7 +64,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         with patch("mobile_server.gateway.probe_hermes", return_value=report):
             await handle_mobile_gateway(ws)
 
-        handler.assert_awaited_once_with(ws)
+        handler.assert_awaited_once()
+        self.assertIs(handler.call_args.args[0]._websocket, ws)
         ws.close.assert_not_awaited()
 
     async def test_mobile_ticket_is_single_use_and_uses_canonical_auth(self) -> None:
@@ -93,7 +94,8 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             await handle_mobile_gateway(ws)
 
         self.assertEqual(seen_credentials, ["verified-loopback-token"])
-        handler.assert_awaited_once_with(ws)
+        handler.assert_awaited_once()
+        self.assertIs(handler.call_args.args[0]._websocket, ws)
         ws.close.assert_awaited_once_with(
             code=4401,
             reason="Authentication required",

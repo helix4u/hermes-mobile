@@ -22,6 +22,8 @@ export interface ToolTranscriptData {
 export interface RequestTranscriptData {
   kind: RequestKind
   requestId: string
+  sessionId?: string
+  expired?: boolean
   question: string
   choices: string[]
   multiSelect: boolean
@@ -316,7 +318,7 @@ export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
 
 function transcriptMatchKey(item: TranscriptItem): string {
   if (item.kind === 'request' && item.request) {
-    return `request:${item.request.kind}:${item.request.requestId}`
+    return `request:${item.request.sessionId || ''}:${item.request.kind}:${item.request.requestId}`
   }
   return `${item.kind}:${(item.text ?? '').trim()}`
 }
@@ -436,7 +438,7 @@ export function mergeResumedTranscript(
       item.streaming ||
       item.tool?.status === 'running' ||
       hasRichToolPayload(item) ||
-      (item.request && !item.request.answered)
+      (item.request && !item.request.answered && !item.request.expired)
     ) {
       merged.push(item)
     }
@@ -890,6 +892,7 @@ function upsertTool(
 function requestFromEvent(
   type: string,
   payload: Record<string, unknown>,
+  sessionId?: string,
 ): TranscriptItem | null {
   const kind = type.split('.')[0] as RequestKind
   if (!['approval', 'clarify', 'sudo', 'secret'].includes(kind)) return null
@@ -899,11 +902,12 @@ function requestFromEvent(
       ? payload.options
       : []
   return {
-    id: `request-${String(payload.request_id ?? makeId(kind))}`,
+    id: `request-${sessionId || ''}-${kind}-${String(payload.request_id ?? makeId(kind))}`,
     kind: 'request',
     request: {
       kind,
       requestId: String(payload.request_id ?? ''),
+      sessionId,
       question:
         asText(
           payload.question ??
@@ -1005,8 +1009,22 @@ export function reduceGatewayEvent(
     )
   }
   if (event.type.endsWith('.request')) {
-    const request = requestFromEvent(event.type, payload)
-    return request ? [...transcript, request] : transcript
+    const request = requestFromEvent(event.type, payload, event.session_id)
+    if (!request || transcript.some(item => item.id === request.id)) return transcript
+    return [...transcript, request]
+  }
+  if (event.type === 'request.cancel' || /^(approval|clarify|sudo|secret)\.expire$/.test(event.type)) {
+    const requestId = String(payload.request_id ?? payload.id ?? '')
+    if (!requestId) return transcript
+    const kind = event.type === 'request.cancel' ? null : event.type.split('.')[0]
+    return transcript.map(item =>
+      item.request?.requestId === requestId &&
+      (!kind || item.request.kind === kind) &&
+      (!event.session_id || !item.request.sessionId || event.session_id === item.request.sessionId) &&
+      !item.request.answered
+        ? { ...item, request: { ...item.request, expired: true } }
+        : item,
+    )
   }
   if (event.type === 'session.error' || event.type === 'error') {
     return [

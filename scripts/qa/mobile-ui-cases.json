@@ -2,6 +2,13 @@
   "schema": 1,
   "revisionReason": "Live captions are display data, not completed user turns or tool arguments. Drafts and exact revisions arrive through completed Responses function items. Visible card buttons own sending and cancellation. Atomic historical startup context and on-demand readers replace continuous backlog injection.",
   "fixtureCorrections": [
+    "MATH-FORMATTING: the shared Markdown renderer emitted raw LaTeX. Render inline/display math with bundled KaTeX fonts and untrusted commands disabled. Preserve code/link source and unfinished streaming expressions. Long display equations scroll within the message in portrait and landscape, never widening the page or hiding the composer.",
+    "REQUEST-CAPABILITY-HANDSHAKE: new hosts reject server questions until the connection advertises server_requests. The authenticated adapter sends client.capabilities before forwarding gateway.ready to installed phones, only once per connection, and consumes its own success or old-host error response. Tests execute ready ordering plus actual core approval, clarify, sudo and secret round trips without sending agent work.",
+    "FIRST-PROMPT-WIRE: execute session/share/settings/review builders through the real JSON-RPC serializer and profile mapper, then validate those frames and translated question responses against the host OpenRPC document. Generic Record return annotations had hidden preview from the static diagnostic. Creation preview is legacy metadata, never an implicit submitted/seeded message. Sudo's legacy password parameter maps to the core value result.",
+    "VOICE-NOTES-STARTUP: persistent user and target-session voice notes are supplied in startup instructions for Realtime and both GPT-Live roles. They are not historical dialogue to replay or execution authority. Whole redacted notes remain present, with profile/target isolation, before the first response.",
+    "RPC-PROFILE-CONTRACT: reconciliation must validate transport-added profile and helper/spread fields against the target host OpenRPC contract. check-gateway-contracts.mjs is a supplemental static diagnostic, not behavioral proof. Dispatched host tests and the live Controls request matrix cover profile reads, lazy sessions, config-write isolation, completion and voice handoff. Empty tool selection remains empty rather than enabling every row.",
+    "REQUEST-EXACT-ID: approval answers now retain the card's request ID and session owner. Overlapping cards can be answered out of order, cancellation retires only its matching card, and replay cannot duplicate or resurrect it. Late receipts cannot mark a different connection/session. Expired cards have no action controls and same-frame double presses are single-flight.",
+    "VOICE-CONTEXT-STATUS: an attached session preview is not a full transcript. The voice page now shows the attached title and attachment state, transcript depth from authoritative coverage, backend observedAt with Fresh/Aging/Stale state, and saved voice-memory availability from scoped recall. Short landscape keeps the status visible in one compact row without taking the transcript below its usable floor.",
     "HOST-WORKSTATION-ROUTE: Cloud selection previously retired both local bridges, while a stale Desktop publication prevented recovery after returning to local. The route script now preserves a verified Workstation binding across Cloud and permits startup only with one validated local owner. Focused PowerShell route tests cover local/Cloud/local, ambiguity and malformed data. Host status distinguishes a waiting Desktop from unavailable backend/proxy. Physical Workstation chat reconnection was verified after supervisor replacement.",
     "S9-KEYBOARD-PLAYBACK: native insets now subtract only space Android has not already excluded. Portrait keyboard resize no longer selects the landscape rail. Very short landscape retains transcript height by compacting static chrome. Speech balloons wait for a real playing event, ignore late cancelled media, and do not retrigger on resume. Voice transport-error regression now sends the preserved card, proving its session ownership survives.",
     "S9-VOICE-RESULTS: large results now use lossless call-local tool pages, not synthetic user messages or an unbounded Live packet. HOOK-LARGE-READ and HOOK-GPT-LIVE-LARGE-RESULT reconstruct full evidence through the advertised read tool. Empty expectedDraft creates a new card while stale revisions stay rejected. Provider transport failures preserve the review and stop imaginary progress. Pet sprite painting keeps dimensions and decoded image stable across pose changes.",
@@ -38,6 +45,30 @@
     "ADB reconnect can remove the task forward before cleanup. Confirmed absence satisfies cleanup, but failed UI restoration remains a failed check."
   ],
   "checks": [
+    {
+      "id": "MATH-FORMATTING",
+      "name": "Safe shared math rendering and contained mobile layout",
+      "reason": "Execute the shared Markdown renderer for dollar and LaTeX delimiters, malformed input, code literals, protected URLs, streaming completion and unsafe commands. Check 360x740, 740x360 and 320x480 geometry with locally loaded math fonts.",
+      "owners": [
+        "client/src/markdown-math.ts",
+        "client/src/markdown-math.test.ts",
+        "client/src/components/MarkdownContent.tsx",
+        "client/src/components/MarkdownContent.test.tsx",
+        "client/src/styles.css",
+        "client/qa/math.tsx"
+      ]
+    },
+    {
+      "id": "HOST-SERVER-REQUEST-COMPAT",
+      "name": "Installed clients receive new host questions safely",
+      "reason": "Core migrated questions from events to server requests. The authenticated plugin socket translates v1 cards and responses, replays pending questions once, and rejects cross-session, duplicate, cancelled or ambiguous approvals. An old ID-less approval never guesses between overlapping requests. No answer or credential value is journaled.",
+      "owners": [
+        "server-plugin/mobile_server/request_compat.py",
+        "server-plugin/mobile_server/gateway.py",
+        "tests/server/test_request_compat.py",
+        "tests/server/test_gateway.py"
+      ]
+    },
     {
       "id": "VOICE-APPROVAL-LOOP",
       "name": "Visible card is the only approval authority",
@@ -103,6 +134,23 @@
         "client/src/voice-session-evidence.ts",
         "client/src/voice-session-evidence.test.ts",
         "scripts/qa/voice-transcript-cases.mjs"
+      ]
+    },
+    {
+      "id": "VOICE-CONTEXT-STATUS",
+      "name": "Honest attached-session context state",
+      "reason": "The voice page must not present a bounded attached-session preview as fully loaded data. Show attachment, Preview or Full transcript with message coverage, the authoritative last-observed timestamp plus freshness, and whether scoped saved voice memory exists. Keep those facts visible and contained across portrait, landscape, and keyboard-height layouts.",
+      "owners": [
+        "client/src/usePetRealtime.ts",
+        "client/src/voice-context-status.ts",
+        "client/src/voice-context-status.test.ts",
+        "client/src/components/PetSidechatSheet.tsx",
+        "client/src/components/PetSidechatSheet.test.tsx",
+        "client/src/styles.css",
+        "client/qa/realtime.tsx",
+        "client/qa/pet-sheet.tsx",
+        "scripts/qa/realtime-hook-smoke.mjs",
+        "scripts/qa/pet-sheet-smoke.mjs"
       ]
     },
     {
@@ -351,6 +399,12 @@
     }
   ],
   "focusedTargets": [
+    "client/src/markdown-math.test.ts",
+    "client/src/components/MarkdownContent.test.tsx",
+    "client/src/request-response.test.ts",
+    "client/src/components/Transcript.test.tsx",
+    "client/src/state/transcript.test.ts",
+    "client/src/voice-context-status.test.ts",
     "client/src/voice-session-evidence.test.ts",
     "client/src/gpt-live-events.test.ts",
     "client/src/embeds-render.test.tsx",

@@ -69,6 +69,15 @@ import type { JsonRpcGatewayClient } from "./protocol/json-rpc-client";
 import type { HermesTransport } from "./transport/hermes-transport";
 import { HermesNative, isNativeHermesClient } from "./transport/native-bridge";
 import {
+  voiceContextLoadingStatus,
+  voiceContextStatusFromEvidence,
+  voiceMemoryStatusFromResult,
+  withVoiceMemoryStatus,
+  type VoiceContextCoverage,
+  type VoiceContextSessionEvidence,
+  type VoiceContextStatus,
+} from "./voice-context-status";
+import {
   gptLiveAppendChunks,
   gptLiveAppendEvent,
   gptLiveClientEventAllowed,
@@ -122,6 +131,8 @@ export interface PetRealtimeContextStats {
   truncatedItems: number;
 }
 
+export type PetRealtimeContextStatus = VoiceContextStatus;
+
 export interface PetRealtimeActivity {
   activityId: string;
   arguments: string;
@@ -155,6 +166,7 @@ export interface PetRealtimeSnapshot {
   commentary: PetRealtimeCommentary[];
   contextPreview: RealtimeContextMessage[];
   contextStats: PetRealtimeContextStats | null;
+  contextStatus?: PetRealtimeContextStatus;
   error: string;
   hermesDraft: string;
   hermesDraftStatus: PetRealtimeHermesDraftStatus;
@@ -227,9 +239,11 @@ interface SessionCredentials {
   commentary?: PetRealtimeCommentary[];
   context?: RealtimeContextMessage[];
   contextStats?: ServerContextStats;
+  coverage?: VoiceContextCoverage;
   endpoint?: string;
   liveSessionId?: string;
   sdpAnswer?: string;
+  session?: VoiceContextSessionEvidence;
   voiceEngine?: "live" | "realtime";
   openingInstruction?: string;
 }
@@ -1084,12 +1098,12 @@ export function usePetRealtime(options: PetRealtimeOptions) {
               activity?: PetRealtimeActivity[];
               commentary?: PetRealtimeCommentary[];
               context?: RealtimeContextMessage[];
-              coverage?: Record<string, unknown>;
+              coverage?: VoiceContextCoverage;
               contextPage?: Record<string, unknown>;
               contextSearch?: Record<string, unknown>;
               contextStats?: ServerContextStats;
               history?: PetSidechatMessage[];
-              session?: Record<string, unknown>;
+              session?: VoiceContextSessionEvidence;
             }>("pet.realtime.context", {
               activityId:
                 call.name === "get_session_activity"
@@ -1129,18 +1143,27 @@ export function usePetRealtime(options: PetRealtimeOptions) {
               target !== targetRef.current
             )
               return;
-            setSnapshot((current) => ({
-              ...current,
-              activity: result.activity ?? current.activity,
-              commentary: result.commentary ?? current.commentary,
-              contextPreview: result.context ?? current.contextPreview,
-              contextStats:
-                normalizeStats(
-                  result.contextStats,
-                  liveRef.current,
-                  usageRef.current,
-                ) ?? current.contextStats,
-            }));
+            setSnapshot((current) => {
+              const contextPreview = result.context ?? current.contextPreview;
+              return {
+                ...current,
+                activity: result.activity ?? current.activity,
+                commentary: result.commentary ?? current.commentary,
+                contextPreview,
+                contextStats:
+                  normalizeStats(
+                    result.contextStats,
+                    liveRef.current,
+                    usageRef.current,
+                  ) ?? current.contextStats,
+                contextStatus: voiceContextStatusFromEvidence({
+                  contextMessages: contextPreview.length,
+                  coverage: result.coverage,
+                  previous: current.contextStatus,
+                  session: result.session,
+                }),
+              };
+            });
             output =
               call.name === "get_context_snapshot"
                 ? {
@@ -1569,6 +1592,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
         microphoneMuted: microphoneMutedRef.current,
         attachedContextId: target.contextId,
         attachedContextTitle: target.contextTitle,
+        contextStatus: voiceContextLoadingStatus(target.context.length),
         workerTarget: changedTarget ? undefined : current.workerTarget,
         hermesDraft: changedTarget ? "" : current.hermesDraft,
         hermesDraftStatus: changedTarget
@@ -1578,6 +1602,44 @@ export function usePetRealtime(options: PetRealtimeOptions) {
             : current.hermesDraftStatus,
         status: "connecting",
       }));
+      void gateway.request<Record<string, unknown>>(
+        "pet.realtime.knowledge",
+        {
+          session_id: target.sessionId || undefined,
+          contextId: target.sessionId ? undefined : target.contextId,
+          operation: "voice_memory_read",
+          memory: {},
+        },
+        { timeoutMs: 10_000 },
+      ).then((result) => {
+        if (
+          generationRef.current !== generation ||
+          targetRef.current !== target ||
+          !desiredRef.current
+        ) return;
+        const memory = voiceMemoryStatusFromResult(result);
+        setSnapshot((current) => ({
+          ...current,
+          contextStatus: withVoiceMemoryStatus(
+            current.contextStatus,
+            memory.memoryState,
+            memory.memoryRecords,
+          ),
+        }));
+      }).catch(() => {
+        if (
+          generationRef.current !== generation ||
+          targetRef.current !== target ||
+          !desiredRef.current
+        ) return;
+        setSnapshot((current) => ({
+          ...current,
+          contextStatus: withVoiceMemoryStatus(
+            current.contextStatus,
+            "unavailable",
+          ),
+        }));
+      });
       try {
         // Validate capture before requesting a provider token. A disconnected
         // saved input is a local setup failure, not a reconnectable network error.
@@ -1610,20 +1672,28 @@ export function usePetRealtime(options: PetRealtimeOptions) {
           : await requestSession();
         if (generationRef.current !== generation || !desiredRef.current) return;
         if (credentials) {
+          const initialCredentials = credentials;
           requestDelegationLimitRef.current =
-            credentials.requestDelegationLimit === true;
-          usageMeterRef.current.setModel(credentials.model ?? "");
+            initialCredentials.requestDelegationLimit === true;
+          usageMeterRef.current.setModel(initialCredentials.model ?? "");
           usageRef.current = usageMeterRef.current.snapshot;
-          patchSnapshot({
-            activity: credentials.activity ?? [],
-            commentary: credentials.commentary ?? [],
-            contextPreview: credentials.context ?? [],
+          setSnapshot((current) => ({
+            ...current,
+            activity: initialCredentials.activity ?? [],
+            commentary: initialCredentials.commentary ?? [],
+            contextPreview: initialCredentials.context ?? [],
             contextStats: normalizeStats(
-              credentials.contextStats,
+              initialCredentials.contextStats,
               liveRef.current,
               usageRef.current,
             ),
-          });
+            contextStatus: voiceContextStatusFromEvidence({
+              contextMessages: initialCredentials.context?.length ?? 0,
+              coverage: initialCredentials.coverage,
+              previous: current.contextStatus,
+              session: initialCredentials.session,
+            }),
+          }));
         }
         const peer = new RTCPeerConnection();
         const channel = peer.createDataChannel("oai-events");
@@ -1868,7 +1938,8 @@ export function usePetRealtime(options: PetRealtimeOptions) {
             credentials.requestDelegationLimit === true;
           usageMeterRef.current.setModel(credentials.model ?? "");
           usageRef.current = usageMeterRef.current.snapshot;
-          patchSnapshot({
+          setSnapshot((current) => ({
+            ...current,
             activity: credentials.activity ?? [],
             commentary: credentials.commentary ?? [],
             contextPreview: credentials.context ?? [],
@@ -1877,7 +1948,13 @@ export function usePetRealtime(options: PetRealtimeOptions) {
               liveRef.current,
               usageRef.current,
             ),
-          });
+            contextStatus: voiceContextStatusFromEvidence({
+              contextMessages: credentials.context?.length ?? 0,
+              coverage: credentials.coverage,
+              previous: current.contextStatus,
+              session: credentials.session,
+            }),
+          }));
         }
         if (voiceEngineRef.current === "live") {
           if (!credentials.sdpAnswer)
@@ -1990,6 +2067,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
         error: "",
         attachedContextId: target.contextId,
         attachedContextTitle: target.contextTitle,
+        contextStatus: voiceContextLoadingStatus(target.context.length),
       });
       traceVoice("start.requested");
       try {

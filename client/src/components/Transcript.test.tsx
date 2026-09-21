@@ -13,6 +13,19 @@ const commonProps = {
 }
 
 describe('Transcript tool rows', () => {
+  it('removes actions from an expired request without hiding its explanation', () => {
+    const html = renderToStaticMarkup(<Transcript {...commonProps} items={[{
+      id: 'request-one', kind: 'request', request: {
+        kind: 'approval', requestId: 'srq-1', sessionId: 'session-a',
+        question: 'Synthetic command', choices: [], multiSelect: false,
+        answered: false, expired: true,
+      },
+    }]} />)
+    expect(html).toContain('No longer pending')
+    expect(html).toContain('Synthetic command')
+    expect(html).not.toContain('>Approve<')
+    expect(html).not.toContain('>Deny<')
+  })
   it('renders a durable summary as visible static content', () => {
     const html = renderToStaticMarkup(
       <Transcript

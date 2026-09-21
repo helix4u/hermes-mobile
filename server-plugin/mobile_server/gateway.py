@@ -7,6 +7,7 @@ from typing import Any
 
 from .compatibility import probe_hermes
 from .tickets import consume_ticket
+from .request_compat import CompatibleMobileWebSocket
 
 log = logging.getLogger(__name__)
 
@@ -51,4 +52,8 @@ async def handle_mobile_gateway(ws: Any) -> None:
         await ws.close(code=4403, reason="WebSocket request rejected")
         return
 
-    await report.websocket_handler(ws)
+    compatible = CompatibleMobileWebSocket(ws)
+    try:
+        await report.websocket_handler(compatible)
+    finally:
+        await compatible.dispose()

@@ -3,6 +3,59 @@ import { describe, expect, test } from 'vitest'
 import { MarkdownContent } from './MarkdownContent'
 
 describe('MarkdownContent', () => {
+  test('renders dollar and LaTeX delimiter math with accessible MathML', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownContent>{String.raw`Inline \(a^2 + b^2\) and $x_1$.
+
+\[ -\log_2 P(\text{symbol}\mid\text{history}) \]
+
+$$
+\frac{a}{b}
+$$
+`}</MarkdownContent>,
+    )
+    expect((html.match(/class="katex"/g) || []).length).toBe(4)
+    expect((html.match(/class="katex-display"/g) || []).length).toBe(2)
+    expect(html).toContain('<math')
+    expect(html).toContain('<mfrac>')
+    expect(html).not.toContain('katex-error')
+  })
+
+  test('preserves literal code and normal brackets, including unfinished streaming math', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownContent>{'Use [a, b]. `\\(a^2\\)`\n\n~~~tex\n\\[x\\]\n~~~\n\nStill streaming \\[ \\frac{a}'}</MarkdownContent>,
+    )
+    expect(html).not.toContain('class="katex"')
+    expect(html).toContain('[a, b]')
+    expect(html).toContain('\\(a^2\\)')
+    expect(html).toContain('\\[x\\]')
+    expect(html).toContain('Still streaming')
+  })
+
+  test('contains invalid math without crashing and refuses trusted HTML/link commands', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownContent>{String.raw`Before $\frac{a$ after.
+
+$\href{javascript:alert(1)}{unsafe}$
+
+$\includegraphics{https://synthetic.invalid/track.png}$`}</MarkdownContent>,
+    )
+    expect(html).toContain('katex-error')
+    expect(html).toContain('Before')
+    expect(html).toContain('after.')
+    expect(html).not.toContain('<a ')
+    expect(html).not.toContain('<img')
+    expect(html).not.toContain('<script')
+  })
+
+  test('preserves blockquote containers around multiline equations', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownContent>{'> \\[\n> x^2\n> \\]'}</MarkdownContent>,
+    )
+    expect(html).toContain('<blockquote>')
+    expect(html).toContain('katex-display')
+    expect(html).not.toContain('katex-error')
+  })
   test('renders GFM structure and fenced code', () => {
     const html = renderToStaticMarkup(
       <MarkdownContent>

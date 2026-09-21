@@ -95,6 +95,16 @@ try {
     const response = events.findIndex(e => e.type === 'response.create')
     if (indices[0] < 0 || indices[1] <= indices[0] || response <= indices[1]) throw new Error('Voice began before complete evidence delivery')
   })
+  await check('HOOK-CONTEXT-STATUS', 'Attached-session state distinguishes a bounded preview, carries observed freshness evidence, and reports saved voice memory.', async () => {
+    await fresh()
+    await page.waitForFunction(() => window.qa.realtime.snapshot.contextStatus?.memoryState === 'available')
+    const state = await page.evaluate(() => ({
+      status: window.qa.realtime.snapshot.contextStatus,
+      recall: window.qa.gatewayCalls.find(call => call.method === 'pet.realtime.knowledge' && call.params?.operation === 'voice_memory_read'),
+    }))
+    if (state.status?.loadState !== 'preview' || state.status.loadedMessages !== 12 || state.status.totalMessages !== 48 || !state.status.observedAt) throw new Error(`Wrong attached-session load state: ${JSON.stringify(state.status)}`)
+    if (state.status.memoryState !== 'available' || state.status.memoryRecords !== 1 || state.recall?.params.session_id !== 'synthetic-session') throw new Error(`Wrong saved-memory status: ${JSON.stringify(state)}`)
+  })
   await check('HOOK-SUPPORT-REFRESH', 'Snapshot refresh uses the attached application reader and publishes its records, never the identity-only session RPC.', async () => {
     await fresh()
     await page.evaluate(async () => {
@@ -118,7 +128,7 @@ try {
     await page.evaluate(args => window.qa.frame({type:'response.done',response:{id:'memory-save',status:'completed',output:[{type:'function_call',name:'save_voice_memory',call_id:'save-note',arguments:JSON.stringify(args)}]}}),memory)
     await page.waitForFunction(() => window.qa.sent.some(e=>e.item?.call_id==='save-note'))
     const result = await page.evaluate(() => ({requests:window.qa.sessionRequests,calls:window.qa.gatewayCalls}))
-    const save = result.calls.find(c=>c.method==='pet.realtime.knowledge')
+    const save = result.calls.find(c=>c.method==='pet.realtime.knowledge'&&c.params?.operation==='voice_memory_save')
     if (result.requests!==before || save?.params.operation!=='voice_memory_save' || save.params.session_id!=='synthetic-session' || JSON.stringify(save.params.memory)!==JSON.stringify(memory) || result.calls.some(c=>c.method==='prompt.submit')) throw new Error('Voice memory changed ownership or execution authority')
   })
   await check('HOOK-UI-CONTEXT', 'Page changes append quiet metadata without retargeting the call or requesting speech.', async () => {
@@ -406,7 +416,7 @@ try {
       const events = window.qa.sent
       return {outputs:events.filter(e=>e.item?.call_id==='read-page').length,
         max:Math.max(...events.map(e=>new TextEncoder().encode(JSON.stringify(e)).length)),
-        request:window.qa.gatewayCalls.find(c=>c.method==='pet.realtime.knowledge')}
+        request:window.qa.gatewayCalls.find(c=>c.method==='pet.realtime.knowledge'&&c.params?.operation==='webpage')}
     })
     if (JSON.parse(full).text !== 'complete evidence '.repeat(5000) || result.outputs !== 1 || result.max > 16384 || result.request.params.operation !== 'webpage') throw new Error('Whole result transport or webpage routing failed')
   })
