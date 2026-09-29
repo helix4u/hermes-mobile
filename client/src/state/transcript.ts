@@ -209,6 +209,7 @@ function reasoningText(message: Record<string, unknown>): string {
 export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
   const transcript: TranscriptItem[] = []
   const petIndexes = new Map<string, number>()
+  const usedToolRowIds = new Set<string>()
 
   for (const raw of messages) {
     const message = asRecord(raw)
@@ -267,6 +268,12 @@ export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
       const toolId = String(
         message.tool_id ?? message.tool_call_id ?? makeId('stored-tool'),
       )
+      const baseId = `history-tool-${toolId}`
+      let rowId = baseId
+      for (let occurrence = 1; usedToolRowIds.has(rowId); occurrence += 1) {
+        rowId = `${baseId}#${occurrence}`
+      }
+      usedToolRowIds.add(rowId)
       const rawArgs =
         message.args ??
         message.args_text ??
@@ -277,7 +284,7 @@ export function historyToTranscript(messages: unknown[]): TranscriptItem[] {
         message.result_text ??
         message.output
       transcript.push({
-        id: `history-tool-${toolId}`,
+        id: rowId,
         kind: 'tool',
         tool: {
           toolId,

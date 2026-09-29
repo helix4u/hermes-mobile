@@ -24,6 +24,7 @@ import { SessionsView } from './components/SessionsView'
 import { SupportOpsView } from './components/SupportOpsView'
 import { WorkspaceSheet } from './components/WorkspaceSheet'
 import { Transcript, type ToolDetailMode } from './components/Transcript'
+import { TranscriptViewport } from './components/TranscriptViewport'
 import { WorkStatus } from './components/WorkStatus'
 import { SessionVoiceControls } from './components/SessionVoiceControls'
 import { realtimePersonality } from './realtime-continuity'
@@ -3030,8 +3031,8 @@ export function App() {
               </strong>
               <small>Change</small>
             </button>
-            <div
-              className="transcript"
+            <TranscriptViewport
+              selectionEpoch={sessionSelectionEpochRef.current}
               aria-live="polite"
               ref={transcriptRef}
               onPointerDown={markTranscriptManualScroll}
@@ -3080,7 +3081,7 @@ export function App() {
                   toggleSpeech(speechText, itemId)
                 }}
               />
-            </div>
+            </TranscriptViewport>
 
             <form
               className="composer"

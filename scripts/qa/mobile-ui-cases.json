@@ -396,6 +396,18 @@
         "scripts/qa/pet-sheet-smoke.mjs",
         "scripts/qa/mobile-ui-smoke.mjs"
       ]
+    },
+    {
+      "id": "UI-NEW-SESSION-BOUNDARY",
+      "name": "New session removes old transcript DOM",
+      "reason": "The phone showed old scrollable tool cards above the new draft even though the new model turn had zero history. Inject a synthetic React-unowned card, tap New twice, require an empty main transcript, and restore the original session without sending a prompt. Durable tool rows also need unique stable keys when a provider reuses a call ID.",
+      "owners": [
+        "client/src/App.tsx",
+        "client/src/components/TranscriptViewport.tsx",
+        "client/src/state/transcript.ts",
+        "client/src/state/transcript.test.ts",
+        "scripts/qa/session-boundary-smoke.mjs"
+      ]
     }
   ],
   "focusedTargets": [

@@ -7,6 +7,23 @@ import {
 } from './transcript'
 
 describe('transcript projection', () => {
+  it('keeps tool-card keys unique and stable when a provider reuses a call id', () => {
+    const history = [
+      { role: 'tool', tool_id: 'call-reused', name: 'terminal', args: { command: 'one' } },
+      { role: 'user', content: 'Next turn' },
+      { role: 'tool', tool_id: 'call-reused', name: 'terminal', args: { command: 'two' } },
+    ]
+    const first = historyToTranscript(history)
+    const second = historyToTranscript(history)
+    const ids = first.map(item => item.id)
+
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(second.map(item => item.id).filter(id => id.startsWith('history-tool-'))).toEqual(
+      ids.filter(id => id.startsWith('history-tool-')),
+    )
+    const merged = mergeResumedTranscript(first, history)
+    expect(new Set(merged.map(item => item.id)).size).toBe(merged.length)
+  })
   it('hydrates durable pet commentary as a distinct transcript row', () => {
     const result = historyToTranscript([
       {
