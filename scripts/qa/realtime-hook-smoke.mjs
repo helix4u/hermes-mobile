@@ -12,6 +12,7 @@ import { voiceLiveCases } from './voice-live-cases.mjs'
 import { supportVoiceApprovalCases } from './support-voice-approval-cases.mjs'
 
 const { values } = parseArgs({ options: { out: { type: 'string' },
+  only: { type: 'string' },
   'playwright-package': { type: 'string' }, channel: { type: 'string', default: 'msedge' } } })
 if (!values.out) throw new Error('Required: --out <private artifact directory>')
 const require = createRequire(values['playwright-package'] ? path.resolve(values['playwright-package']) : import.meta.url)
@@ -19,6 +20,7 @@ const report = { schema: 1, layer: 'isolated-real-hook', startedAt: new Date().t
   manual: [{ id: 'VOICE-DEVICE', reason: 'Synthetic transport does not verify real speech, sound, interruption, or background hardware.' }] }
 let server, browser, context, page
 async function check(id, reason, action) {
+  if (values.only && !values.only.split(',').includes(id)) return
   const started = performance.now()
   try {
     await action()
@@ -60,6 +62,72 @@ try {
     await page.evaluate(() => window.qa.realtime.start())
     await page.waitForFunction(() => window.qa.realtime.snapshot.status === 'listening')
   }
+  await check('HOOK-ONSET-INTERRUPTION', 'Speech onset stops audio before ASR, fences old packets and defers an earlier transcript response while a newer utterance is pending.', async () => {
+    await fresh()
+    await page.evaluate(() => {
+      const q = window.qa
+      const metadata = q.sent.filter(e => e.type === 'response.create').at(-1).response.metadata
+      q.frame({ type: 'response.created', response: { id: 'opening', metadata } })
+      q.frame({ type: 'output_audio_buffer.started', response_id: 'opening' })
+      q.frame({ type: 'input_audio_buffer.speech_started', item_id: 'one' })
+    })
+    if (!await page.evaluate(() => document.querySelector('audio').muted && window.qa.realtime.snapshot.status === 'hearing')) throw new Error('Output did not stop at onset')
+    const before = await page.evaluate(() => window.qa.sent.filter(e => e.type === 'response.create').length)
+    await page.evaluate(() => {
+      const q = window.qa
+      q.frame({ type: 'input_audio_buffer.speech_started', item_id: 'two' })
+      q.frame({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'one', transcript: 'First sentence.' })
+      q.frame({ type: 'output_audio_buffer.started', response_id: 'opening' })
+    })
+    if (await page.evaluate(before => window.qa.sent.filter(e => e.type === 'response.create').length !== before || !document.querySelector('audio').muted, before)) throw new Error('Late output stole the microphone floor')
+    await page.evaluate(() => {
+      const q = window.qa
+      q.frame({ type: 'input_audio_buffer.speech_stopped', item_id: 'two' })
+      q.frame({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'two', transcript: 'I am still talking.' })
+    })
+    if (await page.evaluate(before => window.qa.sent.filter(e => e.type === 'response.create').length !== before + 1, before)) throw new Error('Latest completed utterance did not get exactly one response')
+  })
+  await check('HOOK-WAKE-MIC-RESERVATION', 'Capture is reserved during pending session attachment and cancellation releases it without starting provider setup.', async () => {
+    await page.goto(`${url}/qa/realtime.html?pendingSession`, { timeout: 30000 })
+    await page.waitForFunction(() => Boolean(window.qa))
+    await page.evaluate(() => { void window.qa.realtime.start() })
+    if (!await page.evaluate(() => window.qa.microphoneOwners.at(-1) === true && window.qa.tracks.length === 0 && window.qa.realtime.snapshot.status === 'connecting')) throw new Error('Wake listener could re-arm or startup remained invisible during session attachment')
+    await page.evaluate(() => { window.qa.realtime.stop(); window.qa.releaseSession() })
+    await page.waitForFunction(() => window.qa.microphoneOwners.at(-1) === false)
+    if (await page.evaluate(() => window.qa.sessionRequests !== 0 || window.qa.tracks.length !== 0)) throw new Error('Cancelled startup acquired the microphone or provider')
+  })
+  await check('HOOK-MEMORY-PRELOAD', 'Full saved notes precede provider setup for Realtime and GPT-Live, remain frozen on reconnect, and invalid snapshots never start a provider call.', async () => {
+    for (const live of [false, true]) {
+      await page.goto(`${url}/qa/realtime.html`, { timeout: 30000 })
+      await page.waitForFunction(() => Boolean(window.qa))
+      await page.evaluate(live => { window.qa.holdMemory(); if (live) window.qa.realtime.setSettings({ ...window.qa.realtime.settings, engine: 'live' }); void window.qa.realtime.start() }, live)
+      await page.waitForFunction(() => window.qa.gatewayCalls.some(c => c.method === 'pet.realtime.knowledge' && c.params.operation === 'memory'))
+      if (await page.evaluate(() => window.qa.sessionRequests !== 0)) throw new Error('Provider started before memory arrived')
+      const content = 'Complete saved note. '.repeat(300)
+      await page.evaluate(content => window.qa.releaseMemory({ records: [{ id: 'USER.md', status: 'available', content }] }), content)
+      if (live) {
+        await page.waitForFunction(() => window.qa.sessionRequests === 1)
+        await page.evaluate(() => window.qa.frame({ type: 'session.started' }))
+      }
+      await page.waitForFunction(() => window.qa.realtime.snapshot.status === 'listening')
+      const prompt = await page.evaluate(() => window.qa.gatewayCalls.find(c => c.method === 'pet.realtime.session').params.prompt)
+      if (!prompt.includes(content)) throw new Error('Preloaded note was truncated or omitted')
+      if (!live) {
+        await page.evaluate(() => window.qa.disconnect())
+        await page.waitForFunction(() => window.qa.sessionRequests === 2 && window.qa.realtime.snapshot.status === 'listening')
+        const snapshots = await page.evaluate(() => ({ reads: window.qa.gatewayCalls.filter(c => c.params.operation === 'memory').length,
+          prompts: window.qa.gatewayCalls.filter(c => c.method === 'pet.realtime.session').map(c => c.params.prompt) }))
+        if (snapshots.reads !== 1 || snapshots.prompts.some(value => value !== prompt)) throw new Error('Reconnect changed the frozen memory snapshot')
+      }
+    }
+    await page.goto(`${url}/qa/realtime.html`, { timeout: 30000 })
+    await page.waitForFunction(() => Boolean(window.qa))
+    await page.evaluate(() => { window.qa.holdMemory(); void window.qa.realtime.start() })
+    await page.waitForFunction(() => window.qa.gatewayCalls.some(c => c.params.operation === 'memory'))
+    await page.evaluate(() => window.qa.releaseMemory({ records: [{ status: 'available', content: 'partial', contentTruncated: true }] }))
+    await page.waitForFunction(() => window.qa.realtime.snapshot.status === 'error')
+    if (await page.evaluate(() => window.qa.sessionRequests !== 0 || window.qa.microphoneOwners.at(-1) !== false)) throw new Error('Incomplete preload started a provider or kept capture')
+  })
   await check('HOOK-HEADER-CONTROLS', 'Top status controls use one themed rounded-square geometry. Machine and profile remain separate readable lines, and SVG glyphs are centered in their hit boxes.', async () => {
     await page.goto(`${url}/qa/realtime.html`, { timeout: 30000 })
     await page.waitForFunction(() => Boolean(window.qa))

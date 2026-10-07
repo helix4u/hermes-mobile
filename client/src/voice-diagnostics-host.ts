@@ -42,8 +42,16 @@ read_voice_conversation read_voice_memory recall_voice_memory save_voice_memory
 forget_voice_memory search_voice_web read_voice_webpage get_context_snapshot
 get_session_context get_pet_sidechat_history get_session_activity read_session_context
 search_session_context unknown`.split(/\s+/)
+// The installed v1 host collector has a fixed phase vocabulary. Client-only
+// phases remain in native/local logs, not batches that an older host rejects.
+const LOCAL_PHASES = new Set([
+  'speech_onset', 'response_waiting_for_input', 'start.memory', 'start.memory_loaded', 'start.memory_failed',
+  'review.delegation_waiting', 'review.staged', 'session.started', 'session.closed',
+  'session.input_transcript.delta', 'session.output_transcript.delta', 'session.delegation.created',
+])
 const PHASES = new Set([
   ...BASIC_PHASES,
+  ...LOCAL_PHASES,
   ...['provider.error', 'provider.response_failed', 'tool.failure'].flatMap(prefix => REASONS.map(reason => `${prefix}.${reason}`)),
   ...TOOLS.flatMap(tool => ['started', 'completed', 'failed'].map(stage => `tool.${tool}.${stage}`)),
   ...['new', 'connecting', 'connected', 'disconnected', 'failed', 'closed'].map(state => `peer.${state}`),
@@ -99,7 +107,7 @@ export class VoiceDiagnosticsHost {
   record(entry: VoiceDiagnosticEntry): void {
     if (!this.active()) return
     const clean = sanitizeVoiceDiagnostic(entry)
-    if (!clean) return
+    if (!clean || LOCAL_PHASES.has(clean.phase)) return
     if (clean.phase === 'input.signal' || clean.phase === 'input.quiet') {
       // Input telemetry is a heartbeat, not chronology. Keep only its newest
       // sample so it cannot evict starts, provider events, or review state.

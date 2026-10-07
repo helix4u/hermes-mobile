@@ -13,6 +13,21 @@ describe('opt-in host voice diagnostics', () => {
   beforeEach(() => { vi.useFakeTimers(); uploader = new VoiceDiagnosticsHost() })
   afterEach(() => { uploader.dispose(); vi.useRealTimers() })
 
+  it('keeps new native timing phases from breaking an older v1 host batch', async () => {
+    const host = transport()
+    uploader.configure({ transport: host, enabled: true })
+    for (const phase of ['speech_onset', 'response_waiting_for_input', 'start.memory', 'start.memory_loaded', 'start.memory_failed',
+      'review.delegation_waiting', 'review.staged', 'session.started', 'session.closed',
+      'session.input_transcript.delta', 'session.output_transcript.delta', 'session.delegation.created']) {
+      expect(sanitizeVoiceDiagnostic({ ...event, phase })?.phase).toBe(phase)
+      uploader.record({ ...event, phase })
+    }
+    uploader.record(event)
+    await vi.advanceTimersByTimeAsync(10000)
+    const body = vi.mocked(host.requestJson).mock.calls[0][1]
+    expect(body).toMatchObject({ entries: [event] })
+  })
+
   it('does nothing before opt-in and drops queued evidence on opt-out', async () => {
     const host = transport()
     uploader.configure({ transport: host, enabled: false })
@@ -96,18 +111,18 @@ describe('opt-in host voice diagnostics', () => {
     for (let epoch = 0; epoch < 1000; epoch++) {
       uploader.record({ ...event, phase: epoch % 2 ? 'input.signal' : 'input.quiet', epoch })
     }
-    uploader.record({ ...event, phase: 'session.delegation.created', epoch: 4 })
-    uploader.record({ ...event, phase: 'review.delegation_waiting', epoch: 4 })
-    uploader.record({ ...event, phase: 'review.staged', epoch: 4 })
+    uploader.record({ ...event, phase: 'session.created', epoch: 4 })
+    uploader.record({ ...event, phase: 'tool.get_context_snapshot.started', epoch: 4 })
+    uploader.record({ ...event, phase: 'review.state.ready', epoch: 4 })
     await vi.advanceTimersByTimeAsync(10000)
     const batch = vi.mocked(host.requestJson).mock.calls[0][1]?.entries as typeof event[]
     expect(batch).toHaveLength(5)
     expect(batch.map(item => item.phase)).toEqual([
       'start.requested',
       'input.signal',
-      'session.delegation.created',
-      'review.delegation_waiting',
-      'review.staged',
+      'session.created',
+      'tool.get_context_snapshot.started',
+      'review.state.ready',
     ])
     expect(batch[1].epoch).toBe(999)
   })

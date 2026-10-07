@@ -68,6 +68,7 @@ import {
 import type { JsonRpcGatewayClient } from "./protocol/json-rpc-client";
 import type { HermesTransport } from "./transport/hermes-transport";
 import { HermesNative, isNativeHermesClient } from "./transport/native-bridge";
+import { VoiceStartupMemoryError, voiceStartupMemoryInstructions } from "./voice-startup-memory";
 import {
   voiceContextLoadingStatus,
   voiceContextStatusFromEvidence,
@@ -254,6 +255,7 @@ interface ActiveRealtimeIdentity {
   personalityName: string;
   prompt: string;
   voice: string;
+  memoryInstructions?: string;
 }
 
 interface ConnectionResources {
@@ -1437,9 +1439,10 @@ export function usePetRealtime(options: PetRealtimeOptions) {
           published: "",
         };
         responseActiveRef.current = floor.request();
-        patchSnapshot({
-          status: responseActiveRef.current ? "thinking" : "listening",
-        });
+        setSnapshot(current => ({
+          ...current,
+          status: floor.waitingForInput ? current.status : responseActiveRef.current ? "thinking" : "listening",
+        }));
       }
       if (assistant) {
         turnRef.current.pet = assistant.done
@@ -1581,7 +1584,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
             attachedToolGuide: target.contextTools?.guide,
             personalityId: identity.personalityId,
             personalityName: identity.personalityName,
-            prompt: identity.prompt,
+            prompt: identity.prompt + (identity.memoryInstructions ?? ""),
             session_id: target.sessionId || undefined,
             voice: identity.voice,
           },
@@ -1666,6 +1669,22 @@ export function usePetRealtime(options: PetRealtimeOptions) {
             .join(" / "),
         });
         applyMicrophoneMute(stream, microphoneMutedRef.current);
+        if (identity.memoryInstructions === undefined) {
+          traceVoice("start.memory");
+          let memory: unknown;
+          try {
+            memory = await gateway.request("pet.realtime.knowledge", {
+              session_id: target.sessionId || undefined,
+              contextId: target.sessionId ? undefined : target.contextId,
+              operation: "memory",
+            }, { timeoutMs: 10_000 });
+          } catch {
+            throw new VoiceStartupMemoryError("Could not preload Hermes memory for voice. Reconnect to the host and retry.");
+          }
+          if (generationRef.current !== generation || !desiredRef.current) return;
+          identity.memoryInstructions = voiceStartupMemoryInstructions(memory);
+          traceVoice("start.memory_loaded");
+        }
         traceVoice("start.credentials");
         let credentials: SessionCredentials | null = useLive
           ? null
@@ -1821,8 +1840,8 @@ export function usePetRealtime(options: PetRealtimeOptions) {
             reconnectAttemptRef.current = 0;
             return;
           }
-          // Keep VAD/item timing, but Mobile alone decides whether confirmed
-          // speech interrupts. Do this before context and the opening response,
+          // Cut buffered audio at speech onset. Mobile still waits for confirmed
+          // transcription before requesting a reply. Install before opening audio,
           // on every connection, without changing the credential/model selection.
           sendEvent({
             type: "session.update",
@@ -1832,7 +1851,7 @@ export function usePetRealtime(options: PetRealtimeOptions) {
                 input: {
                   turn_detection: {
                     type: "semantic_vad",
-                    interrupt_response: false,
+                    interrupt_response: true,
                     create_response: false,
                   },
                 },
@@ -1985,6 +2004,12 @@ export function usePetRealtime(options: PetRealtimeOptions) {
         }
       } catch (error) {
         if (generationRef.current !== generation) return;
+        if (error instanceof VoiceStartupMemoryError) {
+          traceVoice("start.memory_failed");
+          stop();
+          patchSnapshot({ active: false, status: "error", error: error.message });
+          return;
+        }
         if (error instanceof MicrophoneInputError) {
           traceVoice(`start.microphone_${error.reason}`);
           stop();
@@ -2121,10 +2146,14 @@ export function usePetRealtime(options: PetRealtimeOptions) {
   );
 
   const start = useCallback(() => {
-    if (startPromiseRef.current) return Promise.resolve(false);
+    if (startPromiseRef.current || desiredRef.current) return Promise.resolve(false);
     const ownerGeneration = startGenerationRef.current;
+    // Reserve capture before async session attachment, not only before SDP.
+    // Otherwise a wake listener can re-arm while the voice sheet is opening.
     const pending = (async () => {
       try {
+        optionsRef.current.onMicrophoneOwnershipChange(true);
+        patchSnapshot({ active: false, status: "connecting", error: "" });
         const sessionId =
           optionsRef.current.runtimeSessionId ||
           (await optionsRef.current.ensureSession());
@@ -2152,6 +2181,8 @@ export function usePetRealtime(options: PetRealtimeOptions) {
     startPromiseRef.current = pending;
     void pending.finally(() => {
       if (startPromiseRef.current === pending) startPromiseRef.current = null;
+      if (ownerGeneration === startGenerationRef.current && !desiredRef.current)
+        optionsRef.current.onMicrophoneOwnershipChange(false);
     });
     return pending;
   }, [startTarget, patchSnapshot, traceVoice]);

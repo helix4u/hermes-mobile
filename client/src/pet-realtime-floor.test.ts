@@ -44,7 +44,7 @@ describe('Realtime floor ownership', () => {
     expect(floor.handle({ type: 'output_audio_buffer.stopped', response_id: 'two' })).toBe(false)
     expect(floor.speaking).toBe(true)
   })
-  it('waits for speech ASR then clears audio even after generation completed', () => {
+  it('silences at speech onset even after generation completed and waits for ASR', () => {
     const { floor, sent, muted, created } = harness()
     floor.request()
     created('reply')
@@ -53,12 +53,14 @@ describe('Realtime floor ownership', () => {
     expect(floor.speaking).toBe(true)
     sent.length = 0
     floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'input' })
-    expect(muted.at(-1)).toBe(false)
-    expect(sent).toEqual([])
-    expect(floor.speaking).toBe(true)
-    expect(floor.acceptInput({ item_id: 'input' })).toBe(true)
     expect(muted.at(-1)).toBe(true)
     expect(sent).toEqual([{ type: 'output_audio_buffer.clear' }])
+    expect(floor.speaking).toBe(false)
+    expect(floor.waitingForInput).toBe(true)
+    sent.length = 0
+    expect(floor.acceptInput({ item_id: 'input' })).toBe(true)
+    expect(muted.at(-1)).toBe(true)
+    expect(sent).toEqual([])
     expect(floor.request()).toBe(true)
     created('next')
     floor.handle({ type: 'output_audio_buffer.started', response_id: 'next' })
@@ -104,7 +106,7 @@ describe('Realtime floor ownership', () => {
     expect(floor.handle({ type: 'error', error: { code: 'invalid_request_error' } })).toBe(true)
   })
 
-  it('preserves playback, response epoch and deferred continuation across VAD and noise', () => {
+  it('silences on VAD without granting noise authority or resurrecting a continuation', () => {
     const { floor, sent, muted, created } = harness()
     created('readback')
     floor.handle({ type: 'output_audio_buffer.started', response_id: 'readback' })
@@ -115,15 +117,14 @@ describe('Realtime floor ownership', () => {
     let invalidations = 0
     floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'noise' }, () => invalidations++)
     expect(floor.acceptInput({ item_id: 'noise' }, false)).toBe(true)
-    expect(floor.epoch).toBe(epoch)
+    expect(floor.epoch).toBe(epoch + 1)
     expect(floor.blocked).toBe(false)
-    expect(floor.speaking).toBe(true)
-    expect(muted.at(-1)).toBe(false)
-    expect(sent).toEqual([])
+    expect(floor.speaking).toBe(false)
+    expect(muted.at(-1)).toBe(true)
+    expect(sent).toEqual([{ type: 'output_audio_buffer.clear' }])
     expect(invalidations).toBe(0)
     floor.handle({ type: 'output_audio_buffer.stopped', response_id: 'readback' })
-    expect(sent).toHaveLength(1)
-    expect(sent[0].type).toBe('response.create')
+    expect(sent.some(event => event.type === 'response.create')).toBe(false)
     expect(floor.acceptInput({ item_id: 'noise' })).toBe(false)
   })
 
@@ -135,7 +136,7 @@ describe('Realtime floor ownership', () => {
     const observed: boolean[] = []
     floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'early' }, () => observed.push(onsetDrained))
     floor.handle({ type: 'output_audio_buffer.stopped', response_id: 'readback' })
-    expect(floor.playbackDrained).toBe(true)
+    expect(floor.playbackDrained).toBe(false)
     expect(floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'early' }, () => observed.push(true))).toBe(false)
     expect(floor.acceptInput({ item_id: 'early' })).toBe(true)
     expect(observed).toEqual([false])
@@ -152,7 +153,7 @@ describe('Realtime floor ownership', () => {
     expect(floor.request()).toBe(false)
     expect(floor.acceptInput({ item_id: 'unknown-old' })).toBe(false)
     expect(floor.acceptInput({})).toBe(false)
-    expect(sent).toEqual([])
+    expect(sent.every(event => event.type === 'output_audio_buffer.clear')).toBe(true)
   })
 
   it('rejects duplicate and out-of-order transcription and invalidates work across reconnect', () => {
@@ -185,7 +186,7 @@ describe('Realtime floor ownership', () => {
     floor.handle({ type: 'input_audio_buffer.speech_started' })
     expect(floor.acceptInput({ item_id: 'second' })).toBe(false)
     expect(floor.acceptInput({ item_id: 'first' })).toBe(false)
-    expect(sent).toEqual([])
+    expect(sent.every(event => event.type === 'output_audio_buffer.clear')).toBe(true)
     floor.handle({ type: 'input_audio_buffer.committed', item_id: 'first' })
     floor.handle({ type: 'input_audio_buffer.committed', item_id: 'second' })
     expect(floor.acceptInput({ item_id: 'second' })).toBe(true)
@@ -203,6 +204,67 @@ describe('Realtime floor ownership', () => {
     expect(floor.acceptInput({ item_id: 'approval' })).toBe(true)
     expect(floor.acceptInput({ item_id: 'next-speech' })).toBe(true)
     expect(floor.acceptInput({ item_id: 'approval' })).toBe(false)
+  })
+})
+
+describe('Speech takes priority over late output', () => {
+  it('also interrupts confirmed speech when a provider omitted the VAD onset', () => {
+    const { floor, muted, created } = harness()
+    floor.request()
+    created('reply')
+    floor.handle({ type: 'output_audio_buffer.started', response_id: 'reply' })
+    floor.handle({ type: 'input_audio_buffer.committed', item_id: 'user' })
+    floor.acceptInput({ item_id: 'user' })
+    expect(muted.at(-1)).toBe(true)
+    expect(floor.speaking).toBe(false)
+    expect(floor.request()).toBe(true)
+  })
+
+  it('does not let an older speech-stop downgrade a newer utterance', () => {
+    const { floor } = harness()
+    floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'older' })
+    floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'newer' })
+    expect(floor.handle({ type: 'input_audio_buffer.speech_stopped', item_id: 'older' })).toBe(false)
+    expect(floor.waitingForInput).toBe(true)
+  })
+
+  it('rejects late audio and a tool continuation before transcription completes', () => {
+    const { floor, sent, muted, created } = harness()
+    floor.request()
+    const oldEpoch = floor.epoch
+    created('reply')
+    floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'user' })
+    expect(floor.request({}, oldEpoch)).toBe(false)
+    expect(floor.handle({ type: 'output_audio_buffer.started', response_id: 'reply' })).toBe(false)
+    expect(muted.at(-1)).toBe(true)
+    expect(sent.slice(-2)).toEqual([{ type: 'response.cancel' }, { type: 'output_audio_buffer.clear' }])
+  })
+
+  it('holds an earlier transcript reply while a newer utterance is still pending', () => {
+    const { floor, sent } = harness()
+    floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'first' })
+    floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'second' })
+    floor.acceptInput({ item_id: 'first' })
+    sent.length = 0
+    expect(floor.request()).toBe(true)
+    expect(sent).toEqual([])
+    floor.handle({ type: 'input_audio_buffer.speech_stopped', item_id: 'second' })
+    expect(sent).toEqual([])
+    floor.acceptInput({ item_id: 'second' })
+    floor.request()
+    expect(sent.filter(event => event.type === 'response.create')).toHaveLength(1)
+  })
+
+  it('releases an earlier real reply after newer noise resolves, but never resumes cancelled audio', () => {
+    const { floor, sent } = harness()
+    floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'question' })
+    floor.handle({ type: 'input_audio_buffer.speech_started', item_id: 'noise' })
+    floor.acceptInput({ item_id: 'question' })
+    floor.request()
+    sent.length = 0
+    floor.acceptInput({ item_id: 'noise' }, false)
+    expect(sent.filter(event => event.type === 'response.create')).toHaveLength(1)
+    expect(floor.waitingForInput).toBe(false)
   })
 })
 

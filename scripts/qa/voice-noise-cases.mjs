@@ -37,37 +37,38 @@ export async function voiceNoiseCases({ page, url, check }) {
     }), { id, transcript })
   }
   async function say(id, transcript) { await start(id); await asr(id, transcript) }
-  async function noInterruption(action) {
+  async function noNoiseReply(action) {
     const before = await page.evaluate(() => ({ length: window.qa.sent.length, text: window.qa.realtime.snapshot.transcript }))
     await action()
     const state = await page.evaluate(before => ({
-      disruptive: window.qa.sent.slice(before.length).filter(e => ['response.cancel', 'response.create', 'output_audio_buffer.clear'].includes(e.type)),
+      disruptive: window.qa.sent.slice(before.length).filter(e => e.type === 'response.create'),
       text: window.qa.realtime.snapshot.transcript,
       muted: [...document.querySelectorAll('audio')].some(e => e.muted),
     }), before)
-    if (state.disruptive.length || state.text !== before.text || state.muted) throw new Error('Noise disrupted playback, response or live transcript')
+    if (state.disruptive.length || state.text !== before.text) throw new Error('Noise created a reply or mutated the live transcript')
+    if (!state.muted) throw new Error('Speech onset failed to silence playback')
   }
 
-  await check('HOOK-NOISE-VAD-CONFIG', 'Every connection disables provider automatic interruption/response before requesting audio, with VAD retained.', async () => {
+  await check('HOOK-NOISE-VAD-CONFIG', 'Every connection enables onset interruption but keeps response creation under confirmed-transcript control.', async () => {
     await fresh()
     const verify = () => page.evaluate(() => {
       const events = window.qa.sent
       const update = events.findIndex(e => e.type === 'session.update')
       const vad = events[update]?.session?.audio?.input?.turn_detection
       return update >= 0 && update < events.findIndex(e => e.type === 'response.create') &&
-        vad.type === 'semantic_vad' && vad.interrupt_response === false && vad.create_response === false
+        vad.type === 'semantic_vad' && vad.interrupt_response === true && vad.create_response === false
     })
     if (!await verify()) throw new Error('Initial VAD policy missing or late')
     await page.evaluate(() => { window.qa.sent.length = 0; window.qa.disconnect() })
     await page.waitForFunction(() => window.qa.tracks.length === 2 && window.qa.realtime.snapshot.status === 'listening')
     const vad = await page.evaluate(() => window.qa.sent.find(e => e.type === 'session.update')?.session?.audio?.input?.turn_detection)
-    if (vad?.interrupt_response !== false || vad?.create_response !== false) throw new Error('Reconnect lost VAD policy')
+    if (vad?.interrupt_response !== true || vad?.create_response !== false) throw new Error('Reconnect lost VAD policy')
   })
 
   await check('HOOK-NOISE-PLAYBACK', 'Raw VAD, empty input and arbitrary or nested bracket labels preserve the pending review without executing it.', async () => {
     await draft()
     for (const [index, text] of ['[noise]', '[]', '[arbitrary [nested] label]', '[x] [y]...', ''].entries()) {
-      await noInterruption(async () => {
+      await noNoiseReply(async () => {
         await start(`noise-${index}`)
         await page.evaluate(id => window.qa.frame({ type: 'input_audio_buffer.speech_stopped', item_id: id }), `noise-${index}`)
         await asr(`noise-${index}`, text)
@@ -80,7 +81,7 @@ export async function voiceNoiseCases({ page, url, check }) {
     if (state.approved.length || state.snapshot.hermesDraftStatus !== 'pending' || state.snapshot.hermesDraft !== 'Inspect the build. Do not change files.') throw new Error('Speech executed or changed the review')
   })
 
-  await check('HOOK-NOISE-GENERATING', 'Noise preserves active generation; confirmed stop still records the interrupted turn without another reply.', async () => {
+  await check('HOOK-NOISE-GENERATING', 'Onset silences generation without giving noise authority; confirmed stop records the interrupted turn without another reply.', async () => {
     await fresh()
     await say('question', 'Explain the task.')
     await page.evaluate(() => {
@@ -90,7 +91,7 @@ export async function voiceNoiseCases({ page, url, check }) {
       q.frame({ type: 'output_audio_buffer.started', response_id: 'ongoing' })
       q.frame({ type: 'response.output_audio_transcript.delta', response_id: 'ongoing', delta: 'A partial answer.' })
     })
-    await noInterruption(() => say('generation-noise', '[unrecognized sound]'))
+    await noNoiseReply(() => say('generation-noise', '[unrecognized sound]'))
     if (await page.evaluate(() => window.qa.gatewayCalls.some(c => c.method === 'pet.realtime.record'))) throw new Error('Noise prematurely recorded an unfinished answer')
     const before = await page.evaluate(() => window.qa.sent.filter(e => e.type === 'response.create').length)
     await say('stop', '[noise] Stop talking.')
@@ -105,7 +106,7 @@ export async function voiceNoiseCases({ page, url, check }) {
 
   await check('HOOK-NOISE-READY', 'Noise and a later spoken yes cannot approve the visible review card.', async () => {
     await draft(); await drain()
-    await noInterruption(() => say('ready-noise', '[door opens]'))
+    await noNoiseReply(() => say('ready-noise', '[door opens]'))
     await say('approval', 'Yes.')
     await page.waitForTimeout(100)
     if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending')) throw new Error('Speech approved or cleared the review')
@@ -156,7 +157,7 @@ export async function voiceNoiseCases({ page, url, check }) {
     if (await page.evaluate(() => window.qa.approved.length || window.qa.realtime.snapshot.hermesDraftStatus !== 'pending')) throw new Error('Delayed yes submitted or cleared the review')
   })
 
-  await check('HOOK-NOISE-READ-CONTINUES', 'Noise preserves an in-flight read and its continuation waits for playback drain.', async () => {
+  await check('HOOK-NOISE-READ-CONTINUES', 'Onset still delivers an accepted read result but never lets its obsolete continuation talk over the user.', async () => {
     await fresh()
     await page.evaluate(() => {
       const q = window.qa
@@ -170,12 +171,12 @@ export async function voiceNoiseCases({ page, url, check }) {
       ] } })
     })
     await page.waitForFunction(() => window.qa.contextRequests === 1)
-    await noInterruption(() => say('read-noise', '[chair moving]'))
+    await noNoiseReply(() => say('read-noise', '[chair moving]'))
     await page.evaluate(() => window.qa.releaseContext())
     await page.waitForFunction(() => window.qa.sent.some(e => e.item?.call_id === 'noise-read'))
     if (await page.evaluate(() => window.qa.sent.filter(e => e.type === 'response.create').length !== 1)) throw new Error('Continuation overlapped undrained audio')
     await page.evaluate(() => window.qa.frame({ type: 'output_audio_buffer.stopped', response_id: 'read' }))
-    await page.waitForFunction(() => window.qa.sent.filter(e => e.type === 'response.create').length === 2)
+    if (await page.evaluate(() => window.qa.sent.filter(e => e.type === 'response.create').length !== 1)) throw new Error('Cancelled continuation resumed after an old audio acknowledgement')
   })
 
   await check('HOOK-NOISE-MIXED-WORDS', 'Mixed actual words interrupt once and remain exact in the recorded turn, including do not stop.', async () => {

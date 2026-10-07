@@ -23,6 +23,10 @@ const approved: any[] = []
 const histories: any[] = []
 const gatewayCalls: Array<{method:string;params:unknown}> = []
 let knowledgeResult: unknown = { records: [{ key: 'synthetic-note' }] }
+let holdMemory = false
+let memoryResolve: ((value: unknown) => void) | null = null
+let ensureResolve: ((value: string) => void) | null = null
+const microphoneOwners: boolean[] = []
 let credentialsResolve: ((value: any) => void) | null = null
 let holdCredentials = false
 let connectionFails = false
@@ -91,7 +95,13 @@ const gateway = { request: async (method: string, params:unknown) => {
     return new Promise(resolve => { pendingRecords.push({ params, resolve }) })
   }
   if (method === 'pet.sidechat.history') return { messages: [...savedMessages] }
-  if (method === 'pet.realtime.knowledge') return knowledgeResult
+  if (method === 'pet.realtime.knowledge') {
+    if ((params as any)?.operation === 'memory') {
+      if (holdMemory) return new Promise(resolve => { memoryResolve = resolve })
+      return { records: [{ id: 'USER.md', status: 'available', content: 'Synthetic saved preference: use concise language.' }] }
+    }
+    return knowledgeResult
+  }
   if (method === 'delegation.status') return {active:[{subagent_id:'worker-a'}]}
   if (method === 'subagent.steer') return {status:'queued'}
   if (method === 'pet.realtime.context') {
@@ -117,11 +127,13 @@ function Fixture() {
   const [menu, setMenu] = useState(false)
   const realtime = usePetRealtime({ connectionId: 'synthetic-fixture', gateway: gateway as any,
     uiContext:view, sessionTitle:'Synthetic task',
-    context: [], ensureSession: async () => 'synthetic-session', runtimeSessionId: 'synthetic-session',
-    onAskHermes: async request => { approved.push(request) }, onMessages: messages => { histories.push(messages); setMessages(messages) }, onMicrophoneOwnershipChange: () => {},
+    context: [], ensureSession: async () => new URLSearchParams(location.search).has('pendingSession') ? new Promise<string>(resolve => { ensureResolve = resolve }) : 'synthetic-session', runtimeSessionId: new URLSearchParams(location.search).has('pendingSession') ? '' : 'synthetic-session',
+    onAskHermes: async request => { approved.push(request) }, onMessages: messages => { histories.push(messages); setMessages(messages) }, onMicrophoneOwnershipChange: owned => { microphoneOwners.push(owned) },
     onReply: () => {}, personalityId: 'synthetic', personalityName: 'Companion', prompt: 'Synthetic test.' })
   ;(window as any).qa = { realtime, sent, tracks, peers, failPlayback: () => { playbackFails = true; peers.at(-1).ontrack({ streams: [new MediaStream()] }) }, disconnect: () => { const peer = peers.at(-1); peer.connectionState = 'disconnected'; peer.onconnectionstatechange() }, frame: (data: any) => channel.onmessage({ data: JSON.stringify(data) }) }
   Object.assign((window as any).qa, { constraints, get sessionRequests() { return sessionRequests }, get contextsClosed() { return contextsClosed },
+    microphoneOwners, releaseSession: () => ensureResolve?.('synthetic-session'),
+    holdMemory: () => { holdMemory = true }, releaseMemory: (value: unknown) => { memoryResolve?.(value) },
     startLive: async () => { realtime.setSettings({ ...realtime.settings, engine: 'live' }); await realtime.start() },
     useRealtime: () => { realtime.stop(); realtime.setSettings({ ...realtime.settings, engine: 'realtime' }) },
     supportApprovals, supportSnapshot: () => supportReviewSnapshot(supportReview),

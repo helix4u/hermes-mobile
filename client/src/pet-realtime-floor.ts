@@ -1,6 +1,6 @@
 /**
- * WebRTC floor ownership. VAD records utterance ordering without silencing
- * output. Only accepted speech ASR takes the floor. Generation completion is not playback completion.
+ * WebRTC floor ownership. Speech onset silences output immediately. ASR owns
+ * conversational meaning, never permission to send a draft. Generation completion is not playback completion.
  * Kept portable for the independently shipped Desktop and Mobile clients.
  */
 export class RealtimeFloor {
@@ -13,9 +13,10 @@ export class RealtimeFloor {
   private pending: { response: Record<string, unknown>; epoch: number } | null = null
   private responseEpochs = new Map<string, number>()
   private inputSequence = 0
+  private awaitingInput = 0
   private lastSpeechSequence = 0
-  private inputs = new Map<string, { sequence: number; onSpeech?: () => void }>()
-  private unassignedInputs: { sequence: number; onSpeech?: () => void }[] = []
+  private inputs = new Map<string, { sequence: number; startedAt?: number; onSpeech?: () => void }>()
+  private unassignedInputs: { sequence: number; startedAt?: number; onSpeech?: () => void }[] = []
   private seenInputs = new Set<string>()
   private outputResponse = ''
   private drainedResponse = ''
@@ -31,9 +32,9 @@ export class RealtimeFloor {
     if (this.blocked || epoch !== this.epoch || this.generating) return false
     // Tool completion is not speaker completion. Finish the current audio
     // buffer before asking for a continuation on the same floor.
-    if (this.playing) {
+    if (this.playing || this.awaitingInput) {
       this.pending = { response, epoch }
-      this.trace('response_waiting_for_playback', epoch)
+      this.trace(this.awaitingInput ? 'response_waiting_for_input' : 'response_waiting_for_playback', epoch)
       return true
     }
     const sent = this.send({
@@ -74,16 +75,25 @@ export class RealtimeFloor {
       this.seenInputs.add(id)
       if (this.seenInputs.size > 256) this.seenInputs.delete(this.seenInputs.values().next().value!)
     }
+    if (input?.sequence === this.awaitingInput) this.awaitingInput = 0
     this.inputHasStart = Boolean(input?.onSpeech)
     if (speech) {
       // Only confirmed speech supersedes earlier input. A later noise VAD/ASR
       // must not invalidate an otherwise valid delayed approval.
       this.lastSpeechSequence = input?.sequence ?? ++this.inputSequence
       input?.onSpeech?.()
-      this.epoch++
-      this.silence()
+      // An observed onset already retired the old reply. Do not clear the
+      // speaker again after transcription, which can race the next response.
+      if (input?.startedAt === undefined) {
+        this.epoch++
+        this.silence()
+      } else this.pending = null
       this.blocked = false
-      this.trace('barge_in', this.epoch)
+      this.trace('barge_in', this.epoch, input?.startedAt === undefined ? 0 : Date.now() - input.startedAt)
+    } else if (!this.awaitingInput && this.pending) {
+      const pending = this.pending
+      this.pending = null
+      this.request(pending.response, pending.epoch)
     }
     return true
   }
@@ -109,7 +119,11 @@ export class RealtimeFloor {
     }
     if (type === 'input_audio_buffer.speech_started') {
       if (event.item_id && (this.inputs.has(event.item_id) || this.seenInputs.has(event.item_id))) return false
-      const input = { sequence: ++this.inputSequence, onSpeech }
+      const input = { sequence: ++this.inputSequence, startedAt: Date.now(), onSpeech }
+      this.awaitingInput = input.sequence
+      this.epoch++
+      this.silence()
+      this.trace('speech_onset', this.epoch)
       if (event.item_id) {
         this.inputs.set(event.item_id, input)
         if (this.inputs.size > 256) this.inputs.delete(this.inputs.keys().next().value!)
@@ -119,6 +133,8 @@ export class RealtimeFloor {
       }
       return true
     }
+    if ((type === 'input_audio_buffer.speech_stopped' || type === 'input_audio_buffer.committed') && event.item_id &&
+      this.inputs.get(event.item_id)?.sequence !== this.inputSequence) return false
     const id = event.response?.id || event.response_id || ''
     if (type === 'response.created') {
       const tag = event.response?.metadata?.pet_turn
@@ -130,7 +146,7 @@ export class RealtimeFloor {
     }
     if (type.startsWith('response.') || type.startsWith('output_audio_buffer.')) {
       const stale = id && this.responseEpochs.has(id) && this.responseEpochs.get(id) !== this.epoch
-      if (this.blocked || stale) {
+      if (this.blocked || this.awaitingInput || stale) {
         if (type === 'response.created') {
           this.send({ type: 'response.cancel', ...(id ? { response_id: id } : {}) })
         }
@@ -166,6 +182,7 @@ export class RealtimeFloor {
   }
 
   get speaking(): boolean { return this.playing }
+  get waitingForInput(): boolean { return Boolean(this.awaitingInput) }
   get responseId(): string { return this.outputResponse }
   get playbackDrained(): boolean { return Boolean(this.outputResponse) && this.drainedResponse === this.outputResponse && !this.playing }
 
@@ -181,6 +198,7 @@ export class RealtimeFloor {
     this.inputs.clear()
     this.unassignedInputs = []
     this.inputSequence = 0
+    this.awaitingInput = 0
     this.lastSpeechSequence = 0
     this.inputHasStart = false
     this.outputResponse = ''
