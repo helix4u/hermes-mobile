@@ -1,31 +1,29 @@
 :root {
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-  color: #f4f1e9;
-  background: #090b0f;
+  /* Hermes Desktop owns the palette, type and radii (vendor/desktop, applied by
+     state/theme.ts). The mobile token names below are aliases onto Desktop's
+     --ui-* / --dt-* tokens so every surface follows the active Desktop theme. */
+  font-family: var(--dt-font-sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  color: var(--ui-text-primary);
+  background: var(--ui-bg-editor);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --bg: #090b0f;
-  --surface: #101319;
-  --surface-2: #161a22;
-  --surface-3: #1d222c;
-  --stroke: #282e39;
-  --stroke-strong: #3b4452;
-  --text: #f4f1e9;
-  --muted: #a2a6ad;
-  --muted-2: #707782;
-  --gold: #d8ad52;
-  --gold-light: #f0cc76;
-  --gold-ink: #171208;
-  --danger: #f07f7a;
-  --success: #74c995;
-  --warning: #e6b85f;
+  -webkit-font-smoothing: antialiased;
+  --bg: var(--ui-bg-editor);
+  --surface: var(--ui-widget-surface-background);
+  --surface-2: var(--ui-bg-quaternary);
+  --surface-3: var(--dt-popover);
+  --stroke: var(--ui-stroke-tertiary);
+  --stroke-strong: var(--ui-stroke-secondary);
+  --text: var(--ui-text-primary);
+  --muted: var(--ui-text-secondary);
+  --muted-2: var(--ui-text-tertiary);
+  --gold: var(--dt-primary);
+  --gold-light: var(--dt-primary);
+  --gold-ink: var(--dt-primary-foreground);
+  --danger: var(--dt-destructive);
+  /* One accent, as on Desktop: "ok/live" states use the theme primary. */
+  --success: var(--dt-primary);
+  --warning: var(--ui-yellow, #d4a017);
   --android-safe-top: 0px;
   --android-safe-right: 0px;
   --android-safe-bottom: 0px;
@@ -109,13 +107,7 @@ body,
 body {
   min-height: 100vh;
   overflow: hidden;
-  background:
-    radial-gradient(
-      circle at 70% -5%,
-      color-mix(in srgb, var(--gold) 12%, transparent),
-      transparent 23rem
-    ),
-    var(--bg);
+  background: var(--bg);
 }
 
 button,
@@ -479,9 +471,9 @@ h3 {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  border: 1px solid rgb(240 128 120 / 30%);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: 999px;
-  background: rgb(240 128 120 / 7%);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
   padding: 0.42rem 0.65rem;
   color: var(--danger);
   font-size: 0.68rem;
@@ -1686,7 +1678,7 @@ h3 {
 }
 
 .pet-realtime-state.listening {
-  color: color-mix(in srgb, #6de5b3 76%, var(--text));
+  color: var(--success);
 }
 
 .pet-realtime-state.speaking {
@@ -2972,7 +2964,6 @@ h3 {
   flex-direction: column;
   overflow: hidden;
   background:
-    radial-gradient(circle at 80% -8%, rgb(216 173 82 / 8%), transparent 32%),
     var(--bg);
 }
 
@@ -3737,7 +3728,6 @@ h3 {
 .files-view {
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 85% -5%, rgb(216 173 82 / 7%), transparent 36%),
     var(--bg);
 }
 
@@ -4186,7 +4176,7 @@ h3 {
   overscroll-behavior-y: auto;
   resize: vertical;
   border: 0;
-  background: #080a0e;
+  background: var(--ui-editor-surface-background, var(--surface));
   padding: 0.8rem;
   color: var(--text);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
@@ -4228,7 +4218,7 @@ h3 {
   overflow: auto;
   overscroll-behavior-y: auto;
   margin: 0;
-  background: #080a0e;
+  background: var(--ui-editor-surface-background, var(--surface));
   padding: 0.8rem;
   color: var(--text);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
@@ -5821,9 +5811,9 @@ textarea:focus {
 }
 
 .confirm-card {
-  border: 1px solid rgb(240 128 120 / 30%);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: 0.65rem;
-  background: rgb(240 128 120 / 6%);
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
   padding: 0.7rem;
   color: var(--danger);
   font-size: 0.7rem;
@@ -5991,9 +5981,9 @@ textarea:focus {
 
 .sticky-error {
   margin-bottom: 0.7rem;
-  border: 1px solid rgb(240 128 120 / 25%);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
   border-radius: 0.6rem;
-  background: rgb(240 128 120 / 5%);
+  background: color-mix(in srgb, var(--danger) 5%, transparent);
   padding: 0.6rem;
 }
 
@@ -6228,7 +6218,7 @@ textarea:focus {
 }
 
 .mini-status.online {
-  border-color: rgb(117 200 146 / 34%);
+  border-color: color-mix(in srgb, var(--success) 34%, transparent);
   color: var(--success);
 }
 

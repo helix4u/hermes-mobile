@@ -195,7 +195,7 @@ describe('Transcript message actions', () => {
     )
 
     expect(html.match(/aria-label="Copy response"/g)).toHaveLength(3)
-    expect(html).toContain('Listen')
+    expect(html).toContain('aria-label="Read response aloud"')
   })
 
   it('waits for a streaming response to finish before exposing copy', () => {

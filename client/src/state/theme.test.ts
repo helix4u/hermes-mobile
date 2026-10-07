@@ -1,27 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   applyThemeSelection,
   bindHermesSkin,
+  DESKTOP_DEFAULT_THEME,
   hostSkinForConnection,
+  loadThemeMode,
   loadThemeSelection,
-  MOBILE_DEFAULT_VARIABLES,
   MOBILE_THEME_OPTIONS,
+  persistThemeMode,
   persistThemeSelection,
-  skinVariables,
+  resolveThemeMode,
 } from './theme'
-import { MOBILE_THEME_PRESETS } from './theme-presets'
-
-function styleTarget() {
-  const values = new Map<string, string>()
-  return {
-    target: {
-      setProperty(name: string, value: string) {
-        values.set(name, value)
-      },
-    } as CSSStyleDeclaration,
-    values,
-  }
-}
 
 function memoryStorage() {
   const values = new Map<string, string>()
@@ -47,117 +36,109 @@ function memoryStorage() {
   } satisfies Storage
 }
 
-describe('Hermes skin projection', () => {
+// The vendored Desktop engine writes to documentElement exactly as Desktop's
+// ThemeProvider does. A small fake records that without a DOM environment.
+function fakeDocument() {
+  const vars = new Map<string, string>()
+  const classes = new Set<string>()
+  const dataset: Record<string, string> = {}
+  const meta = { content: '', setAttribute(_: string, value: string) { this.content = value } }
+  const doc = {
+    documentElement: {
+      style: { setProperty: (key: string, value: string) => vars.set(key, value) },
+      dataset,
+      classList: { toggle: (name: string, on: boolean) => (on ? classes.add(name) : classes.delete(name)) },
+    },
+    head: { appendChild: () => {} },
+    createElement: () => ({ dataset: {} }),
+    querySelector: (selector: string) => (selector.includes('theme-color') ? meta : null),
+  }
+  return { doc: doc as unknown as Document, vars, classes, dataset, meta }
+}
+
+describe('Desktop theme engine on mobile', () => {
+  beforeEach(() => {
+    vi.stubGlobal('CSS', { escape: (value: string) => value })
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('uses a deliberate neutral mobile palette by default', () => {
-    expect(MOBILE_DEFAULT_VARIABLES).toMatchObject({
-      '--bg': '#090b0f',
-      '--surface': '#101319',
-      '--text': '#f4f1e9',
-      '--gold': '#d8ad52',
-    })
+  it('offers exactly the Desktop built-in themes', () => {
+    const ids = MOBILE_THEME_OPTIONS.map(option => option.id)
+    expect(ids).toContain(DESKTOP_DEFAULT_THEME)
+    expect(ids).toEqual(expect.arrayContaining(['nous', 'midnight', 'slate', 'mono']))
+    expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it('maps the shared skin palette into mobile surface tokens', () => {
-    expect(
-      skinVariables({
-        name: 'slate',
-        colors: {
-          background: '#101820',
-          banner_text: '#f0f4f8',
-          banner_accent: '#55aaff',
-          ui_error: '#ff5566',
-        },
-      }),
-    ).toMatchObject({
-      '--bg': '#101820',
-      '--text': '#f0f4f8',
-      '--gold': '#55aaff',
-      '--danger': '#ff5566',
-    })
+  it('applies a named theme with Desktop tokens and the dark class', () => {
+    const { doc, vars, classes, dataset, meta } = fakeDocument()
+    const applied = applyThemeSelection('slate', null, 'dark', doc)
+    expect(applied?.name).toBe('slate')
+    expect(applied?.mode).toBe('dark')
+    expect(dataset.hermesTheme).toBe('slate')
+    expect(classes.has('dark')).toBe(true)
+    expect(vars.get('--theme-primary')).toMatch(/^#|rgb|color-mix/)
+    expect(meta.content).toBe(applied?.chromeBackground)
   })
 
-  it('ignores non-hex values instead of injecting them into CSS', () => {
-    expect(
-      skinVariables({
-        colors: {
-          background: 'url(javascript:bad)',
-          banner_accent: 'red',
-        },
-      })['--bg'],
-    ).toBe('#0b0c0b')
+  it('renders light mode without the dark class', () => {
+    const { doc, classes } = fakeDocument()
+    expect(applyThemeSelection('nous', null, 'light', doc)?.mode).toBe('light')
+    expect(classes.has('dark')).toBe(false)
   })
 
-  it('projects every Desktop-matched preset into the complete mobile token set', () => {
-    const required = Object.keys(MOBILE_DEFAULT_VARIABLES).sort()
-    const optionIds = new Set(MOBILE_THEME_OPTIONS.map(option => option.id))
-
-    for (const preset of Object.values(MOBILE_THEME_PRESETS)) {
-      expect(Object.keys(preset.variables).sort()).toEqual(required)
-      expect(optionIds.has(preset.id)).toBe(true)
-    }
-  })
-
-  it('applies a mobile-only Desktop preset without needing a gateway request', () => {
-    const { target, values } = styleTarget()
-
-    applyThemeSelection('slate', null, target)
-
-    expect(values.get('--bg')).toBe('#0d1117')
-    expect(values.get('--surface')).toBe('#161b22')
-    expect(values.get('--gold')).toBe('#58a6ff')
-  })
-
-  it('follows a valid host skin and falls back safely while host data is unavailable', () => {
+  it('follows a host skin through Desktop skin conversion and falls back while it is unknown', () => {
     const host = {
-      name: 'custom',
-      colors: {
-        background: '#112233',
-        banner_text: '#f0f0f0',
-        ui_accent: '#abcdef',
-      },
+      name: 'custom-host',
+      colors: { background: '#112233', banner_text: '#f0f0f0', ui_accent: '#abcdef' },
     }
-    const followed = styleTarget()
-    applyThemeSelection('host', host, followed.target)
-    expect(followed.values.get('--bg')).toBe('#112233')
-    expect(followed.values.get('--gold')).toBe('#abcdef')
+    const followed = fakeDocument()
+    applyThemeSelection('host', host, 'dark', followed.doc)
+    expect(followed.dataset.hermesTheme).toBe('custom-host')
 
-    const waiting = styleTarget()
-    applyThemeSelection('host', null, waiting.target)
-    expect(waiting.values.get('--bg')).toBe(MOBILE_DEFAULT_VARIABLES['--bg'])
+    const waiting = fakeDocument()
+    applyThemeSelection('host', null, 'dark', waiting.doc)
+    expect(waiting.dataset.hermesTheme).toBe(DESKTOP_DEFAULT_THEME)
+  })
+
+  it('never applies an unknown stored name', () => {
+    const { doc, dataset } = fakeDocument()
+    applyThemeSelection('not-a-theme', null, 'dark', doc)
+    expect(dataset.hermesTheme).toBe(DESKTOP_DEFAULT_THEME)
+  })
+
+  it('resolves system mode from the phone setting', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+    expect(resolveThemeMode('system')).toBe('light')
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    expect(resolveThemeMode('system')).toBe('dark')
+    expect(resolveThemeMode('light')).toBe('light')
   })
 
   it('binds host skin data to the connection that emitted it', () => {
-    const bound = bindHermesSkin('tailnet-a', {
-      name: 'slate',
-      colors: { background: '#0d1117' },
-    })
-
+    const bound = bindHermesSkin('tailnet-a', { name: 'slate', colors: { background: '#0d1117' } })
     expect(hostSkinForConnection(bound, 'tailnet-a')?.name).toBe('slate')
     expect(hostSkinForConnection(bound, 'cloud-b')).toBeNull()
     expect(bindHermesSkin('tailnet-a', {})).toBeNull()
   })
 
-  it('persists theme choices independently for each saved connection', () => {
-    const storage = memoryStorage()
-    vi.stubGlobal('localStorage', storage)
-
+  it('persists theme and mode independently for each saved connection', () => {
+    vi.stubGlobal('localStorage', memoryStorage())
     persistThemeSelection('tailnet-a', 'midnight')
     persistThemeSelection('cloud-b', 'host')
-
+    persistThemeMode('tailnet-a', 'light')
     expect(loadThemeSelection('tailnet-a')).toBe('midnight')
     expect(loadThemeSelection('cloud-b')).toBe('host')
-    expect(loadThemeSelection('new-host')).toBe('mobile')
+    expect(loadThemeSelection('new-host')).toBe('host')
+    expect(loadThemeMode('tailnet-a')).toBe('light')
+    expect(loadThemeMode('cloud-b')).toBe('system')
   })
 
-  it('migrates the old per-connection host-follow choice', () => {
+  it('moves the retired Hermes Mobile palette to following the host', () => {
     const storage = memoryStorage()
-    storage.setItem('hermes-mobile.theme-mode.v1:tailnet-a', 'host')
+    storage.setItem('hermes-mobile.theme-selection.v2:tailnet-a', 'mobile')
     vi.stubGlobal('localStorage', storage)
-
     expect(loadThemeSelection('tailnet-a')).toBe('host')
   })
 })

@@ -1,7 +1,9 @@
 {
   "schema": 1,
-  "revisionReason": "Live captions are display data, not completed user turns or tool arguments. Drafts and exact revisions arrive through completed Responses function items. Visible card buttons own sending and cancellation. Atomic historical startup context and on-demand readers replace continuous backlog injection.",
+  "revisionReason": "DESKTOP-SKIN: Desktop design system reskin, sidebar shell, keyboard-aware layout and typing performance. Live captions are display data, not completed user turns or tool arguments. Drafts and exact revisions arrive through completed Responses function items. Visible card buttons own sending and cancellation. Atomic historical startup context and on-demand readers replace continuous backlog injection.",
   "fixtureCorrections": [
+    "NATIVE-BOTTOM-INSET: removing the old tab bar left Settings and other scroll panes extending behind Android navigation. The shell now owns the raw native bottom inset once. In-pane composer, sticky Reader dock and pinned sidebar keep only their ordinary spacing, while fixed overlays retain their own native insets. Execute real ControlPanel scroll-end geometry plus shared transport geometry for portrait/gesture/landscape/IME viewports. A failed browser-import preflight is not regression evidence.",
+    "TTS-MIXING: pet, reply, Reader and Support speech used HTMLAudioElement on Android, leaving WebView in charge of audio focus. Android synthesis now uses a native MediaPlayer with speech attributes and no focus request or communication-route mutation. Execute bridge selection, clip identity, pause during preparation, resume, late cancellation, error and destruction checks. Mixing with another app still requires physical-device acceptance after installing the replacement APK. Live microphone/WebRTC leases remain separate.",
     "MATH-FORMATTING: the shared Markdown renderer emitted raw LaTeX. Render inline/display math with bundled KaTeX fonts and untrusted commands disabled. Preserve code/link source and unfinished streaming expressions. Long display equations scroll within the message in portrait and landscape, never widening the page or hiding the composer.",
     "REQUEST-CAPABILITY-HANDSHAKE: new hosts reject server questions until the connection advertises server_requests. The authenticated adapter sends client.capabilities before forwarding gateway.ready to installed phones, only once per connection, and consumes its own success or old-host error response. Tests execute ready ordering plus actual core approval, clarify, sudo and secret round trips without sending agent work.",
     "FIRST-PROMPT-WIRE: execute session/share/settings/review builders through the real JSON-RPC serializer and profile mapper, then validate those frames and translated question responses against the host OpenRPC document. Generic Record return annotations had hidden preview from the static diagnostic. Creation preview is legacy metadata, never an implicit submitted/seeded message. Sudo's legacy password parameter maps to the core value result.",
@@ -45,6 +47,69 @@
     "ADB reconnect can remove the task forward before cleanup. Confirmed absence satisfies cleanup, but failed UI restoration remains a failed check."
   ],
   "checks": [
+    {
+      "id": "MOBILE-SUPPORT-UX-002",
+      "name": "Support queue prioritizes tickets and keeps troubleshooting separate",
+      "reason": "Operator rejected compressed Support controls and background records ahead of tickets. Test real SupportOpsView with long titles and40 synthetic tasks in portrait, landscape, light and dark. Queue contains search, filters and tickets, not task history, settings or overview statistics. Activity is explicitly opened, with recent history and technical details collapsed. This replaces the old pixel-shrink check while preserving safe queueing and cancellation.",
+      "owners": ["client/src/components/SupportOpsView.tsx", "client/src/components/SupportActivityView.tsx", "client/src/components/SupportQueueReceipts.test.tsx", "client/src/skin/support.css", "client/qa/support-layout.tsx", "scripts/qa/support-layout.mjs"]
+    },
+    {
+      "id": "MOBILE-POLISH-20261006",
+      "name": "Sessions search, sort, live target and compact support with safe capability controls",
+      "reason": "Run scripts/qa/mobile-polish.mjs with synthetic components and production Desktop tokens. Keep existing session, capability and context checks. Operator rejected the Support-only cramped density and intrusive activity. Its check now requires readable titles/controls, tickets near the top and no task activity in Queue. Other component checks are unchanged.",
+      "owners": ["client/src/components/SessionsView.tsx", "client/src/components/CapabilitiesPanel.tsx", "client/src/capabilities.ts", "client/src/skin/support.css", "client/qa/mobile-polish.tsx", "scripts/qa/mobile-polish.mjs"]
+    },
+    {
+      "id": "MOBILE-SCREENOFF-001",
+      "name": "Bounded background audio ownership and connection recovery",
+      "reason": "Shared speech queue retains mediaPlayback across synthesis and clip gaps. Native clip lease follows preparation, pause, resume and completion, including failure and teardown. MediaPlayer uses playback-scoped wake mode and never requests TTS focus. Native active playback may reconnect while locked, but idle UI does not. Synthetic ownership tests are not physical lock-screen proof.",
+      "owners": ["client/src/speech-background.ts", "client/src/speech-background.test.ts", "client/src/transport/app-activity.ts", "client/src/transport/app-activity.test.ts", "client/android/app/src/main/java/dev/hermes/mobile/SpeechPlayback.java", "client/android/app/src/test/java/dev/hermes/mobile/SpeechPlaybackTest.java", "client/android/app/src/main/java/dev/hermes/mobile/HermesConnectionService.java"]
+    },
+    {
+      "id": "NATIVE-BOTTOM-INSET",
+      "name": "Last settings row stays above Android navigation",
+      "reason": "Execute production ControlPanel and CSS in the actual shell ancestry. Scroll to the final collapsed Advanced row and compare pane/row bounds with the simulated native navigation boundary. Verify composer and Reader do not count the inset twice, including zero inset with the keyboard open.",
+      "owners": [
+        "client/src/skin/shell.css",
+        "client/src/skin/chat.css",
+        "client/src/skin/reader-files.css",
+        "client/qa/native-insets.html",
+        "client/qa/native-insets.tsx",
+        "scripts/qa/native-insets-layout.mjs"
+      ]
+    },
+    {
+      "id": "DESKTOP-SKIN",
+      "name": "Hermes Mobile renders Hermes Desktop's design system on a phone",
+      "reason": "Appearance is Desktop's vendored theme engine and tokens (client/src/vendor/desktop, regenerated by scripts/desktop-theme/sync.mjs) plus area skins in client/src/skin. Shell is Desktop's window folded onto a phone: one 40px titlebar (sidebar toggle, pane title, pane actions), Desktop sidebar as a portrait drawer and pinned landscape rail (replaces the bottom tab bar), in-flow notices that never cover controls, Desktop composer (input over a mic/voice-mode/send toolbar, workspace on its status line), Tabler icons. Desktop literal sizes: 13px body and conversation text, 12px/28px controls, 2.5px control radii. Keyboard-open state (<html data-keyboard>) removes static chrome. Device acceptance: portrait, keyboard open, landscape and landscape keyboard in light and dark; Escape, outside tap and rotation close Session options; typing stays responsive with a long transcript.",
+      "owners": [
+        "client/src/state/theme.ts",
+        "client/src/state/theme.test.ts",
+        "client/src/state/keyboard.ts",
+        "client/src/state/keyboard.test.ts",
+        "client/src/skin/index.css",
+        "client/src/components/UiIcons.tsx",
+        "client/src/components/Freeze.tsx",
+        "client/src/App.tsx",
+        "client/src/main.tsx",
+        "client/android/app/src/main/java/dev/hermes/mobile/HermesNativePlugin.java"
+      ]
+    },
+    {
+      "id": "TTS-MIXING",
+      "name": "Synthesized speech does not seize other apps' audio focus",
+      "reason": "Bypass WebView focus handling for every shared TTS consumer without changing browser media or live communication routes. Tests execute native selection and ownership lifecycle, not source matching. Device acceptance must verify other media keeps playing at its original volume through pet speech, response Listen, Reader, Support, pause/resume and cancellation.",
+      "owners": [
+        "client/src/speech-audio.ts",
+        "client/src/speech-audio.test.ts",
+        "client/src/voice.ts",
+        "client/src/transport/native-bridge.ts",
+        "client/android/app/src/main/java/dev/hermes/mobile/SpeechPlayback.java",
+        "client/android/app/src/main/java/dev/hermes/mobile/AndroidSpeechBackend.java",
+        "client/android/app/src/main/java/dev/hermes/mobile/HermesNativePlugin.java",
+        "client/android/app/src/test/java/dev/hermes/mobile/SpeechPlaybackTest.java"
+      ]
+    },
     {
       "id": "MATH-FORMATTING",
       "name": "Safe shared math rendering and contained mobile layout",
@@ -411,6 +476,7 @@
     }
   ],
   "focusedTargets": [
+    "client/src/speech-audio.test.ts",
     "client/src/markdown-math.test.ts",
     "client/src/components/MarkdownContent.test.tsx",
     "client/src/request-response.test.ts",
@@ -448,9 +514,25 @@
     "client/src/pet-realtime-settings.test.ts",
     "client/src/realtime-settings-storage.test.ts",
     "client/src/work-status.test.ts",
-    "client/src/live-tool-calls.test.ts"
+    "client/src/live-tool-calls.test.ts",
+    "client/src/state/theme.test.ts",
+    "client/src/state/keyboard.test.ts",
+    "client/src/components/ReaderView.compatibility.test.tsx",
+    "client/src/components/ControlPanel.test.tsx"
   ],
   "manual": [
+    {
+      "id": "MOBILE-POLISH-INSTALLED",
+      "reason": "Back to chat returns to the selected live session without New or resume. Test compact sessions search/views/sort and Support controls. Context meter exposes current used/free tokens and actual Hermes compression threshold, with estimated provenance when needed. Full host terminal and new connector authorization/catalog/account selection remain unimplemented."
+    },
+    {
+      "id": "MOBILE-SCREENOFF-PLAYBACK",
+      "reason": "Lock the phone during Reader, pet, response Listen and Support TTS. Playback must continue across several segments and resume networking only for active native audio when needed. Verify Pause/Stop releases media playback ownership, live voice retains its separate microphone lease, and no idle playback lease remains after completion. No paid call or active-session interruption merely for smoke testing."
+    },
+    {
+      "id": "TTS-MIXING-DEVICE",
+      "reason": "After data-preserving APK replacement, play music or a podcast in another app. Pet, response Listen, Reader and Support TTS must mix without pausing or ducking it. Verify pause/resume, Stop, headset routing and background cleanup. Do not interrupt an active agent session for this check."
+    },
     {
       "id": "VOICE-001",
       "reason": "Actual speech after greeting; microphone mute/unmute; no silent active call."

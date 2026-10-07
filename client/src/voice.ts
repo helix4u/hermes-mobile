@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { observeSpeechPlaybackStart } from './speech-playback-start'
+import { createSpeechAudio, type SpeechAudio } from './speech-audio'
 import {
   createAsyncTaskLimiter,
   createPreparedSpeechInput,
@@ -24,6 +25,7 @@ import {
 } from './speech-timing'
 import type { HermesTransport } from './transport/hermes-transport'
 import { HermesNative } from './transport/native-bridge'
+import { SpeechBackgroundLease } from './speech-background'
 
 export type VoicePhase =
   'idle' | 'recording' | 'transcribing' | 'synthesizing' | 'speaking'
@@ -840,7 +842,7 @@ export function useVoice({
   const playbackPausedRef = useRef(false)
   const browserRecordingRef = useRef<BrowserRecording | null>(null)
   const recordingTimerRef = useRef<number | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioRef = useRef<SpeechAudio | null>(null)
   const finishAudioRef = useRef<(() => void) | null>(null)
   const beginAudioPlaybackRef = useRef<(() => void) | null>(null)
   const speechGenerationRef = useRef(0)
@@ -852,6 +854,13 @@ export function useVoice({
     new Set<PreparedSpeechStream<SynthesizedSpeech>>(),
   )
   const mountedRef = useRef(true)
+  const speechBackgroundRef = useRef<SpeechBackgroundLease | null>(null)
+  if (nativeClient && !speechBackgroundRef.current) {
+    speechBackgroundRef.current = new SpeechBackgroundLease(HermesNative, () => {
+      console.warn('Background speech lease failed')
+      if (mountedRef.current) onError('Could not keep speech active in the background')
+    })
+  }
   const stopAndTranscribeRef = useRef<() => Promise<void>>(async () => {})
   if (!speechTaskQueueRef.current) {
     speechTaskQueueRef.current = createSerialSpeechTaskQueue()
@@ -866,11 +875,13 @@ export function useVoice({
 
   const updateActiveSpeechId = useCallback((value: string) => {
     activeSpeechIdRef.current = value
+    void speechBackgroundRef.current?.setActive(Boolean(value) && !playbackPausedRef.current)
     setActiveSpeechId(value)
   }, [])
 
   const updatePlaybackPaused = useCallback((value: boolean) => {
     playbackPausedRef.current = value
+    void speechBackgroundRef.current?.setActive(Boolean(activeSpeechIdRef.current) && !value)
     setPlaybackPaused(value)
   }, [])
 
@@ -1060,7 +1071,7 @@ export function useVoice({
       onPlaybackEnd?: () => void,
     ): Promise<void> => {
       if (generation !== speechGenerationRef.current) return
-      const audio = new Audio(dataUrl)
+      const audio = createSpeechAudio(dataUrl, nativeClient)
       const releasePlaybackRate = maintainSpeechPlaybackRate(audio, playbackRate)
       audioRef.current = audio
       await new Promise<void>((resolve, reject) => {
@@ -1137,7 +1148,7 @@ export function useVoice({
         beginPlayback()
       })
     },
-    [],
+    [nativeClient],
   )
 
   const queueIncrementalSpeechPlayback = useCallback(
@@ -1915,8 +1926,11 @@ export function useVoice({
   ])
 
   useEffect(
-    () => () => {
+    () => {
+      mountedRef.current = true
+      return () => {
       mountedRef.current = false
+      void speechBackgroundRef.current?.setActive(false)
       speechGenerationRef.current += 1
       latestSpeechPreparationRef.current += 1
       for (const buffer of incrementalSpeechBuffersRef.current) buffer.cancel()
@@ -1934,6 +1948,7 @@ export function useVoice({
       if (audio) {
         audio.pause()
         audio.removeAttribute('src')
+      }
       }
     },
     [clearRecordingTimer],

@@ -1,0 +1,326 @@
+/* base: type scale, controls and primitives, taken literally from Hermes
+   Desktop (components/ui/button.tsx, control.ts, styles.css): 13px body,
+   12px/16px controls padded to 28px, 2.5px radii, 16px Tabler icons. No
+   mobile up-scaling: the phone gets Desktop's sizes. */
+
+:root {
+  --m-text-micro: 0.6875rem; /* 11px: Desktop text-[0.6875rem], tool rows */
+  --m-text-xs: 0.75rem; /* 12px: Desktop text-xs, controls, captions */
+  --m-text-sm: 0.8125rem; /* 13px: Desktop body */
+  --m-text-base: 0.8125rem; /* 13px */
+  --m-text-chat: 0.8125rem; /* 13px: --conversation-text-base-size */
+  --m-chat-line: 1.125rem; /* 18px: --conversation-base-line-height */
+  --m-text-title: 0.875rem; /* 14px: Desktop text-sm headings */
+  --m-radius-control: 2.5px; /* rounded-[2.5px] */
+  --m-radius-card: calc(var(--radius-scalar, 0.2) * 3.75rem); /* rounded-lg */
+  --m-radius-surface: calc(var(--radius-scalar, 0.2) * 5rem); /* rounded-xl */
+  --m-touch: 2rem; /* Desktop icon-sm button: 32px */
+  --m-control-h: 1.75rem; /* 28px: px-3 py-1.5 text-xs leading-4 */
+  --m-gap: 0.5rem;
+  --m-pad: 0.875rem;
+  /* Opaque: Desktop blurs behind its 96% popover; a phone WebView should
+     not pay for a backdrop filter on every menu. */
+  --m-popover: var(--ui-bg-elevated, var(--dt-popover));
+  --m-shadow-popover: var(--shadow-nous, 0 12px 32px rgb(0 0 0 / 35%));
+  --m-stroke-popover: var(--ui-stroke-secondary); /* Desktop's 3% hairline vanishes on a phone */
+  --m-focus-ring: color-mix(in srgb, var(--dt-ring) 45%, transparent);
+  font-size: 100%;
+  letter-spacing: var(--dt-letter-spacing, normal);
+  scrollbar-color: var(--dt-scrollbar-thumb, var(--ui-stroke-secondary)) transparent;
+}
+
+body {
+  color: var(--ui-text-primary);
+  font-family: var(--dt-font-sans);
+  font-size: var(--m-text-sm);
+  line-height: var(--dt-line-height, 1.5);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--ui-selection-background, color-mix(in srgb, var(--dt-primary) 30%, transparent));
+}
+
+h1 {
+  font-size: var(--m-text-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: var(--m-text-base);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+h3 {
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+/* Eyebrows: Desktop uses quiet sentence-case labels, never tracked caps. */
+.eyebrow,
+.section-help .eyebrow,
+.sheet-heading .eyebrow {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ── Buttons: Desktop buttonVariants ─────────────────────────────── */
+.primary-button,
+.quiet-button,
+.danger-button,
+.switch-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: var(--m-control-h);
+  border: 0;
+  border-radius: var(--m-radius-control);
+  padding: 0.375rem 0.75rem;
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: 0;
+  white-space: nowrap;
+  box-shadow: none;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+/* default: solid primary */
+.primary-button {
+  border: 0;
+  background: var(--dt-primary);
+  color: var(--dt-primary-foreground);
+}
+
+.primary-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--dt-primary) 88%, var(--ui-text-primary));
+}
+
+/* secondary: soft fill */
+.quiet-button,
+.switch-button {
+  border: 0;
+  background: var(--ui-bg-quaternary);
+  color: var(--ui-text-primary);
+}
+
+.quiet-button:active:not(:disabled),
+.switch-button:active:not(:disabled) {
+  background: var(--chrome-action-hover);
+}
+
+/* destructive: Desktop's outline-red reads as a real danger action */
+.danger-button {
+  border: 0;
+  background: color-mix(in srgb, var(--dt-destructive) 12%, transparent);
+  color: var(--dt-destructive);
+}
+
+.danger-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--dt-destructive) 20%, transparent);
+}
+
+/* ghost icon button: 4px radius square, no border */
+.icon-button {
+  width: var(--m-touch);
+  height: var(--m-touch);
+  min-width: var(--m-touch);
+  flex: 0 0 var(--m-touch);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.icon-button:active:not(:disabled) {
+  background: var(--chrome-action-hover);
+  color: var(--ui-text-primary);
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
+.icon-button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+:is(.primary-button, .quiet-button, .danger-button, .icon-button, .switch-button):disabled {
+  opacity: 0.5;
+}
+
+:is(button, a, summary, [role='button']):focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 1px;
+}
+
+/* ── Form controls: Desktop controlVariants + .desktop-input-chrome ── */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+select,
+textarea {
+  border: 1px solid color-mix(in srgb, var(--dt-composer-ring) calc(var(--dt-input-border, 7%) * 2.5), transparent);
+  border-radius: var(--m-radius-control);
+  background: color-mix(in srgb, var(--dt-card) calc(var(--dt-input-bg, 0%) + 35%), transparent);
+  box-shadow: var(--dt-input-inset, none);
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-xs);
+  transition: border-color 200ms ease-out;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+select {
+  min-height: var(--m-control-h);
+  padding: 0.375rem 0.625rem;
+  line-height: 1rem;
+}
+
+textarea {
+  padding: 0.375rem 0.625rem;
+  line-height: 1rem;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ui-text-tertiary);
+  opacity: 1;
+}
+
+input:not([type='checkbox']):not([type='radio']):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--dt-composer-ring);
+  box-shadow: none;
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23888' stroke-width='1.5' d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  background-size: 0.75rem;
+}
+
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'] {
+  accent-color: var(--dt-primary);
+}
+
+label > span:first-child,
+.field-grid label > span:first-child {
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+label small,
+.field-grid small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+/* ── Inline code / code blocks share Desktop's mono ─────────────── */
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--dt-font-mono, 'JetBrains Mono', ui-monospace, monospace);
+}
+
+/* ── Status chips: Desktop Badge variants ──────────────────────── */
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 0;
+  border-radius: var(--m-radius-control);
+  padding: 0.125rem 0.375rem;
+  background: var(--ui-bg-quaternary);
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-micro);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.state-chip.ok {
+  background: color-mix(in srgb, var(--dt-primary) 14%, transparent);
+  color: var(--dt-primary);
+}
+
+/* ── Toasts: Desktop notification stack ─────────────────────────── */
+.toast {
+  border: 1px solid var(--m-stroke-popover);
+  border-radius: var(--m-radius-card);
+  background: var(--m-popover);
+  color: var(--ui-text-primary);
+  box-shadow: var(--m-shadow-popover);
+  font-size: var(--m-text-sm);
+  line-height: 1.4;
+}
+
+.toast-error {
+  border-color: color-mix(in srgb, var(--dt-destructive) 45%, var(--ui-stroke-tertiary));
+  background: var(--m-popover);
+  color: var(--ui-text-primary);
+}
+
+.toast-error::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: var(--m-radius-card) 0 0 var(--m-radius-card);
+  background: var(--dt-destructive);
+}
+
+/* ── Scrollbars (Desktop thin thumbs) ───────────────────────────── */
+* {
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--dt-scrollbar-thumb, var(--ui-stroke-secondary));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+.spin-icon {
+  animation: m-spin 900ms linear infinite;
+}
+
+@keyframes m-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

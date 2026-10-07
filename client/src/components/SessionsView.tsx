@@ -7,12 +7,13 @@ import type {
 } from '../protocol/types'
 import {
   groupProjectRowsByFolder,
-  groupSessionsByFolder,
   isCompactedSession,
   projectSessionRows,
   sessionMatches,
 } from '../state/sessions'
+import type { ProjectSessionRow } from '../state/sessions'
 import { RefreshIcon } from './UiIcons'
+import './SessionsView.css'
 
 interface SessionsViewProps {
   connected: boolean
@@ -24,6 +25,7 @@ interface SessionsViewProps {
   projectDetail: ProjectTree | null
   projectLoading: boolean
   selectedSessionId: string
+  selectedRuntimeSessionId?: string
   onNewSession: () => void
   onProject: (projectId: string) => Promise<void>
   onRefresh: () => Promise<void>
@@ -65,7 +67,122 @@ function liveStatusLabel(status: string): string {
   if (status === 'working') return 'Working'
   if (status === 'starting') return 'Starting'
   if (status === 'waiting') return 'Needs input'
-  return 'Live and idle'
+  if (status === 'idle') return 'Live and idle'
+  return status || 'Live'
+}
+
+export type SessionEntry =
+  | { kind: 'live'; value: LiveSessionSummary; stored?: SessionSummary }
+  | { kind: 'stored'; value: SessionSummary }
+
+type SessionSort = 'recent' | 'title'
+
+function entryKey(entry: SessionEntry): string {
+  return `${entry.kind}:${entry.value.id}`
+}
+
+function sessionTimestamp(value: number | undefined): number {
+  if (!value || !Number.isFinite(value)) return 0
+  return value > 10_000_000_000 ? value : value * 1000
+}
+
+// Runtime IDs and durable IDs are separate namespaces. Only session_key
+// establishes ownership, never an accidental equality between the two IDs.
+export function sessionBrowserEntries(
+  sessions: SessionSummary[],
+  activeSessions: LiveSessionSummary[],
+  {
+    query = '',
+    sort = 'recent',
+    showCompacted = false,
+    liveOnly = false,
+    contexts = new Map<string, ProjectSessionRow>(),
+  }: {
+    query?: string
+    sort?: SessionSort
+    showCompacted?: boolean
+    liveOnly?: boolean
+    contexts?: Map<string, ProjectSessionRow>
+  } = {},
+): SessionEntry[] {
+  const storedById = new Map(sessions.map(session => [session.id, session]))
+  const liveById = new Map(activeSessions.map(session => [session.id, session]))
+  const ownedIds = new Set(
+    [...liveById.values()].map(session => session.session_key).filter(Boolean),
+  )
+  const entries: SessionEntry[] = [...liveById.values()].map(value => ({
+    kind: 'live',
+    value,
+    stored: value.session_key ? storedById.get(value.session_key) : undefined,
+  }))
+  if (!liveOnly) {
+    for (const value of storedById.values()) {
+      if (!ownedIds.has(value.id) && (showCompacted || !isCompactedSession(value))) {
+        entries.push({ kind: 'stored', value })
+      }
+    }
+  }
+  const needle = query.trim().toLowerCase()
+  return entries.filter(entry => {
+    const stored = entry.kind === 'stored' ? entry.value : entry.stored
+    if (!needle || (stored && sessionMatches(stored, needle, contexts.get(stored.id)))) {
+      return true
+    }
+    if (entry.kind === 'stored') return false
+    return [
+      entry.value.id,
+      entry.value.session_key,
+      entry.value.title,
+      entry.value.preview,
+      entry.value.model,
+      entry.value.status,
+      liveStatusLabel(entry.value.status),
+    ].some(value => String(value ?? '').toLowerCase().includes(needle))
+  }).sort((left, right) => {
+    if (sort === 'title') {
+      const title = (left.value.title || (left.kind === 'live' ? 'Live conversation' : 'Untitled session'))
+        .localeCompare(right.value.title || (right.kind === 'live' ? 'Live conversation' : 'Untitled session'))
+      if (title) return title
+    }
+    const recency = sessionTimestamp(right.value.last_active || right.value.started_at)
+      - sessionTimestamp(left.value.last_active || left.value.started_at)
+    return recency || entryKey(left).localeCompare(entryKey(right))
+  })
+}
+
+export function projectBrowserGroups(
+  project: ProjectTree | null,
+  activeSessions: LiveSessionSummary[],
+  options: { query: string; sort: SessionSort; showCompacted: boolean },
+) {
+  const rows = [...new Map(projectSessionRows(project).map(row => [row.session.id, row])).values()]
+  return groupProjectRowsByFolder(rows).map(group => {
+    const ids = new Set(group.rows.map(row => row.session.id))
+    return {
+      ...group,
+      entries: sessionBrowserEntries(
+        group.rows.map(row => row.session),
+        activeSessions.filter(session => session.session_key && ids.has(session.session_key)),
+        { ...options, contexts: new Map(group.rows.map(row => [row.session.id, row])) },
+      ),
+    }
+  }).filter(group => group.entries.length > 0)
+}
+
+export function selectedSessionEntryKey(
+  entries: SessionEntry[],
+  storedId: string,
+  runtimeId?: string,
+): string {
+  if (runtimeId) return `live:${runtimeId}`
+  if (!storedId) return ''
+  const owners = entries.filter(entry =>
+    entry.kind === 'live' && entry.value.session_key === storedId,
+  )
+  // Without an explicit runtime selection, multiple owners are ambiguous.
+  // Do not highlight several rows or let filtering invent a unique owner.
+  if (owners.length) return runtimeId === undefined && owners.length === 1 ? entryKey(owners[0]) : ''
+  return `stored:${storedId}`
 }
 
 function LiveSessionRow({
@@ -82,6 +199,7 @@ function LiveSessionRow({
   return (
     <div className="session-row-shell">
       <button
+        aria-current={selected ? 'true' : undefined}
         className={`session-row live-session-row status-${session.status} ${selected ? 'selected' : ''}`}
         onClick={() => void onActiveSession(session)}
         type="button"
@@ -129,6 +247,7 @@ function SessionRow({
   return (
     <div className="session-row-shell">
       <button
+        aria-current={selected ? 'true' : undefined}
         className={`session-row ${selected ? 'selected' : ''}`}
         onClick={() => void onSession(session)}
         type="button"
@@ -153,6 +272,42 @@ function SessionRow({
   )
 }
 
+export function SessionRows({
+  entries,
+  selectedKey,
+  onActiveSession,
+  onSession,
+  onInspect,
+}: {
+  entries: SessionEntry[]
+  selectedKey: string
+  onActiveSession: SessionsViewProps['onActiveSession']
+  onSession: SessionsViewProps['onSession']
+  onInspect: (entry: SessionEntry) => void
+}) {
+  return (
+    <div className="session-list">
+      {entries.map(entry => entry.kind === 'live' ? (
+        <LiveSessionRow
+          key={entryKey(entry)}
+          session={entry.value}
+          selected={selectedKey === entryKey(entry)}
+          onActiveSession={onActiveSession}
+          onInspect={() => onInspect(entry)}
+        />
+      ) : (
+        <SessionRow
+          key={entryKey(entry)}
+          session={entry.value}
+          selected={selectedKey === entryKey(entry)}
+          onSession={onSession}
+          onInspect={() => onInspect(entry)}
+        />
+      ))}
+    </div>
+  )
+}
+
 export function SessionsView({
   activeSessions,
   activeProjectId,
@@ -166,90 +321,64 @@ export function SessionsView({
   projectDetail,
   projectLoading,
   projects,
+  selectedRuntimeSessionId,
   selectedSessionId,
   sessions,
 }: SessionsViewProps) {
   const [query, setQuery] = useState('')
+  const [view, setView] = useState<'all' | 'live' | 'projects'>('all')
+  const [sort, setSort] = useState<SessionSort>('recent')
   const [showCompacted, setShowCompacted] = useState(false)
-  const [inspected, setInspected] = useState<{
-    kind: 'live' | 'stored'
-    value: LiveSessionSummary | SessionSummary
-  } | null>(null)
+  const [inspected, setInspected] = useState<SessionEntry | null>(null)
   const [copyState, setCopyState] = useState('')
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => new Set(),
   )
   const allRows = useMemo(
-    () => projectSessionRows(projectDetail),
-    [projectDetail],
+    () => projectSessionRows(projectDetail?.id === activeProjectId ? projectDetail : null),
+    [activeProjectId, projectDetail],
   )
-  const rows = useMemo(
-    () =>
-      showCompacted
-        ? allRows
-        : allRows.filter(row => !isCompactedSession(row.session)),
-    [allRows, showCompacted],
+  const allEntries = useMemo(
+    () => sessionBrowserEntries(sessions, activeSessions, { showCompacted }),
+    [sessions, activeSessions, showCompacted],
   )
-  const folderGroups = useMemo(
-    () =>
-      groupProjectRowsByFolder(
-        rows.filter(row => sessionMatches(row.session, query, row)),
-      ),
-    [query, rows],
+  const visibleEntries = useMemo(
+    () => sessionBrowserEntries(sessions, activeSessions, {
+      query, sort, showCompacted, liveOnly: view === 'live',
+    }),
+    [sessions, activeSessions, query, sort, showCompacted, view],
   )
-  const recentSessions = useMemo(
-    () =>
-      sessions.filter(
-        session =>
-          (showCompacted || !isCompactedSession(session)) &&
-          sessionMatches(session, query),
-      ),
-    [query, sessions, showCompacted],
-  )
-  const recentFolderGroups = useMemo(
-    () => groupSessionsByFolder(recentSessions),
-    [recentSessions],
-  )
-  const compactedCount =
-    sessions.filter(isCompactedSession).length +
-    allRows.filter(row => isCompactedSession(row.session)).length
+  const projectGroups = useMemo(() => projectBrowserGroups(
+    projectDetail?.id === activeProjectId ? projectDetail : null,
+    activeSessions, { query, sort, showCompacted },
+  ), [activeProjectId, projectDetail, activeSessions, query, sort, showCompacted])
+  const selectionEntries = useMemo(() => sessionBrowserEntries(
+    [...sessions, ...allRows.map(row => row.session)], activeSessions, { showCompacted: true },
+  ), [sessions, allRows, activeSessions])
+  const selectedKey = selectedSessionEntryKey(selectionEntries, selectedSessionId, selectedRuntimeSessionId)
+  const compactedCount = new Set(
+    (view === 'projects' ? allRows.map(row => row.session) : sessions)
+      .filter(isCompactedSession).map(session => session.id),
+  ).size
 
   useEffect(() => {
-    const selectedGroup = folderGroups.find(group =>
-      group.rows.some(row => row.session.id === selectedSessionId),
+    const selectedGroup = projectGroups.find(group =>
+      group.entries.some(entry => entryKey(entry) === selectedKey),
     )
-    if (!selectedGroup && !query) return
+    if (!selectedGroup && !query.trim()) return
     setExpandedFolders(current => {
       const next = new Set(current)
       if (selectedGroup) {
         next.add(`${activeProjectId}:${selectedGroup.key}`)
       }
-      if (query) {
-        for (const group of folderGroups) {
+      if (query.trim()) {
+        for (const group of projectGroups) {
           next.add(`${activeProjectId}:${group.key}`)
         }
       }
       return next
     })
-  }, [activeProjectId, folderGroups, query, selectedSessionId])
-
-  useEffect(() => {
-    if (activeProjectId) return
-    const selectedGroup = recentFolderGroups.find(group =>
-      group.sessions.some(session => session.id === selectedSessionId),
-    )
-    if (!selectedGroup && !query) return
-    setExpandedFolders(current => {
-      const next = new Set(current)
-      if (selectedGroup) next.add(`recent:${selectedGroup.key}`)
-      if (query) {
-        for (const group of recentFolderGroups) {
-          next.add(`recent:${group.key}`)
-        }
-      }
-      return next
-    })
-  }, [activeProjectId, query, recentFolderGroups, selectedSessionId])
+  }, [activeProjectId, projectGroups, query, selectedKey])
 
   function toggleFolder(key: string) {
     setExpandedFolders(current => {
@@ -260,8 +389,13 @@ export function SessionsView({
     })
   }
 
+  function inspect(entry: SessionEntry) {
+    setCopyState('')
+    setInspected(entry)
+  }
+
   return (
-    <>
+    <div className="session-browser">
       <div className="page-heading">
         <div>
           <p className="eyebrow">{profile || 'default'} profile</p>
@@ -288,6 +422,8 @@ export function SessionsView({
         <label className="session-search">
           <span aria-hidden="true">⌕</span>
           <input
+            aria-label="Search sessions"
+            type="search"
             placeholder="Search title, cwd, branch, source, or model"
             value={query}
             onChange={event => setQuery(event.target.value)}
@@ -295,7 +431,27 @@ export function SessionsView({
         </label>
       </div>
 
-      {compactedCount > 0 && (
+      <div className="session-view-toolbar">
+        <nav className="session-view-switch" aria-label="Session views">
+          <button type="button" aria-pressed={view === 'all'} onClick={() => setView('all')}>
+            All <span>{allEntries.length}</span>
+          </button>
+          <button type="button" aria-pressed={view === 'live'} onClick={() => setView('live')}>
+            Live <span>{allEntries.filter(entry => entry.kind === 'live').length}</span>
+          </button>
+          {(projects.length > 0 || activeProjectId) && (
+            <button type="button" aria-pressed={view === 'projects'} onClick={() => setView('projects')}>
+              Projects
+            </button>
+          )}
+        </nav>
+        <div className="session-sort-switch" role="group" aria-label="Sort sessions">
+          <button type="button" aria-pressed={sort === 'recent'} onClick={() => setSort('recent')}>Recent</button>
+          <button type="button" aria-pressed={sort === 'title'} onClick={() => setSort('title')}>Title</button>
+        </div>
+      </div>
+
+      {compactedCount > 0 && view !== 'live' && (
         <label className="session-compacted-toggle">
           <input
             checked={showCompacted}
@@ -307,107 +463,29 @@ export function SessionsView({
         </label>
       )}
 
-      {activeSessions.length > 0 && (
-        <section className="live-sessions-panel" aria-label="Sessions in progress">
-          <div className="live-sessions-heading">
-            <span>
-              <strong>In progress</strong>
-              <small>Attach without restarting the turn</small>
-            </span>
-            <span>{activeSessions.length}</span>
-          </div>
-          <div className="session-list">
-            {activeSessions.map(session => (
-              <LiveSessionRow
-                key={session.id}
-                onActiveSession={onActiveSession}
-                selected={
-                  session.id === selectedSessionId ||
-                  Boolean(session.session_key && session.session_key === selectedSessionId)
-                }
-                session={session}
-                onInspect={value => {
-                  setCopyState('')
-                  setInspected({ kind: 'live', value })
-                }}
-              />
-            ))}
-          </div>
+      {view !== 'projects' && (
+        <section className="session-flat-results" aria-label={view === 'live' ? 'Live sessions' : 'All sessions'}>
+          <p className="session-result-summary" role="status">
+            {visibleEntries.length} {visibleEntries.length === 1 ? 'session' : 'sessions'}
+            {query.trim() ? ' matching search' : ''}
+            {!connected && visibleEntries.length > 0 ? ' (cached, disconnected)' : ''}
+          </p>
+          {visibleEntries.length > 0 ? (
+            <SessionRows entries={visibleEntries} selectedKey={selectedKey}
+              onActiveSession={onActiveSession} onSession={onSession} onInspect={inspect} />
+          ) : (
+            <p className="empty-copy">
+              {query.trim() ? 'No sessions match that search.' : !connected
+                ? 'Connect to load sessions.' : view === 'live'
+                  ? 'No live sessions in this profile.' : 'No sessions in this profile yet.'}
+            </p>
+          )}
         </section>
       )}
 
-      <nav className="session-project-browser" aria-label="Session projects">
-        <section className="session-project-branch">
-          <button
-            aria-expanded={!activeProjectId}
-            className={`session-project-row ${!activeProjectId ? 'active' : ''}`}
-            onClick={() => void onProject('')}
-            type="button"
-          >
-            <span className="session-tree-chevron">›</span>
-            <span className="session-project-icon">◷</span>
-            <span className="session-project-copy">
-              <strong>Recent</strong>
-              <small>Latest sessions from this profile</small>
-            </span>
-            <span className="session-project-count">{sessions.length}</span>
-          </button>
-          {!activeProjectId && (
-            <div className="session-branch-content">
-              {!connected ? (
-                <p className="empty-copy">Connect to load sessions.</p>
-              ) : recentFolderGroups.length === 0 ? (
-                <p className="empty-copy">
-                  {query
-                    ? 'No sessions match that search.'
-                    : 'No sessions in this profile yet.'}
-                </p>
-              ) : (
-                recentFolderGroups.map(group => {
-                  const folderKey = `recent:${group.key}`
-                  const folderOpen = expandedFolders.has(folderKey)
-                  return (
-                    <section className="cwd-session-group" key={group.key}>
-                      <button
-                        aria-expanded={folderOpen}
-                        className="cwd-session-heading"
-                        onClick={() => toggleFolder(folderKey)}
-                        type="button"
-                      >
-                        <span className="session-tree-chevron">›</span>
-                        <span className="session-folder-icon">⌑</span>
-                        <span className="session-folder-copy">
-                          <strong>{group.label}</strong>
-                          {group.path && <small>{group.path}</small>}
-                        </span>
-                        <span className="session-project-count">
-                          {group.sessions.length}
-                        </span>
-                      </button>
-                      {folderOpen && (
-                        <div className="session-list session-folder-sessions">
-                          {group.sessions.map(session => (
-                            <SessionRow
-                              key={session.id}
-                              selected={selectedSessionId === session.id}
-                              session={session}
-                              onSession={onSession}
-                              onInspect={value => {
-                                setCopyState('')
-                                setInspected({ kind: 'stored', value })
-                              }}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </section>
-                  )
-                })
-              )}
-            </div>
-          )}
-        </section>
-
+      {view === 'projects' && (
+        <nav className="session-project-browser" aria-label="Session projects">
+        {projects.length === 0 && <p className="empty-copy">No projects in this profile.</p>}
         {projects.map(project => {
           const projectOpen = activeProjectId === project.id
           return (
@@ -437,14 +515,16 @@ export function SessionsView({
                 <div className="session-branch-content">
                   {projectLoading ? (
                     <p className="empty-copy">Loading project sessions…</p>
-                  ) : folderGroups.length === 0 ? (
+                  ) : projectDetail?.id !== project.id ? (
+                    <p className="empty-copy">Project sessions are not loaded. Refresh to try again.</p>
+                  ) : projectGroups.length === 0 ? (
                     <p className="empty-copy">
-                      {query
+                      {query.trim()
                         ? 'No project sessions match that search.'
                         : 'No sessions in this project.'}
                     </p>
                   ) : (
-                    folderGroups.map(group => {
+                    projectGroups.map(group => {
                       const folderKey = `${project.id}:${group.key}`
                       const folderOpen = expandedFolders.has(folderKey)
                       return (
@@ -465,25 +545,13 @@ export function SessionsView({
                               {group.path && <small>{group.path}</small>}
                             </span>
                             <span className="session-project-count">
-                              {group.rows.length}
+                              {group.entries.length}
                             </span>
                           </button>
                           {folderOpen && (
-                            <div className="session-list session-folder-sessions">
-                              {group.rows.map(row => (
-                                <SessionRow
-                                  key={row.session.id}
-                                  selected={
-                                    selectedSessionId === row.session.id
-                                  }
-                                  session={row.session}
-                                  onSession={onSession}
-                                  onInspect={value => {
-                                    setCopyState('')
-                                    setInspected({ kind: 'stored', value })
-                                  }}
-                                />
-                              ))}
+                            <div className="session-folder-sessions">
+                              <SessionRows entries={group.entries} selectedKey={selectedKey}
+                                onActiveSession={onActiveSession} onSession={onSession} onInspect={inspect} />
                             </div>
                           )}
                         </section>
@@ -495,7 +563,8 @@ export function SessionsView({
             </section>
           )
         })}
-      </nav>
+        </nav>
+      )}
       {inspected && (
         <div className="session-inspector-backdrop" role="presentation">
           <section
@@ -531,8 +600,8 @@ export function SessionsView({
               </button>
               <button
                 onClick={() => {
-                  if (inspected.kind === 'live') void onActiveSession(inspected.value as LiveSessionSummary)
-                  else void onSession(inspected.value as SessionSummary)
+                  if (inspected.kind === 'live') void onActiveSession(inspected.value)
+                  else void onSession(inspected.value)
                   setInspected(null)
                 }}
                 type="button"
@@ -544,6 +613,6 @@ export function SessionsView({
           </section>
         </div>
       )}
-    </>
+    </div>
   )
 }

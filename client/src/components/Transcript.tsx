@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  CloseIcon,
+  CopyIcon,
+  LoaderIcon,
+  SpeakerIcon,
+  StopIcon,
+} from './UiIcons'
 import { writeClipboardText } from '../clipboard'
 import { displayTextForMediaMarkers } from '../media-markers'
 import type { PreviewDocument } from '../preview'
@@ -97,7 +106,7 @@ function ToolCard({
         </span>
       )}
       {canInspect && (
-        <span className="disclosure-glyph">{open ? '−' : '+'}</span>
+        <span className="disclosure-glyph" data-open={open ? 'true' : 'false'}><ChevronDownIcon /></span>
       )}
     </>
   )
@@ -248,7 +257,7 @@ function MessageCopyButton({ text }: { text: string }) {
       type="button"
       onClick={() => void copy()}
     >
-      {copied ? 'Copied' : 'Copy'}
+      {copied ? <CheckIcon /> : <CopyIcon />}
     </button>
   )
 }
@@ -372,7 +381,7 @@ function loadDismissedPetIds(connectionId: string): Set<string> {
   }
 }
 
-export function Transcript({
+export const Transcript = memo(function Transcript({
   activeSpeechId,
   connectionId,
   items,
@@ -470,13 +479,14 @@ export function Transcript({
                   <button
                     aria-label={speaking ? 'Stop reading response' : 'Read response aloud'}
                     className={`speak-button ${speaking ? 'active' : ''}`}
+                    type="button"
                     onClick={() => onSpeak(item.text || '', item.id, item.kind)}
                   >
-                    {speaking
-                      ? voicePhase === 'synthesizing'
-                        ? 'Preparing…'
-                        : 'Stop'
-                      : 'Listen'}
+                    {speaking ? (
+                      voicePhase === 'synthesizing' ? <LoaderIcon /> : <StopIcon />
+                    ) : (
+                      <SpeakerIcon />
+                    )}
                   </button>
                 )}
                 {item.text && !item.streaming && (
@@ -494,7 +504,7 @@ export function Transcript({
                     }}
                     type="button"
                   >
-                    Dismiss
+                    <CloseIcon />
                   </button>
                 )}
               </div>
@@ -517,4 +527,4 @@ export function Transcript({
       })}
     </>
   )
-}
+})

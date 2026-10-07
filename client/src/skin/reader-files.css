@@ -1,0 +1,844 @@
+/* reader-files: Reader and Files tabs, file/document preview.
+   Files reads as Desktop's file explorer: flat full-width rows with small
+   neutral glyphs and tertiary meta, a path bar built from input chrome and
+   ghost buttons. Reader is a Desktop editor pane: a segmented control for
+   the two surfaces, the script in input chrome, settings as a bordered
+   group, and playback as a docked transport bar. */
+
+.reader-view,
+.files-view {
+  background: var(--ui-bg-editor);
+}
+
+/* ── Pane headers (match shell.css .page-heading) ─────────────── */
+.reader-screen .page-heading,
+.files-screen .page-heading {
+  gap: 0.75rem;
+  min-height: 3.25rem;
+  margin-bottom: 0.625rem;
+  padding: 0.375rem 0.75rem 0.375rem 0.875rem;
+}
+
+.reader-screen .page-heading > div:first-child,
+.files-screen .page-heading > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.0625rem;
+}
+
+.reader-screen .page-heading .eyebrow,
+.files-screen .page-heading .eyebrow {
+  overflow: hidden;
+  font-size: var(--m-text-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-screen .page-heading h1,
+.files-screen .page-heading h1 {
+  margin: 0;
+  font-size: var(--m-text-title);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.reader-screen .page-heading .quiet-button,
+.file-heading-actions .quiet-button {
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+}
+
+.file-heading-actions {
+  gap: 0.25rem;
+}
+
+/* Desktop alert, scoped to these panes */
+.reader-screen .inline-error,
+.files-screen .inline-error {
+  margin: 0 0.75rem 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--dt-destructive) 35%, var(--ui-stroke-tertiary));
+  border-radius: var(--m-radius-card);
+  background: color-mix(in srgb, var(--dt-destructive) 8%, transparent);
+  padding: 0.5rem 0.75rem;
+  color: var(--dt-destructive);
+  font-size: var(--m-text-sm);
+  line-height: 1.4;
+}
+
+/* ── Segmented controls: Reader surfaces + Preview/Edit ────────── */
+.reader-surface-tabs,
+.file-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.125rem;
+  overflow: visible;
+  border: 0;
+  border-radius: var(--m-radius-card);
+  background: var(--ui-bg-quaternary);
+  padding: 0.125rem;
+}
+
+.reader-surface-tabs {
+  margin: 0 0.75rem 0.75rem;
+}
+
+.file-mode-tabs {
+  margin: 0.5rem 0.75rem;
+}
+
+.reader-surface-tabs button,
+.file-mode-tabs button {
+  min-width: 0;
+  min-height: 2.25rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: calc(var(--m-radius-card) - 0.125rem);
+  background: transparent;
+  padding: 0 0.5rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.reader-surface-tabs button.active,
+.file-mode-tabs button.active {
+  background: var(--ui-bg-editor);
+  color: var(--ui-text-primary);
+  box-shadow: 0 0 0 1px var(--ui-stroke-tertiary);
+}
+
+.file-mode-tabs button:disabled {
+  opacity: 0.5;
+}
+
+/* ── Reader: script editor ────────────────────────────────────── */
+.reader-source,
+.reader-controls {
+  margin: 0 0 0.75rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0 0.75rem;
+}
+
+.reader-source {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.reader-source label {
+  gap: 0.375rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+/* Input chrome (base.css) restated: the legacy rules here out-rank it. */
+.reader-source textarea,
+.reader-block-heading select,
+.file-path-bar input {
+  border: 1px solid color-mix(in srgb, var(--dt-composer-ring) calc(var(--dt-input-border, 7%) * 2.5), transparent);
+  border-radius: var(--m-radius-control);
+  background: color-mix(in srgb, var(--dt-card) calc(var(--dt-input-bg, 0%) + 35%), transparent);
+  box-shadow: var(--dt-input-inset, none);
+  color: var(--ui-text-primary);
+  transition: border-color 200ms ease-out;
+}
+
+.reader-source textarea:focus,
+.reader-block-heading select:focus,
+.file-path-bar input:focus {
+  border-color: var(--dt-composer-ring);
+  outline: none;
+}
+
+.reader-source textarea {
+  min-height: 8.5rem;
+  background: var(--ui-editor-surface-background, var(--ui-bg-editor));
+  padding: 0.625rem 0.75rem;
+  font-size: var(--m-text-base);
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+.reader-source .section-help {
+  margin: 0;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+/* ── Reader: actions + Voices & buffering group ───────────────── */
+.reader-controls {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.reader-primary-actions {
+  gap: 0.375rem;
+}
+
+.reader-render-status {
+  color: var(--dt-primary);
+  font-size: var(--m-text-xs);
+}
+
+.reader-settings {
+  overflow: hidden;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-surface);
+  background: transparent;
+}
+
+.reader-settings > summary {
+  gap: 0.75rem;
+  min-height: var(--m-touch);
+  padding: 0.5rem 0.75rem;
+}
+
+.reader-settings > summary:active {
+  background: var(--ui-row-hover-background, var(--chrome-action-hover));
+}
+
+.reader-settings > summary > span:first-child {
+  gap: 0.0625rem;
+}
+
+.reader-settings > summary strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.reader-settings > summary small {
+  overflow: hidden;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Disclosure: small tertiary chevron instead of the "+" glyph */
+.reader-settings .disclosure-glyph {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-tertiary);
+  font-size: 0;
+}
+
+.reader-settings .disclosure-glyph::before {
+  content: '';
+  width: 0.4375rem;
+  height: 0.4375rem;
+  margin-top: -0.1875rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 120ms ease;
+}
+
+.reader-settings[open] > summary .disclosure-glyph {
+  transform: none;
+}
+
+.reader-settings[open] > summary .disclosure-glyph::before {
+  margin-top: 0.1875rem;
+  transform: rotate(-135deg);
+}
+
+.reader-settings-body {
+  gap: 0.75rem;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding: 0.75rem;
+}
+
+.reader-provider-row {
+  gap: 0.375rem;
+}
+
+.provider-chip {
+  min-height: 2.25rem;
+  gap: 0.375rem;
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0 0.625rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+.provider-chip:has(input:checked) {
+  background: var(--ui-row-active-background, var(--chrome-action-hover));
+  color: var(--ui-text-primary);
+}
+
+.provider-chip input {
+  width: 0.875rem;
+  height: 0.875rem;
+  accent-color: var(--dt-primary);
+}
+
+.reader-playback-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 0.625rem 1rem;
+}
+
+.reader-buffer-field {
+  gap: 0.25rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+.reader-buffer-field > span {
+  white-space: nowrap;
+}
+
+.reader-buffer-field output {
+  color: var(--ui-text-primary);
+  font-weight: 500;
+}
+
+.reader-buffer-field input {
+  min-height: 1.75rem;
+  accent-color: var(--dt-primary);
+}
+
+.reader-playback-settings .state-chip {
+  grid-column: 1 / -1;
+  justify-self: start;
+  max-width: 100%;
+  text-align: left;
+}
+
+.reader-buffer-help {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+/* ── Reader: blocks as flat editor rows ───────────────────────── */
+.reader-blocks {
+  gap: 0;
+  padding: 0 0.75rem;
+}
+
+.reader-blocks > .reader-block {
+  gap: 0.375rem;
+  border: 0;
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.625rem 0.25rem;
+  box-shadow: none;
+}
+
+.reader-blocks > .reader-block:first-child {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+}
+
+.reader-blocks > .reader-block.active {
+  border-color: var(--ui-stroke-tertiary);
+  border-radius: 4px;
+  background: var(--ui-row-active-background, var(--chrome-action-hover));
+  box-shadow: inset 2px 0 var(--ui-text-tertiary);
+}
+
+.reader-block-heading {
+  gap: 0.5rem;
+}
+
+.reader-block-heading strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.reader-block-heading select {
+  width: min(62%, 14rem);
+  max-width: 62%;
+  min-height: 2.25rem;
+  padding: 0.25rem 1.75rem 0.25rem 0.5rem;
+  font-size: var(--m-text-xs);
+}
+
+.reader-block p {
+  margin: 0;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+  line-height: 1.55;
+}
+
+.reader-block .reader-block-start {
+  min-height: 2.25rem;
+  background: transparent;
+  padding: 0 0.625rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+}
+
+.reader-block .reader-block-start:active:not(:disabled) {
+  background: var(--chrome-action-hover);
+  color: var(--ui-text-primary);
+}
+
+/* Empty states (Reader + preview fallbacks) */
+.reader-screen .empty-panel,
+.file-preview .empty-panel {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  padding: 1.75rem 1rem;
+  text-align: center;
+}
+
+.reader-screen .empty-panel h2,
+.file-preview .empty-panel h2 {
+  margin: 0;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+  font-weight: 500;
+}
+
+.reader-screen .empty-panel p,
+.file-preview .empty-panel p {
+  margin: 0;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+.reader-preview-surface .empty-panel {
+  border: 1px dashed var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-surface);
+}
+
+/* ── Reader: transport bar ────────────────────────────────────
+   Docked to the bottom edge of the pane like Desktop's status/transport
+   strips: full width, hairline top, chrome fill, icon controls. No floating
+   card, no shadow. Play is the one primary disc. */
+.reader-playback-dock {
+  position: sticky;
+  z-index: 16;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2.75rem;
+  margin: auto 0 0;
+  border: 0;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  border-radius: 0;
+  background: var(--ui-bg-chrome, var(--ui-bg-editor));
+  /* This sticky dock is inside the shell's inset-constrained viewport. */
+  padding: 0.375rem 0.5rem;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.reader-playback-buttons {
+  display: flex;
+  order: 0;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.reader-playback-state {
+  order: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 0.375rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-playback-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.reader-playback-buttons button {
+  display: inline-grid;
+  width: 2rem;
+  height: 2rem;
+  min-height: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  color: var(--ui-text-secondary);
+  box-shadow: none;
+}
+
+.reader-playback-buttons button svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.reader-playback-buttons button:active:not(:disabled) {
+  background: var(--chrome-action-hover);
+  color: var(--ui-text-primary);
+}
+
+.reader-playback-buttons .reader-play {
+  margin-right: 0.25rem;
+  border-radius: 999px;
+  background: var(--dt-primary);
+  color: var(--dt-primary-foreground);
+}
+
+.reader-playback-buttons .reader-play:disabled {
+  background: var(--ui-bg-quaternary);
+  color: var(--ui-text-tertiary);
+}
+
+.reader-playback-buttons .reader-play:active:not(:disabled) {
+  background: color-mix(in srgb, var(--dt-primary) 88%, var(--ui-text-primary));
+  color: var(--dt-primary-foreground);
+}
+
+/* Follow is a toggle: it sits at the far end, after the state text. */
+.reader-playback-buttons button[aria-pressed] {
+  position: absolute;
+  right: 0.5rem;
+}
+
+.reader-playback-dock {
+  padding-right: 2.75rem;
+}
+
+.reader-playback-buttons button[aria-pressed='true'] {
+  background: var(--ui-row-active-background, var(--chrome-action-hover));
+  color: var(--ui-text-primary);
+}
+
+.reader-playback-buttons button:disabled {
+  opacity: 0.45;
+}
+
+.reader-preview-surface {
+  padding: 0 0.75rem 0.75rem;
+}
+
+/* ── Files: path bar ──────────────────────────────────────────── */
+.file-path-bar {
+  grid-template-columns: var(--m-touch) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 0.75rem 0.5rem;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.file-path-bar input {
+  min-height: var(--m-touch);
+  padding: 0.4375rem 0.625rem;
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+  font-size: var(--m-text-xs);
+}
+
+.file-path-bar button {
+  min-width: var(--m-touch);
+  height: var(--m-touch);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 0.625rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.file-path-bar button[aria-label='Parent directory'] {
+  padding: 0;
+  font-size: 1rem;
+}
+
+.file-path-bar button[type='submit'] {
+  background: var(--ui-bg-quaternary);
+  color: var(--ui-text-primary);
+  border-radius: var(--m-radius-control);
+}
+
+.file-path-bar button:active:not(:disabled) {
+  background: var(--chrome-action-hover);
+  color: var(--ui-text-primary);
+}
+
+.file-path-bar button:disabled {
+  opacity: 0.5;
+}
+
+/* ── Files: explorer rows ─────────────────────────────────────── */
+/* max-content rows: the legacy auto rows collapsed the list to 0px (hidden
+   under the preview) whenever a file was open. */
+.file-browser {
+  grid-auto-rows: max-content;
+  gap: 0.75rem;
+  padding: 0 0.5rem 1rem;
+}
+
+.file-list {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.file-row-shell {
+  grid-template-columns: minmax(0, 1fr) var(--m-touch);
+  align-items: center;
+  gap: 0.125rem;
+  border-bottom: 0;
+  border-radius: 6px;
+}
+
+.file-row-shell:has(.file-row:active) {
+  background: var(--ui-row-hover-background, var(--chrome-action-hover));
+}
+
+.file-row {
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  gap: 0.625rem;
+  min-height: var(--m-touch);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  color: var(--ui-text-primary);
+}
+
+/* Neutral folder / file glyphs drawn over the text characters. */
+.file-row > span:first-child {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  background: var(--ui-text-tertiary);
+  color: transparent;
+  font-size: 0;
+  -webkit-mask: var(--m-file-glyph) center / contain no-repeat;
+  mask: var(--m-file-glyph) center / contain no-repeat;
+  --m-file-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linejoin='round'%3E%3Cpath d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/%3E%3C/svg%3E");
+}
+
+/* Only files carry a download button, so that tells the two apart. */
+.file-row-shell:has(.file-download-button) .file-row > span:first-child {
+  --m-file-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'/%3E%3C/svg%3E");
+}
+
+.file-row > span:nth-child(2) {
+  font-size: var(--m-text-base);
+  font-weight: 400;
+}
+
+.file-row small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.file-download-button {
+  width: var(--m-touch);
+  height: var(--m-touch);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-base);
+  font-weight: 400;
+}
+
+.file-download-button:active:not(:disabled) {
+  background: var(--chrome-action-hover);
+  color: var(--ui-text-primary);
+}
+
+.file-empty {
+  margin: 0;
+  padding: 1.5rem 1rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-sm);
+}
+
+/* ── File / document preview: a Desktop editor surface ────────── */
+.file-preview {
+  min-height: 16rem;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-surface);
+  background: var(--ui-bg-editor);
+}
+
+.file-preview-heading {
+  position: relative;
+  gap: 0.5rem;
+  border-bottom: 0;
+  padding: 0.625rem 0.75rem 0;
+}
+
+.file-preview-heading:has(.icon-button) > div:first-child {
+  padding-right: 2.25rem;
+}
+
+.file-preview-heading > div:first-child {
+  gap: 0.0625rem;
+}
+
+.file-preview-heading strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+  font-weight: 600;
+}
+
+.file-preview-heading small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.file-preview-actions {
+  gap: 0.25rem;
+}
+
+.file-preview-actions .quiet-button {
+  flex: 0 0 auto;
+  min-height: 2.25rem;
+  padding: 0 0.625rem;
+  font-size: var(--m-text-xs);
+}
+
+.file-preview-actions .icon-button {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+}
+
+.file-text-preview,
+.file-preview textarea {
+  min-height: 18rem;
+  border: 0;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  border-radius: 0;
+  background: var(--ui-editor-surface-background, var(--ui-bg-editor));
+  padding: 0.75rem 0.875rem;
+  color: var(--ui-text-primary);
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+  font-size: var(--m-text-xs);
+  line-height: 1.6;
+  box-shadow: none;
+}
+
+.document-markdown-preview {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding: 0.75rem 0.875rem;
+}
+
+.file-editor-actions {
+  gap: 0.375rem;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding: 0.5rem 0.75rem;
+}
+
+/* Media + images inside a preview: neutral stage, no gold glow. */
+.native-media-preview {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  background: var(--ui-editor-surface-background, var(--ui-bg-editor));
+}
+
+.native-media-preview video {
+  border-radius: var(--m-radius-card);
+}
+
+.media-art {
+  width: 4rem;
+  height: 4rem;
+  border: 0;
+  background: var(--ui-bg-quaternary);
+  color: var(--ui-text-tertiary);
+  font-size: 1.5rem;
+}
+
+.file-preview .image-preview {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  background: var(--ui-editor-surface-background, var(--ui-bg-editor));
+}
+
+.file-preview .image-preview img {
+  border-radius: var(--m-radius-card);
+}
+
+.file-preview .image-preview small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.document-markdown-preview .markdown-media {
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: transparent;
+  padding: 0.5rem;
+}
+
+.document-markdown-preview .markdown-media small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+/* ── Soft keyboard open: give the field the room ──────────────── */
+:root[data-keyboard='open'] .reader-screen .page-heading,
+:root[data-keyboard='open'] .files-screen .page-heading {
+  min-height: 2.5rem;
+  margin-bottom: 0.375rem;
+}
+
+:root[data-keyboard='open'] .reader-screen .page-heading .eyebrow,
+:root[data-keyboard='open'] .files-screen .page-heading .eyebrow,
+:root[data-keyboard='open'] .reader-source .section-help {
+  display: none;
+}
+
+:root[data-keyboard='open'] .reader-surface-tabs {
+  margin-bottom: 0.5rem;
+}
+
+:root[data-keyboard='open'] .reader-source textarea {
+  min-height: 6rem;
+}
+
+:root[data-keyboard='open'] .reader-playback-dock {
+  display: none;
+}
+
+/* Landscape IME leaves ~200px: drop the pane header while typing. */
+@media (orientation: landscape) and (min-width: 600px) and (max-height: 600px) {
+  :root[data-keyboard='open'] .reader-screen .page-heading,
+  :root[data-keyboard='open'] .files-screen .page-heading {
+    display: none;
+  }
+
+  :root[data-keyboard='open'] .reader-surface-tabs {
+    margin-top: 0.375rem;
+  }
+}

@@ -24,7 +24,9 @@ describe('mobile Control settings disclosures', () => {
           profile="default"
           runtimeSessionId=""
           sessionCwd=""
-          themeSelection="mobile"
+          themeSelection="host"
+          themeMode="system"
+          onThemeModeChange={() => {}}
           transport={null}
           voicePhase="idle"
           switchingProfile={false}

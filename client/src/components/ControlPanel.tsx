@@ -12,7 +12,12 @@ import type {
   PetSpeechProfile,
 } from '../pet'
 import { modelConfigValue } from '../state/control'
-import { MOBILE_THEME_OPTIONS, type MobileThemeSelection } from '../state/theme'
+import {
+  MOBILE_THEME_MODES,
+  MOBILE_THEME_OPTIONS,
+  type MobileThemeMode,
+  type MobileThemeSelection,
+} from '../state/theme'
 import { formatDisplayValue, redactDisplayValue } from '../state/transcript'
 import type { HermesTransport } from '../transport/hermes-transport'
 import type { VoicePhase } from '../voice'
@@ -33,6 +38,7 @@ import { VoiceSettings } from './VoiceSettings'
 import { RealtimeInputSettings, type RealtimeInputSettingsProps } from './RealtimeInputSettings'
 import { ProfileAndScheduleSettings } from './ProfileAndScheduleSettings'
 import { RefreshIcon } from './UiIcons'
+import { CapabilitiesPanel } from './CapabilitiesPanel'
 
 interface ModelProvider {
   slug: string
@@ -67,6 +73,7 @@ interface ControlPanelProps {
   preferredWorkspace: string
   activeSkinName: string
   themeSelection: MobileThemeSelection
+  themeMode: MobileThemeMode
   autoSpeak: boolean
   autoplayDuringVoice?: { muted: boolean; onChange: (muted: boolean) => void }
   wakeWordAvailable: boolean
@@ -108,6 +115,7 @@ interface ControlPanelProps {
   onSherpaPetWakePhraseChange: (phrase: string) => void
   onSherpaWakePhraseChange: (phrase: string) => void
   onThemeSelectionChange: (selection: MobileThemeSelection) => void
+  onThemeModeChange: (mode: MobileThemeMode) => void
   onNotice: (message: string) => void
   onOpenWorkspace: () => void
   onStopSpeech: () => void
@@ -132,11 +140,17 @@ const emptyConfig: ConfigValues = {
 
 function AppearanceSettings({
   activeSkinName,
+  onThemeModeChange,
   onThemeSelectionChange,
+  themeMode,
   themeSelection,
 }: Pick<
   ControlPanelProps,
-  'activeSkinName' | 'onThemeSelectionChange' | 'themeSelection'
+  | 'activeSkinName'
+  | 'onThemeModeChange'
+  | 'onThemeSelectionChange'
+  | 'themeMode'
+  | 'themeSelection'
 >) {
   const {
     allowedProviders,
@@ -148,43 +162,62 @@ function AppearanceSettings({
     themeSelection === 'host'
       ? `Following ${activeSkinName || 'host'}`
       : MOBILE_THEME_OPTIONS.find(option => option.id === themeSelection)
-          ?.label || 'Hermes Mobile'
+          ?.label || 'Hermes'
+  const modeLabel =
+    MOBILE_THEME_MODES.find(option => option.id === themeMode)?.label ?? ''
 
   return (
     <details className="control-section">
       <summary>
         <span>
           <strong>Appearance</strong>
-          <small>{activeLabel}</small>
+          <small>
+            {activeLabel} · {modeLabel}
+          </small>
         </span>
         <span className="disclosure-glyph">+</span>
       </summary>
       <div className="control-body">
         <p className="advanced-copy">
-          Appearance is saved only on this phone for this connection. These
-          choices never change the Hermes host theme.
+          The same themes as Hermes Desktop. Saved only on this phone for this
+          connection; never changes the host theme.
         </p>
         <label>
-          <span>Mobile appearance</span>
+          <span>Theme</span>
           <select
             value={themeSelection}
             onChange={event =>
               onThemeSelectionChange(event.target.value as MobileThemeSelection)
             }
           >
-            {MOBILE_THEME_OPTIONS.map(option => (
-              <option key={option.id} value={option.id}>
-                {option.label} · {option.description}
-              </option>
-            ))}
             <option value="host">
               Follow host · {activeSkinName || 'default'}
             </option>
+            {MOBILE_THEME_OPTIONS.map(option => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Mode</span>
+          <select
+            value={themeMode}
+            onChange={event =>
+              onThemeModeChange(event.target.value as MobileThemeMode)
+            }
+          >
+            {MOBILE_THEME_MODES.map(option => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </label>
         <p className="advanced-copy">
-          Follow host is read-only. It mirrors the active Hermes skin and live
-          skin changes without writing to host configuration.
+          Follow host mirrors the host's active skin and live skin changes, like
+          Desktop. It never writes host configuration.
         </p>
         <label>
           <span>Rich link embeds</span>
@@ -235,6 +268,7 @@ export function ControlPanel({
   onNotice,
   onOpenWorkspace,
   onStopSpeech,
+  onThemeModeChange,
   onThemeSelectionChange,
   onToolDetailModeChange,
   onVoiceSelectionChange,
@@ -243,6 +277,7 @@ export function ControlPanel({
   profile,
   sessionCwd,
   preferredWorkspace,
+  themeMode,
   themeSelection,
   transport,
   voiceSelection,
@@ -534,7 +569,9 @@ export function ControlPanel({
         />
         <AppearanceSettings
           activeSkinName={activeSkinName}
+          onThemeModeChange={onThemeModeChange}
           onThemeSelectionChange={onThemeSelectionChange}
+          themeMode={themeMode}
           themeSelection={themeSelection}
         />
         <MobileCompanionSettings onNotice={onNotice} />
@@ -707,7 +744,9 @@ export function ControlPanel({
 
       <AppearanceSettings
         activeSkinName={activeSkinName}
+        onThemeModeChange={onThemeModeChange}
         onThemeSelectionChange={onThemeSelectionChange}
+        themeMode={themeMode}
         themeSelection={themeSelection}
       />
 
@@ -1000,6 +1039,10 @@ export function ControlPanel({
           ))}
         </div>
       </details>
+
+      {transport && (
+        <CapabilitiesPanel key={JSON.stringify([transport.connection.id, profile])} connected={connected} transport={transport} onNotice={onNotice} />
+      )}
 
       {transport && (
         <MobilePluginInstaller

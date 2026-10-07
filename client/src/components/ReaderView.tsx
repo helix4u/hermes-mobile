@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { FollowIcon, PauseIcon, PlayIcon, StopIcon } from './UiIcons'
 import {
   DEFAULT_READER_BUFFER_AHEAD,
   DEFAULT_READER_SYNTHESIS_CONCURRENCY,
@@ -741,7 +742,8 @@ export function ReaderView({
         </span>
         <div className="reader-playback-buttons">
           <button
-            className="primary-button"
+            aria-label={playbackPaused ? 'Resume reading' : 'Play from the start'}
+            className="primary-button reader-play"
             disabled={
               !connected ||
               !blocks.length ||
@@ -755,36 +757,39 @@ export function ReaderView({
             }}
             type="button"
           >
-            <span aria-hidden="true">▶</span>
-            {playbackPaused ? 'Resume' : 'Play'}
+            <PlayIcon />
+            <span className="reader-playback-label">{playbackPaused ? 'Resume' : 'Play'}</span>
           </button>
           <button
+            aria-label="Pause reading"
             className="quiet-button"
             disabled={!readerActive || playbackPaused || recordingBusy}
             onClick={onPause}
             type="button"
           >
-            <span aria-hidden="true">Ⅱ</span>
-            Pause
+            <PauseIcon />
+            <span className="reader-playback-label">Pause</span>
           </button>
           <button
+            aria-label="Stop reading"
             className="danger-button"
             disabled={!readerActive}
             onClick={stopReading}
             type="button"
           >
-            <span aria-hidden="true">■</span>
-            Stop
+            <StopIcon />
+            <span className="reader-playback-label">Stop</span>
           </button>
           <button
+            aria-label="Follow playback"
             aria-pressed={followPlayback}
             className={followPlayback ? 'quiet-button active' : 'quiet-button'}
             disabled={!reading}
             onClick={() => setFollowPlayback(value => !value)}
             type="button"
           >
-            <span aria-hidden="true">◎</span>
-            Follow
+            <FollowIcon />
+            <span className="reader-playback-label">Follow</span>
           </button>
         </div>
       </div>

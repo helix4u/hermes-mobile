@@ -1,0 +1,856 @@
+/* pet-voice: the voice conversation page as a Desktop chat pane (quiet
+   header, plain assistant prose, bordered user bubble, bordered composer
+   with the solid send) plus the voice review dialog and notices.
+   The sheet only ever renders inside .voice-page, so rules are prefixed
+   with it to match the specificity of the styles.css voice-page rules. */
+
+/* ── Page and header ──────────────────────────────────────────── */
+.pet-sidechat-popout {
+  background: var(--ui-bg-editor);
+}
+
+.voice-page .pet-sidechat-sheet {
+  border: 0;
+  background: var(--ui-bg-editor);
+  color: var(--ui-text-primary);
+}
+
+.voice-page .pet-sidechat-heading {
+  min-height: 3rem;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  background: var(--ui-bg-editor);
+  padding: 0.25rem 0.375rem;
+}
+
+.voice-page .pet-sidechat-identity {
+  gap: 0.375rem;
+}
+
+.voice-page .pet-sidechat-identity strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.voice-page .pet-sidechat-identity span {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+  font-weight: 400;
+}
+
+.voice-page .pet-sidechat-heading .pet-sidechat-icon-button {
+  width: var(--m-touch);
+  height: var(--m-touch);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ui-text-secondary);
+}
+
+.voice-page .pet-sidechat-header-actions {
+  gap: 0.125rem;
+}
+
+.voice-page .pet-sidechat-text-toggle {
+  min-height: var(--m-touch);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 0.625rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.voice-page .pet-sidechat-text-toggle:active {
+  background: var(--chrome-action-hover);
+}
+
+.voice-page .pet-sidechat-text-toggle.active {
+  background: var(--ui-row-active-background, var(--ui-bg-quaternary));
+  color: var(--ui-text-primary);
+}
+
+.voice-page .pet-sidechat-icon-button:active:not(:disabled) {
+  transform: none;
+  background: var(--chrome-action-hover);
+}
+
+/* ── Live voice controls ──────────────────────────────────────── */
+.voice-page .pet-realtime-controls {
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem 0.25rem;
+}
+
+.voice-page .pet-realtime-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: var(--m-touch);
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0 0.875rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.voice-page .pet-realtime-button:active:not(:disabled) {
+  background: var(--chrome-action-hover);
+}
+
+/* Running call: the button ends it, so it reads as destructive. */
+.voice-page .pet-realtime-button.active {
+  border: 0;
+  background: color-mix(in srgb, var(--dt-destructive) 12%, transparent);
+  color: var(--dt-destructive);
+}
+
+.voice-page .pet-realtime-button.live-voice-mic[aria-pressed='true'] {
+  color: var(--dt-destructive);
+}
+
+.voice-page .pet-realtime-button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.voice-page .pet-realtime-state {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.voice-page .pet-realtime-state.listening {
+  color: var(--dt-primary);
+}
+
+.voice-page .pet-realtime-state.speaking {
+  color: var(--dt-primary);
+}
+
+/* ── Attached session status ──────────────────────────────────── */
+.voice-page .pet-realtime-context-status {
+  gap: 0.375rem;
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  background: transparent;
+  padding: 0.5rem 0.875rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+}
+
+.voice-page .pet-realtime-context-status > header strong {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+.voice-page .pet-realtime-context-status > header span,
+.voice-page .pet-realtime-context-status .context-freshness {
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0.0625rem 0.375rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-micro);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.voice-page .pet-realtime-context-status .context-freshness.fresh {
+  background: color-mix(in srgb, var(--dt-primary) 14%, transparent);
+  color: var(--dt-primary);
+}
+
+.voice-page .pet-realtime-context-title {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.voice-page .pet-realtime-context-status dt,
+.voice-page .pet-realtime-context-status dd small {
+  color: var(--ui-text-tertiary);
+}
+
+.voice-page .pet-realtime-context-status dd strong {
+  font-weight: 500;
+}
+
+/* ── Transcript: same language as chat.css ────────────────────── */
+.voice-page .pet-sidechat-messages {
+  gap: 0.625rem;
+  padding: 0.875rem;
+}
+
+.voice-page .pet-sidechat-message {
+  width: 100%;
+  max-width: 47rem;
+  margin-inline: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.125rem 0;
+}
+
+.voice-page .pet-sidechat-message.user {
+  width: auto;
+  max-width: min(86%, 40rem);
+  margin-right: 0;
+  margin-left: auto;
+  border: 1px solid var(--dt-user-bubble-border, var(--ui-stroke-tertiary));
+  border-radius: var(--m-radius-surface);
+  background: var(--dt-user-bubble, var(--ui-chat-bubble-background, var(--ui-bg-quaternary)));
+  padding: 0.5rem 0.75rem;
+}
+
+.voice-page .pet-sidechat-message small {
+  display: block;
+  margin-bottom: 0.125rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.voice-page .pet-sidechat-message.user small {
+  display: none;
+}
+
+.voice-page .pet-sidechat-message .markdown-body {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-chat);
+  line-height: 1.6;
+}
+
+.voice-page .pet-sidechat-handoff {
+  min-height: 1.75rem;
+  margin: 0.25rem 0 0 -0.375rem;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+.voice-page .pet-sidechat-handoff svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.voice-page .pet-sidechat-handoff:active {
+  background: var(--chrome-action-hover);
+  color: var(--ui-text-primary);
+}
+
+.voice-page .pet-realtime-live-text {
+  border-left: 2px solid var(--ui-stroke-secondary);
+  padding: 0.125rem 0 0.125rem 0.625rem;
+  color: var(--ui-text-secondary);
+}
+
+.voice-page .pet-sidechat-empty {
+  max-width: 20rem;
+  margin: auto;
+  color: var(--ui-text-tertiary);
+}
+
+.voice-page .pet-sidechat-empty > span {
+  margin-bottom: 0.5rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-base);
+}
+
+.voice-page .pet-sidechat-empty strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-title);
+  font-weight: 600;
+}
+
+.voice-page .pet-sidechat-empty p {
+  margin-top: 0.375rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-sm);
+  line-height: 1.5;
+}
+
+.voice-page .pet-sidechat-status {
+  gap: 0.5rem;
+  padding: 0.375rem 0.875rem 0.125rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.voice-page .pet-sidechat-status > span {
+  background: var(--ui-text-tertiary);
+  box-shadow: none;
+}
+
+.voice-page .pet-sidechat-error {
+  margin: 0.5rem 0.875rem 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--dt-destructive) 30%, var(--ui-stroke-tertiary));
+  border-radius: var(--m-radius-card);
+  background: color-mix(in srgb, var(--dt-destructive) 8%, transparent);
+  padding: 0.5rem 0.75rem;
+  color: var(--dt-destructive);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+.voice-page .pet-realtime-input-warning {
+  margin: 0.25rem 0.875rem;
+  color: var(--ui-yellow, var(--warning));
+  font-size: var(--m-text-xs);
+}
+
+/* ── Voice settings: Desktop settings group with chevron ──────── */
+.voice-page .pet-realtime-settings {
+  margin: 0.5rem 0.875rem;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-surface);
+  padding: 0;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+}
+
+.voice-page .pet-realtime-settings > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--m-touch);
+  border-radius: var(--m-radius-surface);
+  background: var(--ui-bg-editor);
+  padding: 0.375rem 0.75rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+  list-style: none;
+}
+
+.voice-page .pet-realtime-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.voice-page .pet-realtime-settings > summary::after {
+  content: '';
+  width: 0.4375rem;
+  height: 0.4375rem;
+  margin: 0 0.25rem -0.125rem 0;
+  border-right: 1.5px solid var(--ui-text-tertiary);
+  border-bottom: 1.5px solid var(--ui-text-tertiary);
+  transform: translateY(-0.1875rem) rotate(45deg);
+}
+
+.voice-page .pet-realtime-settings[open] > summary {
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-surface) var(--m-radius-surface) 0 0;
+  color: var(--ui-text-primary);
+}
+
+.voice-page .pet-realtime-settings[open] > summary::after {
+  transform: translateY(0.0625rem) rotate(-135deg);
+}
+
+.voice-page .pet-realtime-settings > :not(summary) {
+  margin-inline: 0.75rem;
+}
+
+.voice-page .pet-realtime-settings > :not(summary):first-of-type {
+  margin-top: 0.625rem;
+}
+
+.voice-page .pet-realtime-settings label {
+  gap: 0.625rem;
+  margin: 0;
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  padding: 0.4375rem 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-sm);
+}
+
+.voice-page .pet-realtime-settings > label {
+  margin-inline: 0.75rem;
+}
+
+.voice-page .pet-realtime-settings label:has(input[type='checkbox']) {
+  align-items: center;
+  gap: 0.5rem;
+  min-height: var(--m-touch);
+  color: var(--ui-text-primary);
+}
+
+.voice-page .pet-realtime-settings small {
+  display: block;
+  margin-block: 0.375rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+.voice-page .pet-realtime-settings > button,
+.voice-page .pet-realtime-settings > button[type='button'] {
+  min-height: 2.25rem;
+  margin-block: 0.375rem;
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0 0.75rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.voice-page .pet-realtime-settings > button:disabled {
+  opacity: 0.5;
+}
+
+.voice-page .pet-realtime-settings > :last-child {
+  margin-bottom: 0.625rem;
+}
+
+.voice-page .pet-realtime-settings meter {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+/* ── Live usage meter ─────────────────────────────────────────── */
+.voice-page .pet-realtime-meter {
+  gap: 0.125rem 0.5rem;
+  padding: 0.25rem 0.875rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-page .pet-realtime-meter summary {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+}
+
+.voice-page .pet-realtime-meter small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+}
+
+.voice-page .pet-realtime-meter progress {
+  accent-color: var(--dt-primary);
+}
+
+/* ── Hermes request review (inline) ───────────────────────────── */
+.voice-page .pet-realtime-hermes-draft {
+  gap: 0.5rem;
+  margin: 0.5rem 0.875rem;
+  border: 1px solid var(--ui-stroke-secondary);
+  border-radius: var(--m-radius-surface);
+  background: var(--ui-widget-surface-background, var(--ui-bg-quaternary));
+  padding: 0.75rem;
+}
+
+.voice-page .pet-realtime-hermes-draft > header strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+.voice-page .pet-realtime-hermes-draft small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.voice-page .pet-realtime-hermes-draft textarea {
+  border: 1px solid color-mix(in srgb, var(--dt-composer-ring) calc(var(--dt-input-border, 7%) * 2.5), transparent);
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-editor);
+  padding: 0.5rem 0.625rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+  line-height: 1.45;
+}
+
+.voice-page .pet-realtime-hermes-draft textarea:focus {
+  border-color: var(--dt-composer-ring);
+}
+
+.voice-page .pet-realtime-hermes-draft > div {
+  gap: 0.375rem;
+}
+
+.voice-page .pet-realtime-hermes-draft button {
+  min-height: var(--m-touch);
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0 0.875rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.voice-page .pet-realtime-hermes-draft button:first-child {
+  border: 0;
+  background: var(--dt-primary);
+  color: var(--dt-primary-foreground);
+}
+
+.voice-page .pet-realtime-hermes-draft button:disabled {
+  opacity: 0.5;
+}
+
+/* ── Context inspector: flat rows, hairlines ──────────────────── */
+.voice-page .pet-realtime-inspector {
+  border-top: 0;
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  background: transparent;
+}
+
+.voice-page .pet-realtime-inspector > header {
+  padding: 0.75rem 0.875rem 0.375rem;
+}
+
+.voice-page .pet-realtime-inspector > header strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+.voice-page .pet-realtime-inspector > header span {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+}
+
+.voice-page .pet-realtime-inspector-list {
+  gap: 0;
+  padding: 0 0.875rem 0.625rem;
+}
+
+.voice-page .pet-realtime-inspector article,
+.voice-page .pet-realtime-inspector details {
+  border: 0;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.5rem 0;
+}
+
+.voice-page .pet-realtime-inspector article:first-child,
+.voice-page .pet-realtime-inspector details:first-child {
+  border-top: 0;
+}
+
+.voice-page .pet-realtime-inspector article small,
+.voice-page .pet-realtime-inspector summary small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+  font-weight: 500;
+}
+
+.voice-page .pet-realtime-inspector article p {
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+  line-height: 1.5;
+}
+
+.voice-page .pet-realtime-inspector pre {
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: var(--ui-editor-surface-background, var(--ui-widget-surface-background));
+  padding: 0.5rem 0.625rem;
+  color: var(--ui-text-secondary);
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+  font-size: var(--m-text-micro);
+}
+
+.voice-page .pet-realtime-inspector summary {
+  align-items: baseline;
+  min-height: 1.75rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.voice-page .pet-realtime-inspector-empty {
+  padding: 0.25rem 0;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+/* ── Composer: Desktop's bordered box ─────────────────────────── */
+.voice-page .pet-sidechat-composer {
+  gap: 0.25rem;
+  margin: 0.375rem 0.625rem 0.5rem;
+  border: 1px solid var(--ui-stroke-secondary);
+  border-radius: var(--m-radius-surface);
+  background: var(--ui-widget-surface-background, var(--ui-bg-input));
+  padding: 0.3125rem;
+  box-shadow: var(--dt-input-inset, none);
+}
+
+.voice-page .pet-sidechat-composer:focus-within {
+  border-color: var(--dt-composer-ring, var(--ui-stroke-primary));
+}
+
+.voice-page .pet-sidechat-composer textarea,
+.voice-page .pet-sidechat-composer textarea:focus {
+  min-height: 2.25rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+  padding: 0.5rem 0.375rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-chat);
+  line-height: 1.4;
+  resize: none;
+}
+
+.voice-page .pet-sidechat-composer .pet-sidechat-icon-button {
+  width: 2.25rem;
+  height: 2.25rem;
+  align-self: flex-end;
+  border: 0;
+  border-radius: var(--m-radius-card);
+  background: transparent;
+  color: var(--ui-text-secondary);
+}
+
+.voice-page .pet-sidechat-composer .pet-sidechat-icon-button svg {
+  width: 1rem;
+  height: 1rem;
+  stroke-width: 1.7;
+}
+
+.voice-page .pet-sidechat-composer .pet-sidechat-mic.recording {
+  background: color-mix(in srgb, var(--dt-destructive) 14%, transparent);
+  color: var(--dt-destructive);
+}
+
+.voice-page .pet-sidechat-composer .pet-sidechat-send {
+  background: var(--dt-primary);
+  color: var(--dt-primary-foreground);
+}
+
+.voice-page .pet-sidechat-composer .pet-sidechat-send:disabled {
+  background: var(--ui-bg-quaternary);
+  color: var(--ui-text-tertiary);
+  opacity: 1;
+}
+
+.voice-page .pet-sidechat-composer .pet-sidechat-mic:disabled {
+  opacity: 0.4;
+}
+
+/* ── Keyboard open: compact chrome, keep every control ────────── */
+:root[data-keyboard='open'] .voice-page .pet-realtime-controls {
+  padding-block: 0.25rem 0.125rem;
+}
+
+:root[data-keyboard='open'] .voice-page .pet-sidechat-messages {
+  padding-block: 0.5rem;
+}
+
+:root[data-keyboard='open'] .voice-page .pet-sidechat-composer {
+  margin-bottom: 0.375rem;
+}
+
+/* ── Voice review dialog (top layer) ──────────────────────────── */
+.voice-review-dialog {
+  gap: 0.75rem;
+  border: 1px solid var(--m-stroke-popover);
+  border-radius: var(--m-radius-surface);
+  background: var(--m-popover);
+  padding: 1rem;
+  color: var(--ui-text-primary);
+  box-shadow: var(--m-shadow-popover);
+  font-size: var(--m-text-sm);
+}
+
+.voice-review-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.voice-review-dialog[open] {
+  gap: 0.75rem;
+}
+
+.voice-review-dialog > header strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-title);
+  font-weight: 600;
+}
+
+.voice-review-dialog small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+.voice-review-dialog p[role='alert'] {
+  margin: 0;
+  color: var(--dt-destructive);
+  font-size: var(--m-text-xs);
+}
+
+.voice-review-dialog button {
+  min-height: var(--m-touch);
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0 0.875rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.voice-review-dialog > header button {
+  background: transparent;
+  color: var(--ui-text-secondary);
+}
+
+.voice-review-dialog footer button:first-child,
+.voice-review-dialog .support-heading-actions button:first-child {
+  background: var(--dt-primary);
+  color: var(--dt-primary-foreground);
+}
+
+.voice-review-dialog button:disabled {
+  opacity: 0.5;
+}
+
+.voice-review-dialog textarea {
+  border: 1px solid color-mix(in srgb, var(--dt-composer-ring) calc(var(--dt-input-border, 7%) * 2.5), transparent);
+  border-radius: var(--m-radius-control);
+  background: color-mix(in srgb, var(--dt-card) calc(var(--dt-input-bg, 0%) + 35%), transparent);
+  padding: 0.5rem 0.625rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+}
+
+.voice-review-dialog textarea:focus {
+  border-color: var(--dt-composer-ring);
+}
+
+.support-voice-review {
+  gap: 0.375rem;
+  border-color: var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-surface);
+}
+
+.support-voice-review > strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+  font-weight: 600;
+}
+
+/* ── Floating review / webpage notices ────────────────────────── */
+.voice-review-notice {
+  gap: 0.5rem;
+  border: 1px solid var(--m-stroke-popover);
+  border-radius: var(--m-radius-card);
+  background: var(--m-popover);
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  color: var(--ui-text-primary);
+  box-shadow: var(--m-shadow-popover);
+  font-size: var(--m-text-sm);
+  line-height: 1.4;
+}
+
+.voice-review-notice > span {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.voice-review-notice button {
+  min-height: var(--m-touch);
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--dt-primary);
+  padding: 0 0.75rem;
+  color: var(--dt-primary-foreground);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.voice-review-notice button.quiet-button {
+  background: var(--ui-bg-quaternary);
+  color: var(--ui-text-primary);
+}
+
+/* ── Landscape (restates styles.css values this file overrides) ── */
+@media (orientation: landscape) and (min-width: 600px) and (max-height: 600px) {
+  .voice-page .pet-realtime-controls {
+    border-bottom: 1px solid var(--ui-stroke-tertiary);
+    padding: 0.3125rem clamp(0.625rem, 3vw, 1.5rem);
+  }
+
+  .voice-page .pet-realtime-context-status {
+    padding: 0.1875rem clamp(0.625rem, 3vw, 1.5rem);
+    font-size: var(--m-text-micro);
+  }
+
+  .voice-page .pet-realtime-context-title {
+    font-size: var(--m-text-xs);
+  }
+
+  .voice-page .pet-sidechat-messages {
+    padding: 0.625rem clamp(0.625rem, 3vw, 1.5rem);
+  }
+
+  .voice-page .pet-sidechat-composer {
+    margin: 0.25rem clamp(0.625rem, 3vw, 1.5rem) 0.375rem;
+    padding: 0.25rem;
+  }
+
+  .voice-page .pet-sidechat-composer textarea {
+    min-height: 2.125rem;
+    max-height: min(4.5rem, 24dvh);
+    padding-block: 0.4375rem;
+    font-size: var(--m-text-base);
+  }
+
+  .voice-page .pet-sidechat-composer .pet-sidechat-icon-button {
+    width: 2.125rem;
+    height: 2.125rem;
+  }
+}
+
+@media (orientation: landscape) and (min-width: 600px) and (max-height: 260px) {
+  .voice-page .pet-sidechat-heading {
+    min-height: 2rem;
+    padding: 0.0625rem 0.375rem;
+  }
+
+  .voice-page .pet-sidechat-heading .pet-sidechat-icon-button,
+  .voice-page .pet-sidechat-text-toggle,
+  .voice-page .pet-realtime-button {
+    min-height: 2rem;
+    height: 2rem;
+  }
+
+  .voice-page .pet-sidechat-heading .pet-sidechat-icon-button {
+    width: 2rem;
+  }
+
+  .voice-page .pet-realtime-controls {
+    padding-block: 0.125rem;
+  }
+
+  /* styles.css floats the status over the transcript here: keep it opaque. */
+  .voice-page .pet-realtime-context-status {
+    background: var(--ui-bg-editor);
+  }
+
+  .voice-page .pet-realtime-settings {
+    margin-block: 0.25rem;
+  }
+
+  .voice-page .pet-sidechat-composer {
+    margin-block: 0.125rem 0.25rem;
+    padding: 0.125rem;
+  }
+}

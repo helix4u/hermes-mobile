@@ -1,5 +1,6 @@
 import {
   FormEvent,
+  type ComponentProps,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -77,7 +78,19 @@ import {
 } from './state/cloud'
 import { projectSessionRows } from './state/sessions'
 import { LiveVoiceMicrophoneButton } from './components/LiveVoiceMicrophoneButton'
-import { ChevronDownIcon } from './components/UiIcons'
+import { Freeze } from './components/Freeze'
+import {
+  ChevronDownIcon,
+  MicrophoneIcon,
+  MoreIcon,
+  NavIcon,
+  NewChatIcon,
+  SendIcon,
+  SidebarIcon,
+  StopIcon,
+  FolderIcon,
+  VoiceModeIcon,
+} from './components/UiIcons'
 import { loadMuteAutoplayDuringVoice, saveMuteAutoplayDuringVoice, shouldAutoplay } from './voice-autoplay'
 import {
   eventTargetsSelectedSession,
@@ -111,9 +124,13 @@ import {
   applyThemeSelection,
   bindHermesSkin,
   hostSkinForConnection,
+  loadThemeMode,
   loadThemeSelection,
+  persistThemeMode,
   persistThemeSelection,
   type BoundHermesSkin,
+  type HermesSkin,
+  type MobileThemeMode,
   type MobileThemeSelection,
 } from './state/theme'
 import type { BrowserConnection } from './transport/browser-transport'
@@ -127,7 +144,8 @@ import {
   reconcileForegroundConnection,
   shouldSurfaceGatewayStateError,
 } from './transport/foreground-reconnect'
-import { becameActive, usesDocumentVisibility } from './transport/app-activity'
+import { becameActive, usesDocumentVisibility, mayReconnectForPlayback } from './transport/app-activity'
+import { ContextMeter } from './components/ContextMeter'
 import {
   type CloudAgent,
   type CloudOrganization,
@@ -228,65 +246,10 @@ function directive(value: unknown): CommandDirective {
   return value && typeof value === 'object' ? (value as CommandDirective) : {}
 }
 
-function NavIcon({ tab }: { tab: AppTab }) {
-  if (tab === 'chat') {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M5 6.5h14v9H10l-4.5 3v-3H5z" />
-      </svg>
-    )
-  }
-  if (tab === 'sessions') {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M7 5h12v12H7zM4 8v11h11" />
-      </svg>
-    )
-  }
-  if (tab === 'reader') {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M5 5.5h5.5a3 3 0 0 1 3 3v10a3 3 0 0 0-3-3H5zM19 5.5h-5.5v10a3 3 0 0 1 3-3H19z" />
-      </svg>
-    )
-  }
-  if (tab === 'files') {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M4.5 7h6l1.5 2H19.5v9.5h-15z" />
-      </svg>
-    )
-  }
-  if (tab === 'support') {
-    return (
-      <svg aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M5 6.5h14v10H9l-4 3zM9 10h6M9 13h4" />
-      </svg>
-    )
-  }
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      <path d="M5 7h14M5 17h14M9 4v6M15 14v6" />
-    </svg>
-  )
-}
-
-function MicrophoneIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      <rect height="10" rx="3" width="6" x="9" y="4" />
-      <path d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v3M9 20h6" />
-    </svg>
-  )
-}
-
-function SendIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      <path d="m5 12 14-7-4 14-3-5zM12 14l7-9" />
-    </svg>
-  )
-}
+type TranscriptHandlers = Pick<
+  ComponentProps<typeof Transcript>,
+  'onOpenDocumentPreviewer' | 'onOpenDocumentReader' | 'onRespond' | 'onSpeak'
+>
 
 export function App() {
   const initialConnection = useMemo<BrowserConnection>(
@@ -360,6 +323,8 @@ export function App() {
   const [turnActive, setTurnActive] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('chat')
   const [threadActionsOpen, setThreadActionsOpen] = useState(false)
+  // Desktop's collapsible sidebar: a drawer in portrait, pinned in landscape.
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [controlVisit, setControlVisit] = useState(0)
   const [connectionOpen, setConnectionOpen] = useState(
     !nativeClient || !initialConnection.baseUrl,
@@ -383,8 +348,11 @@ export function App() {
   const [themeSelection, setThemeSelection] = useState<MobileThemeSelection>(
     () =>
       typeof window === 'undefined'
-        ? 'mobile'
+        ? 'host'
         : loadThemeSelection(initialConnection.id),
+  )
+  const [themeMode, setThemeMode] = useState<MobileThemeMode>(() =>
+    typeof window === 'undefined' ? 'system' : loadThemeMode(initialConnection.id),
   )
   const [autoSpeak, setAutoSpeak] = useState(() =>
     typeof window === 'undefined' ? false : loadAutoSpeak(initialConnection.id),
@@ -448,6 +416,7 @@ export function App() {
   const muteAutoplayDuringVoiceRef = useRef(muteAutoplayDuringVoice)
   muteAutoplayDuringVoiceRef.current = muteAutoplayDuringVoice
   const voiceOwnsPlaybackRef = useRef(false)
+  const speechNeedsConnectionRef = useRef(false)
   const wakeWordModeRef = useRef(wakeWordMode)
   const connectionRef = useRef(connection)
   const selectedStoredIdRef = useRef(selectedStoredId)
@@ -467,6 +436,7 @@ export function App() {
   } | null>(null)
   const hostSkinRef = useRef<BoundHermesSkin | null>(null)
   const themeSelectionRef = useRef(themeSelection)
+  const themeModeRef = useRef(themeMode)
   const sharedImageUploadRef = useRef<{
     sessionId: string
     shareId: string
@@ -505,6 +475,27 @@ export function App() {
   runtimeSessionIdRef.current = runtimeSessionId
   turnActiveRef.current = turnActive
   themeSelectionRef.current = themeSelection
+  themeModeRef.current = themeMode
+
+  // One render path for every theme input (selection, host skin, light/dark,
+  // the phone's own dark mode). Native system bars follow the rendered mode.
+  const renderTheme = useCallback((hostSkin: HermesSkin | null) => {
+    const applied = applyThemeSelection(
+      themeSelectionRef.current,
+      hostSkin,
+      themeModeRef.current,
+    )
+    if (applied && isNativeHermesClient()) {
+      try {
+        void HermesNative.setSystemBarAppearance?.({
+          dark: applied.mode === 'dark',
+          background: applied.chromeBackground,
+        })?.catch(() => {})
+      } catch {
+        // An older native shell without the method keeps its default bars.
+      }
+    }
+  }, [])
 
   function commitSelectedStoredSession(
     sessionId: string,
@@ -520,6 +511,43 @@ export function App() {
     turnActiveRef.current = active
     setTurnActive(active)
   }
+
+  // Session options is a popover, so it dismisses like Desktop's: Escape from
+  // anywhere, a tap outside it, a rotation/resize (its anchor moves) or
+  // leaving the chat tab. Focus inside it was the only way out before.
+  useEffect(() => {
+    if (!threadActionsOpen) return
+    const close = () => setThreadActionsOpen(false)
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      close()
+      document.querySelector<HTMLButtonElement>('.thread-actions-trigger')?.focus()
+    }
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as Element | null
+      if (!target?.closest?.('.thread-actions')) close()
+    }
+    let width = window.innerWidth
+    const onResize = () => {
+      // The soft keyboard changes only the height; the anchor moves on width.
+      if (window.innerWidth !== width) close()
+      width = window.innerWidth
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onPointer)
+    window.addEventListener('resize', onResize)
+    window.addEventListener('orientationchange', close)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onPointer)
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('orientationchange', close)
+    }
+  }, [threadActionsOpen])
+
+  useEffect(() => {
+    if (activeTab !== 'chat') setThreadActionsOpen(false)
+  }, [activeTab])
 
   useEffect(() => {
     cacheTranscript(
@@ -594,6 +622,8 @@ export function App() {
     onError: setError,
     onTranscript: appendVoiceTranscript,
   })
+  speechNeedsConnectionRef.current = Boolean(activeSpeechId) && !playbackPaused
+    && (voicePhase === 'synthesizing' || voicePhase === 'speaking')
   const voiceRecordingAvailable = canToggleVoiceRecording(
     voicePhase,
     activeSpeechId,
@@ -770,7 +800,7 @@ export function App() {
           hostSkinRef.current = bound
           setActiveSkinName(String(bound.skin.name ?? 'default'))
           if (themeSelectionRef.current === 'host') {
-            applyThemeSelection('host', bound.skin)
+            renderTheme(bound.skin)
           }
         }
       } else if (event.type === 'skin.changed') {
@@ -779,7 +809,7 @@ export function App() {
           hostSkinRef.current = bound
           setActiveSkinName(String(bound.skin.name ?? 'default'))
           if (themeSelectionRef.current === 'host') {
-            applyThemeSelection('host', bound.skin)
+            renderTheme(bound.skin)
           }
         }
       }
@@ -959,15 +989,30 @@ export function App() {
   useEffect(() => () => disconnect(), [disconnect])
   useEffect(() => {
     const selection = loadThemeSelection(connection.id)
+    const mode = loadThemeMode(connection.id)
     themeSelectionRef.current = selection
+    themeModeRef.current = mode
     setThemeSelection(selection)
+    setThemeMode(mode)
     const hostSkin = hostSkinForConnection(hostSkinRef.current, connection.id)
     if (!hostSkin) {
       hostSkinRef.current = null
       setActiveSkinName('default')
     }
-    applyThemeSelection(selection, hostSkin)
-  }, [connection.id])
+    renderTheme(hostSkin)
+  }, [connection.id, renderTheme])
+  useEffect(() => {
+    // "Match phone" re-renders when Android switches dark mode.
+    if (typeof matchMedia !== 'function') return
+    const query = matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => {
+      if (themeModeRef.current === 'system') {
+        renderTheme(hostSkinForConnection(hostSkinRef.current, connectionRef.current.id))
+      }
+    }
+    query.addEventListener?.('change', onChange)
+    return () => query.removeEventListener?.('change', onChange)
+  }, [renderTheme])
   useEffect(() => {
     persistDraft(profileStateKey(connection), draft)
   }, [connection.id, connection.profile, draft])
@@ -1317,10 +1362,16 @@ export function App() {
     reconnectTimerRef.current = null
   }
 
+  function mayReconnectNow() {
+    return mayReconnectForPlayback(nativeClient, appActiveRef.current,
+      speechNeedsConnectionRef.current, voiceOwnsPlaybackRef.current,
+      autoSpeakRef.current && turnActiveRef.current)
+  }
+
   function scheduleReconnect(delay?: number) {
     if (
       !desiredConnectedRef.current ||
-      !appActiveRef.current ||
+      !mayReconnectNow() ||
       !transportRef.current ||
       connectingRef.current ||
       reconnectInFlightRef.current ||
@@ -1343,7 +1394,7 @@ export function App() {
       return
     }
     const transport = transportRef.current
-    if (!transport || !desiredConnectedRef.current || !appActiveRef.current) {
+    if (!transport || !desiredConnectedRef.current || !mayReconnectNow()) {
       return
     }
 
@@ -1405,7 +1456,7 @@ export function App() {
       const stillCurrent =
         transportRef.current === transport &&
         desiredConnectedRef.current &&
-        appActiveRef.current &&
+        mayReconnectNow() &&
         connectionEpochRef.current === epoch
       if (stillCurrent) {
         reconnectAttemptRef.current += 1
@@ -2671,10 +2722,14 @@ export function App() {
     setThemeSelection(selection)
     themeSelectionRef.current = selection
     persistThemeSelection(connection.id, selection)
-    applyThemeSelection(
-      selection,
-      hostSkinForConnection(hostSkinRef.current, connection.id),
-    )
+    renderTheme(hostSkinForConnection(hostSkinRef.current, connection.id))
+  }
+
+  function changeThemeMode(mode: MobileThemeMode) {
+    setThemeMode(mode)
+    themeModeRef.current = mode
+    persistThemeMode(connection.id, mode)
+    renderTheme(hostSkinForConnection(hostSkinRef.current, connection.id))
   }
 
   async function applySessionWorkspace(cwd: string) {
@@ -2864,94 +2919,147 @@ export function App() {
   const [voiceSettingsRequest, setVoiceSettingsRequest] = useState(0)
   const openVoiceSettings = () => { setPetSidechatOpen(true); setVoiceSettingsRequest(value => value + 1) }
 
+  // Latest-callback refs behind stable identities: the memoized Transcript
+  // must not re-render (and re-parse every message's markdown) on keystrokes.
+  const transcriptHandlersRef = useRef<TranscriptHandlers | null>(null)
+  transcriptHandlersRef.current = {
+    onOpenDocumentPreviewer: (document) => {
+        setReaderImport({
+          document,
+          id: Date.now(),
+          mode: 'preview',
+        })
+        setActiveTab('reader')
+    },
+    onOpenDocumentReader: (document) => {
+        setReaderImport({
+          document,
+          id: Date.now(),
+          mode: 'reader',
+        })
+        setActiveTab('reader')
+    },
+    onRespond: respondToRequest,
+    onSpeak: (text, itemId, kind) => {
+        const speechText = markdownToSpeechText(text)
+        if (kind === 'pet') {
+          if (
+            activeSpeechId === itemId &&
+            (voicePhase === 'speaking' ||
+              voicePhase === 'synthesizing')
+          ) {
+            stopPlayback()
+            return
+          }
+          void pet.listen(speechText, itemId)
+          return
+        }
+        toggleSpeech(speechText, itemId)
+    },
+  }
+  const transcriptHandlers = useMemo<TranscriptHandlers>(
+    () => ({
+      onOpenDocumentPreviewer: (document) =>
+        transcriptHandlersRef.current?.onOpenDocumentPreviewer?.(document),
+      onOpenDocumentReader: (document) =>
+        transcriptHandlersRef.current?.onOpenDocumentReader?.(document),
+      onRespond: (...args) => transcriptHandlersRef.current!.onRespond(...args),
+      onSpeak: (text, itemId, kind) =>
+        transcriptHandlersRef.current?.onSpeak(text, itemId, kind),
+    }),
+    [],
+  )
+
+  const composerStatus = wakeCaptureActive
+    ? 'Listening for your request, pause when finished'
+    : wakeTranscribing
+      ? 'Hermes is transcribing your wake request'
+      : voicePhase === 'recording'
+        ? 'Recording, tap stop to transcribe'
+        : voicePhase === 'transcribing'
+          ? 'Hermes is transcribing'
+          : playbackPaused && activeSpeechId === 'reader'
+            ? 'Reader paused, microphone remains available'
+            : voicePhase === 'synthesizing'
+              ? 'Hermes is preparing reply audio'
+              : voicePhase === 'speaking'
+                ? 'Playing reply audio'
+                : ''
+
   return (
     <EmbedPreferencesProvider connectionId={connection.id}>
       <main className="app-shell">
         <header className="topbar">
-          <button className="brand-button" onClick={() => setActiveTab('chat')}>
-            <span className="brand-mark-shell">
-              <img
-                alt=""
-                aria-hidden="true"
-                className="brand-mark"
-                src="./nous-sidecar-128.png"
-              />
-              <span className="brand-exp-badge">EXP</span>
-            </span>
-            <span>
-              <small>Hermes</small>
-              <strong>Mobile</strong>
-            </span>
+          <button
+            aria-expanded={sidebarOpen}
+            aria-label="Toggle sidebar"
+            className={`icon-button sidebar-toggle state-${hostConnection.tone}`}
+            onClick={() => setSidebarOpen(open => !open)}
+            title="Toggle sidebar"
+            type="button"
+          >
+            <SidebarIcon />
+            <span aria-hidden="true" className="sidebar-toggle-dot" />
           </button>
-          <div className="topbar-statuses">
+          <div className="titlebar-title">
+            {activeTab === 'chat' ? (
+              <>
+                <span
+                  aria-label={runtimeSessionId ? 'Live session' : 'Draft'}
+                  className={`titlebar-session-state ${runtimeSessionId ? 'live' : 'draft'}`}
+                  role="img"
+                />
+                <h1 title={activeSession?.title || 'New conversation'}>
+                  {activeSession?.title || 'New conversation'}
+                </h1>
+              </>
+            ) : (
+              <h1>{({ chat: '', sessions: 'Sessions', reader: 'Reader', files: 'Files', support: 'Support', control: 'Settings' } as Record<string, string>)[activeTab]}</h1>
+            )}
+          </div>
+          <div className="titlebar-actions">
+            {activeTab !== 'chat' && (selectedStoredId || runtimeSessionId) && (
+              <button
+                className="quiet-button return-to-session"
+                type="button"
+                title={activeSession?.title || 'Open conversation'}
+                onClick={() => { setActiveTab('chat'); setSidebarOpen(false) }}
+              >
+                Back to chat
+              </button>
+            )}
             {petRealtimeActive && petRealtime.snapshot.status !== 'testing' && (
               <LiveVoiceMicrophoneButton
                 muted={!!petRealtime.snapshot.microphoneMuted}
                 onChange={petRealtime.setMicrophoneMuted}
               />
             )}
-            <button
-              aria-label={`Connection: ${hostConnection.label}. Profile: ${connection.profile}`}
-              className={`host-pill state-${hostConnection.tone}`}
-              onClick={() => setConnectionOpen(true)}
-              title={`${hostConnection.label} · ${connection.profile}`}
-            >
-              <span className="host-dot" />
-              <span className="host-pill-copy">
-                <strong>{hostConnection.label}</strong>
-                <small>{connection.profile}</small>
-              </span>
-              <span className="host-chevron"><ChevronDownIcon /></span>
-            </button>
-          </div>
-        </header>
-        {petRealtime.snapshot.webpageUrl && <VoiceWebpageNotice url={petRealtime.snapshot.webpageUrl} onClose={petRealtime.dismissWebpage} />}
-        {['pending', 'error', 'submitting'].includes(petRealtime.snapshot.hermesDraftStatus) && <HermesVoiceReview
-          text={petRealtime.snapshot.hermesDraft} busy={petRealtime.snapshot.hermesDraftStatus === 'submitting'}
-          target={petRealtime.snapshot.attachedContextTitle} error={petRealtime.snapshot.error}
-          onEdit={petRealtime.updateHermesDraft} onApprove={petRealtime.approveHermesDraft} onCancel={petRealtime.cancelHermesDraft} />}
-
-        {(error || notice) && (
-          <div className={`toast ${error ? 'toast-error' : 'toast-success'}`}>
-            <span>{error || notice}</span>
-            <button
-              aria-label="Dismiss"
-              onClick={() => {
-                setError('')
-                setNotice('')
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
-
-        <div className="mobile-workspace">
-          <section
-            className={`app-view chat-view ${activeTab === 'chat' ? 'active' : ''}`}
-          >
-            <div className="thread-heading">
-              <div className="thread-heading-copy">
-                <p className="eyebrow">
-                  {runtimeSessionId ? 'Live' : 'Draft'}
-                </p>
-                <h1 title={activeSession?.title || 'New conversation'}>
-                  {activeSession?.title || 'New conversation'}
-                </h1>
-              </div>
+            {activeTab === 'chat' && (
+              <>
+                <button
+                  aria-label="New session"
+                  className="icon-button"
+                  disabled={!connected || busy || turnActive}
+                  onClick={startDraft}
+                  title="New session"
+                  type="button"
+                >
+                  <NewChatIcon />
+                </button>
               <div className="thread-actions">
                 <button
                   aria-expanded={threadActionsOpen}
                   aria-controls="session-options"
-                  className="thread-actions-trigger quiet-button"
+                  aria-label="Session options"
+                  className="thread-actions-trigger icon-button"
                   onClick={() => setThreadActionsOpen(open => !open)}
+                  title="Session options"
                   type="button"
                 >
-                  <span>Options</span>
+                  <MoreIcon />
                   {(petRealtimeActive || turnActive) && (
                     <span aria-hidden="true" className="thread-actions-active-dot" />
                   )}
-                  <span aria-hidden="true">{threadActionsOpen ? '⌃' : '⌄'}</span>
                 </button>
                 {threadActionsOpen && (
                   <div className="thread-actions-popover" id="session-options"
@@ -3013,24 +3121,41 @@ export function App() {
                   </div>
                 )}
               </div>
-            </div>
+              </>
+            )}
+          </div>
+        </header>
+        {petRealtime.snapshot.webpageUrl && <VoiceWebpageNotice url={petRealtime.snapshot.webpageUrl} onClose={petRealtime.dismissWebpage} />}
+        {['pending', 'error', 'submitting'].includes(petRealtime.snapshot.hermesDraftStatus) && <HermesVoiceReview
+          text={petRealtime.snapshot.hermesDraft} busy={petRealtime.snapshot.hermesDraftStatus === 'submitting'}
+          target={petRealtime.snapshot.attachedContextTitle} error={petRealtime.snapshot.error}
+          onEdit={petRealtime.updateHermesDraft} onApprove={petRealtime.approveHermesDraft} onCancel={petRealtime.cancelHermesDraft} />}
+
+        {(error || notice) && (
+          <div className={`toast ${error ? 'toast-error' : 'toast-success'}`}>
+            <span>{error || notice}</span>
+            <button
+              aria-label="Dismiss"
+              onClick={() => {
+                setError('')
+                setNotice('')
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        <div className="mobile-workspace">
+          <section
+            className={`app-view chat-view ${activeTab === 'chat' ? 'active' : ''}`}
+          >
             {petRealtime.snapshot.error && !petSidechatOpen && (
               <div className="pet-sidechat-error" role="alert">
                 {petRealtime.snapshot.error}
                 <button type="button" className="quiet-button" onClick={() => setPetSidechatOpen(true)}>Voice settings</button>
               </div>
             )}
-            <button
-              className="session-workspace-button"
-              disabled={!connected || busy}
-              onClick={() => setWorkspaceOpen(true)}
-            >
-              <span>Session cwd</span>
-              <strong>
-                {sessionCwd || preferredWorkspace || 'Choose workspace'}
-              </strong>
-              <small>Change</small>
-            </button>
             <TranscriptViewport
               selectionEpoch={sessionSelectionEpochRef.current}
               aria-live="polite"
@@ -3047,39 +3172,10 @@ export function App() {
                 toolDetailMode={toolDetailMode}
                 transport={transportRef.current}
                 voicePhase={voicePhase}
-                onOpenDocumentPreviewer={(document) => {
-                  setReaderImport({
-                    document,
-                    id: Date.now(),
-                    mode: 'preview',
-                  })
-                  setActiveTab('reader')
-                }}
-                onOpenDocumentReader={(document) => {
-                  setReaderImport({
-                    document,
-                    id: Date.now(),
-                    mode: 'reader',
-                  })
-                  setActiveTab('reader')
-                }}
-                onRespond={respondToRequest}
-                onSpeak={(text, itemId, kind) => {
-                  const speechText = markdownToSpeechText(text)
-                  if (kind === 'pet') {
-                    if (
-                      activeSpeechId === itemId &&
-                      (voicePhase === 'speaking' ||
-                        voicePhase === 'synthesizing')
-                    ) {
-                      stopPlayback()
-                      return
-                    }
-                    void pet.listen(speechText, itemId)
-                    return
-                  }
-                  toggleSpeech(speechText, itemId)
-                }}
+                onOpenDocumentPreviewer={transcriptHandlers.onOpenDocumentPreviewer}
+                onOpenDocumentReader={transcriptHandlers.onOpenDocumentReader}
+                onRespond={transcriptHandlers.onRespond}
+                onSpeak={transcriptHandlers.onSpeak}
               />
             </TranscriptViewport>
 
@@ -3163,6 +3259,20 @@ export function App() {
                     <MicrophoneIcon />
                   )}
                 </button>
+                <button
+                  aria-label={petRealtimeActive ? 'End voice mode' : 'Start voice mode'}
+                  aria-pressed={petRealtimeActive}
+                  className={`voice-mode-button ${petRealtimeActive ? 'active' : ''}`}
+                  disabled={!connected && !petRealtimeActive}
+                  onClick={() => {
+                    if (petRealtimeActive) petRealtime.stop()
+                    else void petRealtime.start()
+                  }}
+                  type="button"
+                >
+                  <VoiceModeIcon />
+                  {petRealtimeActive && <span className="voice-mode-label">Live</span>}
+                </button>
                 <textarea
                   ref={composerInputRef}
                   disabled={!connected}
@@ -3194,7 +3304,7 @@ export function App() {
                 {turnActive ? (
                   <button aria-label="Stop running turn" title="Stop running turn"
                     className="send-button stop-turn-button" type="button" onClick={() => void stop()}>
-                    <span className="stop-square" aria-hidden="true" />
+                    <StopIcon />
                   </button>
                 ) : (
                   <button aria-label="Send" className="send-button" type="submit"
@@ -3204,25 +3314,22 @@ export function App() {
                 )}
               </div>
               <div className="composer-meta">
-                <span>
-                  {wakeCaptureActive
-                    ? 'Listening for your request, pause when finished'
-                    : wakeTranscribing
-                      ? 'Hermes is transcribing your wake request'
-                      : voicePhase === 'recording'
-                        ? 'Recording, tap stop to transcribe'
-                        : voicePhase === 'transcribing'
-                          ? 'Hermes is transcribing'
-                          : playbackPaused && activeSpeechId === 'reader'
-                            ? 'Reader paused, microphone remains available'
-                            : voicePhase === 'synthesizing'
-                              ? 'Hermes is preparing reply audio'
-                              : voicePhase === 'speaking'
-                                ? 'Playing reply audio'
-                                : runtimeSessionId
-                                  ? 'Session attached'
-                                  : 'Creates on send'}
-                </span>
+                {composerStatus ? (
+                  <span className="composer-status">{composerStatus}</span>
+                ) : (
+                  <button
+                    className="session-workspace-button"
+                    disabled={!connected || busy}
+                    onClick={() => setWorkspaceOpen(true)}
+                    title="Change session workspace"
+                    type="button"
+                  >
+                    <FolderIcon />
+                    <strong>
+                      {sessionCwd || preferredWorkspace || 'Choose workspace'}
+                    </strong>
+                  </button>
+                )}
                 {voicePhase === 'speaking' || voicePhase === 'synthesizing' ? (
                   <button
                     className="composer-audio-stop"
@@ -3232,8 +3339,10 @@ export function App() {
                     Stop audio
                   </button>
                 ) : (
-                  <span>/ commands supported</span>
+                  <span className="composer-hint">{runtimeSessionId ? 'Attached' : 'New on send'}</span>
                 )}
+                <ContextMeter key={`${profileStateKey(connection)}:${runtimeSessionId}`} gateway={transportRef.current?.gateway ?? null}
+                  sessionId={runtimeSessionId} active={activeTab === 'chat' && appIsActive && connected} />
               </div>
             </form>
           </section>
@@ -3243,7 +3352,9 @@ export function App() {
               activeTab === 'sessions' ? 'active' : ''
             }`}
           >
+            <Freeze active={activeTab === 'sessions'}>
             <SessionsView
+              key={profileStateKey(connection)}
               activeSessions={activeSessions}
               activeProjectId={activeProjectId}
               connected={connected}
@@ -3252,6 +3363,7 @@ export function App() {
               projectLoading={projectLoading}
               projects={projects}
               selectedSessionId={selectedStoredId}
+              selectedRuntimeSessionId={runtimeSessionId}
               sessions={sessions}
               onNewSession={startDraft}
               onActiveSession={async (session) => {
@@ -3265,6 +3377,7 @@ export function App() {
                 await selectSession(session)
               }}
             />
+            </Freeze>
           </section>
 
           <section
@@ -3297,6 +3410,7 @@ export function App() {
               activeTab === 'files' ? 'active' : ''
             }`}
           >
+            <Freeze active={activeTab === 'files'}>
             <FilesView
               key={profileStateKey(connection)}
               connected={connected}
@@ -3326,6 +3440,7 @@ export function App() {
               }}
               onUseAsWorkspace={(path) => applySessionWorkspace(path)}
             />
+            </Freeze>
           </section>
 
           {supportOpsAvailable && (
@@ -3389,6 +3504,7 @@ export function App() {
               activeTab === 'control' ? 'active' : ''
             }`}
           >
+            <Freeze active={activeTab === 'control'}>
             <ControlPanel
               active={activeTab === 'control'}
               realtimeInput={{ selected: petRealtime.settings.microphoneId || '', disabled: petRealtimeActive,
@@ -3450,6 +3566,8 @@ export function App() {
               onSherpaPetWakePhraseChange={changeSherpaPetWakePhrase}
               onSherpaWakePhraseChange={changeSherpaWakePhrase}
               onThemeSelectionChange={changeThemeSelection}
+              themeMode={themeMode}
+              onThemeModeChange={changeThemeMode}
               onNotice={setNotice}
               onOpenWorkspace={() => setWorkspaceOpen(true)}
               onStopSpeech={stopPlayback}
@@ -3462,6 +3580,7 @@ export function App() {
                 return connect(next)
               }}
             />
+            </Freeze>
           </section>
 
           {pet.preferences.visible && (
@@ -3480,11 +3599,69 @@ export function App() {
           )}
         </div>
 
+        {sidebarOpen && (
+          <button
+            aria-label="Close sidebar"
+            className="sidebar-scrim"
+            onClick={() => setSidebarOpen(false)}
+            tabIndex={-1}
+            type="button"
+          />
+        )}
         <nav
           data-pet-avoid
-          className={`bottom-nav ${supportOpsAvailable ? 'support-enabled' : ''}`}
+          data-open={sidebarOpen ? 'true' : 'false'}
+          className={`bottom-nav app-sidebar ${supportOpsAvailable ? 'support-enabled' : ''}`}
           aria-label="Primary"
         >
+          <div className="sidebar-header">
+            <span className="brand-mark-shell" aria-hidden="true">
+              <img alt="" className="brand-mark" src="./nous-sidecar-128.png" />
+            </span>
+            <button
+              aria-label={`Connection: ${hostConnection.label}. Profile: ${connection.profile}`}
+              className={`host-pill state-${hostConnection.tone}`}
+              onClick={() => {
+                setSidebarOpen(false)
+                setConnectionOpen(true)
+              }}
+              title={`${hostConnection.label} · ${connection.profile}`}
+              type="button"
+            >
+              <span className="host-pill-copy">
+                <strong>{hostConnection.label}</strong>
+                <small><span className="host-dot" />{connection.profile}</small>
+              </span>
+              <span className="host-chevron"><ChevronDownIcon /></span>
+            </button>
+          </div>
+          {(selectedStoredId || runtimeSessionId) && (
+            <button
+              className="sidebar-current-session"
+              type="button"
+              onClick={() => { setSidebarOpen(false); setActiveTab('chat') }}
+              title={activeSession?.title || 'Open conversation'}
+            >
+              <span className="nav-icon-shell"><NavIcon tab="chat" /></span>
+              <span className="sidebar-current-copy">
+                <small>Back to chat</small>
+                <span>{activeSession?.title || 'Open conversation'}</span>
+              </span>
+            </button>
+          )}
+          <button
+            className="sidebar-new-session"
+            disabled={!connected || busy || turnActive}
+            onClick={() => {
+              setSidebarOpen(false)
+              setActiveTab('chat')
+              startDraft()
+            }}
+            type="button"
+          >
+            <span className="nav-icon-shell"><NewChatIcon /></span>
+            <small>New session</small>
+          </button>
           {(
             [
               ['chat', 'Chat'],
@@ -3494,16 +3671,19 @@ export function App() {
               ...(supportOpsAvailable
                 ? ([['support', 'Support']] as Array<[AppTab, string]>)
                 : []),
-              ['control', 'Control'],
+              ['control', 'Settings'],
             ] as Array<[AppTab, string]>
           ).map(([tab, label]) => (
             <button
-              className={activeTab === tab ? 'active' : ''}
+              aria-current={activeTab === tab ? 'page' : undefined}
+              className={`${activeTab === tab ? 'active' : ''} nav-${tab}`}
               key={tab}
               onClick={() => {
                 if (tab === 'control') setControlVisit((value) => value + 1)
                 setActiveTab(tab)
+                setSidebarOpen(false)
               }}
+              type="button"
             >
               <span className="nav-icon-shell">
                 <NavIcon tab={tab} />

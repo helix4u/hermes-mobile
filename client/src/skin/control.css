@@ -1,0 +1,1384 @@
+/* control: host settings as Hermes Desktop Settings.
+   Sections are flat disclosure rows inside one hairline-bordered group
+   (title + one-line summary + small chevron); an open section shows a plain
+   body of Desktop form rows separated by hairlines. Nested cards (providers,
+   cron jobs, toolsets, config fields) become rows with status badges. */
+
+.capability-entry {
+  padding: 0.375rem 0;
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+}
+
+.capability-entry > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0;
+}
+
+.capability-entry > summary small {
+  color: var(--ui-text-tertiary);
+}
+
+.capability-field {
+  display: grid;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.capability-field label {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.capability-field > small {
+  color: var(--ui-text-tertiary);
+}
+
+.capability-field > button {
+  justify-self: start;
+}
+
+.capabilities-panel .error-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.control-view {
+  --m-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E");
+  --m-row-x: 0.875rem;
+  --m-switch-off: color-mix(in srgb, var(--ui-text-primary) 24%, transparent);
+  background: var(--ui-bg-editor);
+}
+
+.control-panel {
+  width: min(44rem, 100%);
+  padding: 0.75rem 1rem 1.5rem;
+}
+
+/* ── Page heading ───────────────────────────────────────────────── */
+.control-hero {
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.25rem 0 0.875rem;
+}
+
+.control-hero .eyebrow {
+  margin: 0 0 0.125rem;
+}
+
+.control-hero h2 {
+  margin: 0;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.control-hero p:last-child {
+  margin-top: 0.25rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+.control-hero .icon-button {
+  margin: -0.25rem -0.375rem 0 0;
+}
+
+.control-panel > .sticky-error {
+  margin-bottom: 0.75rem;
+}
+
+/* ── Disconnected placeholder ──────────────────────────────────── */
+.control-empty {
+  padding: 1.5rem 0.5rem 1.25rem;
+}
+
+.control-empty .brand-glyph {
+  box-shadow: none;
+}
+
+.control-empty h3 {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+  font-weight: 600;
+}
+
+.control-empty p {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.5;
+}
+
+/* ── Section group: one container, hairline-separated rows ────── */
+.control-section {
+  overflow: visible;
+  margin: 0;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: 0;
+  background: transparent;
+}
+
+.control-section + .control-section {
+  border-top: 0;
+}
+
+.control-panel > .control-section:first-of-type,
+.control-empty + .control-section {
+  border-top-left-radius: var(--m-radius-surface);
+  border-top-right-radius: var(--m-radius-surface);
+}
+
+.control-panel > .control-section:last-of-type {
+  border-bottom-left-radius: var(--m-radius-surface);
+  border-bottom-right-radius: var(--m-radius-surface);
+}
+
+.control-section > summary {
+  gap: 0.75rem;
+  min-height: 3.25rem;
+  border-radius: inherit;
+  padding: 0.5rem var(--m-row-x);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.control-section > summary:active {
+  background: var(--ui-row-hover-background, var(--chrome-action-hover));
+}
+
+.control-section[open] > summary {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.control-section > summary > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 0.125rem;
+}
+
+.control-section > summary strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-base);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.control-section > summary small {
+  overflow: hidden;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 400;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Chevron replaces the "+" circle everywhere inside Control. */
+.control-view .disclosure-glyph {
+  display: block;
+  flex: 0 0 auto;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 0;
+  background: var(--ui-text-tertiary);
+  color: transparent;
+  font-size: 0;
+  -webkit-mask: var(--m-chevron) center / contain no-repeat;
+  mask: var(--m-chevron) center / contain no-repeat;
+  transition: transform 120ms ease;
+}
+
+.control-view details[open] > summary .disclosure-glyph {
+  transform: rotate(90deg);
+}
+
+/* ── Section body: plain Desktop form ──────────────────────────── */
+.control-body {
+  gap: 0;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding: 0.25rem var(--m-row-x) 0.875rem;
+}
+
+.control-body > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.control-body > label,
+.control-body > .setting-grid > label {
+  gap: 0.375rem;
+  padding: 0.625rem 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+}
+
+/* Label left, select right: Desktop settings row. */
+.control-body > label:has(> select),
+.control-body.setting-grid > label:has(> select),
+.control-view .setting-grid > label:has(> select) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 11.5rem);
+  align-items: center;
+  column-gap: 0.75rem;
+}
+
+.control-view label:has(> select) > span:first-child {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 400;
+}
+
+.control-view label:has(> select) > :not(span:first-child, select) {
+  grid-column: 1 / -1;
+}
+
+.control-view label > input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.control-view label > textarea {
+  font-size: var(--m-text-sm);
+}
+
+.control-view label > select {
+  min-width: 0;
+  font-size: var(--m-text-sm);
+}
+
+/* Hairlines between consecutive form rows. */
+.control-body > :is(label, .setting-grid, .toggle-row, .control-subsection, .pet-speech-settings, .pet-commentary-settings, .pet-aux-settings, .pet-personality-editor, .voice-settings, .realtime-input-settings, .mobile-companion-grid, .workspace-path-value)
+  + :is(label, .setting-grid, .toggle-row, .control-subsection, .pet-speech-settings, .pet-commentary-settings, .pet-aux-settings, .pet-personality-editor, .voice-settings, .realtime-input-settings, .mobile-companion-grid) {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+}
+
+.advanced-copy {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.5;
+}
+
+.control-body > .advanced-copy,
+.control-body > p {
+  padding: 0.625rem 0 0.375rem;
+}
+
+.control-body > :is(label, .toggle-row, .setting-grid) + .advanced-copy {
+  padding-top: 0;
+}
+
+.control-body > p[role='alert'],
+.control-body > p[role='status'],
+.control-body > .error-message {
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+.control-body > p[role='alert'] {
+  color: var(--dt-destructive);
+}
+
+.control-body > p[role='status'] {
+  color: var(--ui-text-secondary);
+}
+
+/* Actions sit at their natural width, start-aligned. */
+.control-body > :is(.primary-button, .quiet-button, .danger-button) {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+.control-view .request-actions {
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.control-view :is(.primary-button, .quiet-button, .danger-button) {
+  min-height: var(--m-touch);
+  padding: 0.4375rem 0.75rem;
+}
+
+.control-view .quiet-button.danger {
+  background: color-mix(in srgb, var(--dt-destructive) 12%, transparent);
+  color: var(--dt-destructive);
+}
+
+.control-view label small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.control-view .section-help {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.5;
+}
+
+.control-view .inline-error,
+.control-view .sticky-error {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--dt-destructive) 35%, var(--ui-stroke-tertiary));
+  border-radius: var(--m-radius-card);
+  background: color-mix(in srgb, var(--dt-destructive) 7%, transparent);
+  padding: 0.5rem 0.625rem;
+  color: var(--dt-destructive);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+.control-view .error-message {
+  color: var(--dt-destructive);
+  font-size: var(--m-text-xs);
+}
+
+/* ── Setting grid: one column of rows ──────────────────────────── */
+.setting-grid {
+  gap: 0;
+}
+
+.control-view .setting-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.control-body.setting-grid {
+  display: flex;
+}
+
+.control-view .setting-grid > label + label {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+}
+
+.control-view .setting-grid > label {
+  padding: 0.5rem 0;
+}
+
+/* ── Toggle rows: label left, Desktop switch right ─────────────── */
+.toggle-row {
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: var(--m-touch);
+  padding: 0.5rem 0;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  cursor: pointer;
+}
+
+.control-view .toggle-row > span,
+.control-view .toggle-row > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  order: 0;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.control-view input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  order: 1;
+  width: 2rem;
+  min-width: 2rem;
+  height: 1.125rem;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 0.5625rem 50%, #fff 0 0.375rem, transparent 0.4375rem),
+    var(--m-switch-off);
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.control-view input[type='checkbox']:checked {
+  background:
+    radial-gradient(circle at calc(100% - 0.5625rem) 50%, #fff 0 0.375rem, transparent 0.4375rem),
+    var(--dt-primary);
+}
+
+.control-view input[type='checkbox']:disabled {
+  opacity: 0.5;
+}
+
+.control-view input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── Toolset switch buttons: same switch geometry, 38px hit area ── */
+.switch-button {
+  position: relative;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  flex: 0 0 auto;
+  margin-right: -0.375rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: transparent;
+  font-size: 0;
+}
+
+.switch-button::before,
+.switch-button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  transition:
+    background-color 120ms ease,
+    left 120ms ease;
+}
+
+.switch-button::before {
+  left: 0.375rem;
+  width: 2rem;
+  height: 1.125rem;
+  background: var(--m-switch-off);
+}
+
+.switch-button::after {
+  left: 0.5625rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  background: #fff;
+}
+
+.switch-button.on,
+.switch-button.on:active:not(:disabled) {
+  border: 0;
+  background: transparent;
+  color: transparent;
+}
+
+.switch-button.on::before {
+  background: var(--dt-primary);
+}
+
+.switch-button.on::after {
+  left: 1.4375rem;
+}
+
+.switch-button:active:not(:disabled) {
+  background: transparent;
+}
+
+.switch-button:active:not(:disabled)::before {
+  filter: brightness(1.1);
+}
+
+/* ── Tools ─────────────────────────────────────────────────────── */
+.toolset-list {
+  padding-top: 0;
+}
+
+.toolset-row,
+.toolset-row:first-child,
+.toolset-row:last-child {
+  gap: 0.75rem;
+  border-bottom: 0;
+  padding: 0.5rem 0;
+}
+
+.toolset-row + .toolset-row {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+}
+
+.toolset-row > div {
+  min-width: 0;
+  gap: 0.125rem;
+}
+
+.toolset-row strong {
+  color: var(--ui-text-primary);
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+.toolset-row small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.4;
+}
+
+/* ── Session workspace ─────────────────────────────────────────── */
+.workspace-path-value {
+  margin-top: 0.5rem !important;
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-inline-code-background, var(--ui-bg-quaternary));
+  padding: 0.5rem 0.625rem;
+  color: var(--ui-text-secondary);
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+  font-size: var(--m-text-xs);
+  line-height: 1.5;
+}
+
+/* ── Nested disclosures (new cron job, config categories) ─────── */
+.control-subsection {
+  padding-top: 0;
+}
+
+.control-subsection > summary,
+.config-category > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: var(--m-touch);
+  padding: 0.375rem 0;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
+}
+
+.control-subsection > summary::-webkit-details-marker,
+.config-category > summary::-webkit-details-marker {
+  display: none;
+}
+
+.control-subsection > summary::after,
+.config-category > summary::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 0.875rem;
+  height: 0.875rem;
+  background: var(--ui-text-tertiary);
+  -webkit-mask: var(--m-chevron) center / contain no-repeat;
+  mask: var(--m-chevron) center / contain no-repeat;
+  transition: transform 120ms ease;
+}
+
+.control-subsection[open] > summary::after,
+.config-category[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.control-subsection[open] > summary {
+  margin-bottom: 0.25rem;
+}
+
+/* ── Scheduled work ────────────────────────────────────────────── */
+.cron-list:not(:empty) {
+  padding-bottom: 0.25rem;
+}
+
+.cron-card,
+.cron-card:first-child,
+.cron-card:last-child {
+  border-bottom: 0;
+  padding: 0.625rem 0;
+}
+
+.cron-card + .cron-card {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+}
+
+.cron-card-heading {
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cron-card strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cron-card-heading small {
+  display: inline-flex;
+  margin: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0.125rem 0.375rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-micro);
+  font-weight: 500;
+}
+
+.cron-card p {
+  margin-top: 0.25rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-sm);
+  line-height: 1.45;
+}
+
+.cron-card p[role='alert'] {
+  color: var(--dt-destructive);
+  font-size: var(--m-text-xs);
+}
+
+.cron-card > small {
+  margin-top: 0.25rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.cron-form {
+  gap: 0.625rem;
+  padding-bottom: 0.25rem;
+}
+
+.cron-form .primary-button {
+  align-self: flex-start;
+}
+
+.cron-progress {
+  margin-top: 0.625rem;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding-top: 0.625rem;
+}
+
+.cron-progress h3,
+.cron-output h3 {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+.cron-progress p,
+.cron-output p {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.cron-run-list,
+.cron-output-list {
+  gap: 0.375rem;
+}
+
+.cron-run-message strong {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+  font-weight: 500;
+}
+
+.cron-run-message pre,
+.cron-output-content pre {
+  margin-top: 0.25rem;
+  border-radius: var(--m-radius-card);
+  background: var(--ui-inline-code-background, var(--ui-bg-quaternary));
+  padding: 0.5rem 0.625rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+}
+
+/* ── Providers: rows with a status badge ───────────────────────── */
+.provider-setup,
+.provider-setup-group {
+  gap: 0;
+}
+
+.provider-setup {
+  padding-top: 0.25rem;
+}
+
+.provider-setup > .inline-error {
+  margin-bottom: 0.5rem;
+}
+
+.provider-setup-group + .provider-setup-group,
+.provider-oauth-flow + .provider-setup-group {
+  margin-top: 1rem;
+}
+
+.provider-setup-group > div:first-child {
+  gap: 0.125rem;
+  padding-bottom: 0.5rem;
+}
+
+.provider-setup-group > div:first-child strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+.provider-setup-group > div:first-child small,
+.provider-oauth-flow > div:first-child small,
+.provider-setup-card small,
+.provider-credential-card small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.4;
+}
+
+/* The provider rows sit in their own hairline group. */
+.provider-setup-card,
+.provider-credential-card {
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: 0;
+  background: transparent;
+}
+
+.provider-setup-card + .provider-setup-card,
+.provider-credential-card + .provider-credential-card {
+  border-top: 0;
+}
+
+.provider-setup-group > div:first-child + :is(.provider-setup-card, .provider-credential-card) {
+  border-top-left-radius: var(--m-radius-card);
+  border-top-right-radius: var(--m-radius-card);
+}
+
+.provider-setup-group > :is(.provider-setup-card, .provider-credential-card):last-child {
+  border-bottom-left-radius: var(--m-radius-card);
+  border-bottom-right-radius: var(--m-radius-card);
+}
+
+/* Name + description left; badge over the action on the right. */
+.provider-setup-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.provider-setup-title {
+  display: contents;
+}
+
+.provider-setup-title > span:first-child {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  gap: 0.125rem;
+}
+
+.provider-setup-title strong,
+.provider-credential-card > summary strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.provider-setup-title > .state-chip {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.provider-setup-card > .provider-setup-actions {
+  grid-column: 2;
+  grid-row: 2;
+  justify-content: flex-end;
+  max-width: 13rem;
+}
+
+.provider-setup-actions {
+  gap: 0.375rem;
+}
+
+.provider-setup-actions > button {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.provider-setup-card .provider-setup-actions > button {
+  min-height: 2.25rem;
+  padding: 0.375rem 0.625rem;
+  font-size: var(--m-text-xs);
+}
+
+/* Credential groups: disclosure rows. */
+.provider-credential-card > summary {
+  min-height: 3rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.provider-credential-card > summary > span:first-child {
+  gap: 0.125rem;
+}
+
+.provider-credential-card > div {
+  gap: 0;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding: 0 0.75rem 0.25rem;
+}
+
+.provider-credential-row {
+  gap: 0.375rem;
+  padding: 0.625rem 0;
+}
+
+.provider-credential-row + .provider-credential-row {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding-top: 0.625rem;
+}
+
+.provider-credential-row label > span:first-child {
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+}
+
+/* Active OAuth flow: a single callout panel. */
+.provider-oauth-flow {
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: var(--ui-widget-surface-background, transparent);
+  padding: 0.75rem;
+}
+
+.provider-oauth-flow > div:first-child strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+.oauth-code,
+.oauth-command {
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: var(--ui-inline-code-background, var(--ui-bg-quaternary));
+  padding: 0.5rem 0.625rem;
+  color: var(--ui-text-primary);
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+}
+
+.oauth-code {
+  font-size: var(--m-text-title);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+
+.oauth-command {
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+}
+
+.provider-setup > .quiet-button:last-child {
+  align-self: flex-start;
+  margin-top: 0.75rem;
+}
+
+/* ── Mobile companion: key/value rows ──────────────────────────── */
+.mobile-companion-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin-top: 0.5rem !important;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+}
+
+.mobile-companion-grid > span {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.5rem 0.75rem;
+}
+
+.mobile-companion-grid > span + span {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+}
+
+.mobile-companion-grid small {
+  flex: 0 0 auto;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.mobile-companion-grid strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 400;
+  text-align: right;
+}
+
+/* ── Plugin installer ──────────────────────────────────────────── */
+.plugin-package-facts {
+  gap: 0.25rem;
+  padding: 0.25rem 0;
+}
+
+.plugin-package-facts span {
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0.125rem 0.375rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-micro);
+  font-weight: 500;
+}
+
+.plugin-status-card,
+.plugin-confirm-card,
+.plugin-result-card {
+  gap: 0.375rem;
+  margin: 0.5rem 0 !important;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: transparent;
+  padding: 0.625rem 0.75rem;
+}
+
+.plugin-status-card strong,
+.plugin-confirm-card strong,
+.plugin-result-card strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+.plugin-status-card small,
+.plugin-status-card > span,
+.plugin-confirm-card p,
+.plugin-result-card p {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.5;
+}
+
+.plugin-status-card code,
+.plugin-confirm-card code {
+  border-radius: var(--m-radius-control);
+  background: var(--ui-inline-code-background, var(--ui-bg-quaternary));
+  padding: 0.3125rem 0.5rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+}
+
+.plugin-confirm-card p code {
+  padding: 0.0625rem 0.25rem;
+}
+
+.plugin-progress {
+  gap: 0.375rem;
+  padding: 0.5rem 0;
+}
+
+.plugin-progress progress {
+  height: 0.25rem;
+  accent-color: var(--dt-primary);
+}
+
+.plugin-progress span {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+/* ── Model: expensive-model confirmation ───────────────────────── */
+.confirm-card {
+  margin-top: 0.5rem !important;
+  border: 1px solid color-mix(in srgb, var(--dt-destructive) 35%, var(--ui-stroke-tertiary));
+  border-radius: var(--m-radius-card);
+  background: color-mix(in srgb, var(--dt-destructive) 6%, transparent);
+  padding: 0.625rem 0.75rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+}
+
+.confirm-card button {
+  margin-top: 0.5rem;
+}
+
+/* ── Advanced ──────────────────────────────────────────────────── */
+.advanced-config-form {
+  gap: 0 0.75rem;
+  padding: 0.25rem 0 0.25rem;
+}
+
+.advanced-config-form label {
+  padding: 0.5rem 0;
+}
+
+.advanced-config-form .primary-button {
+  justify-self: start;
+  margin-top: 0.25rem;
+}
+
+.config-output {
+  max-height: 26rem;
+  margin-top: 0.75rem !important;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: var(--ui-widget-surface-background, var(--ui-bg-editor));
+  padding: 0.625rem 0.75rem;
+  color: var(--ui-text-secondary);
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+  font-size: var(--m-text-xs);
+  line-height: 1.55;
+}
+
+/* ── All host settings ─────────────────────────────────────────── */
+.host-settings {
+  gap: 0;
+  padding-top: 0.625rem;
+}
+
+.host-settings-toolbar {
+  gap: 0.375rem;
+  padding-bottom: 0.5rem;
+}
+
+.host-settings > .section-help {
+  padding: 0.5rem 0;
+}
+
+.config-category {
+  overflow: visible;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+}
+
+.config-category > summary strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.config-category > summary small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 400;
+}
+
+.config-field-list {
+  gap: 0;
+  padding: 0 0 0.5rem 0.75rem;
+  border-left: 1px solid var(--ui-stroke-tertiary);
+  margin-bottom: 0.5rem;
+}
+
+.config-field {
+  align-items: end;
+  gap: 0.5rem;
+  border-top: 0;
+  padding: 0.5rem 0;
+}
+
+.config-field + .config-field {
+  border-top: 1px solid var(--ui-stroke-tertiary);
+}
+
+.config-field label {
+  gap: 0.25rem;
+}
+
+.config-field label > strong {
+  color: var(--ui-text-primary);
+  font-family: var(--dt-font-mono, ui-monospace, monospace);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+.config-field label > small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.config-field label > input[type='checkbox'] {
+  margin-top: 0.25rem;
+}
+
+/* ── Voice ─────────────────────────────────────────────────────── */
+.control-view .voice-settings {
+  gap: 0.5rem;
+  margin-top: 0;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding: 0.75rem 0 0.25rem;
+}
+
+.control-view .voice-settings-heading strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+.control-view .voice-settings label {
+  gap: 0.375rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+.control-view .voice-settings label:has(> select),
+.control-view .realtime-input-settings label:has(> select) {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 400;
+}
+
+.control-view .voice-speed-field > span {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 400;
+}
+
+.control-view .voice-speed-field output {
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.control-view .voice-speed-field input {
+  accent-color: var(--dt-primary);
+}
+
+.control-view .xai-tts-controls {
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: transparent;
+  padding: 0.5rem 0.75rem;
+}
+
+.control-view .xai-tts-controls > summary {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.control-view .xai-tts-controls > summary small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.control-view .realtime-input-settings {
+  gap: 0.375rem;
+  padding: 0.75rem 0 0.25rem;
+}
+
+.control-view .realtime-input-settings label {
+  gap: 0.375rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+  font-weight: 500;
+}
+
+.control-view .realtime-input-settings small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.45;
+}
+
+.control-view .realtime-input-settings > button {
+  justify-self: start;
+  min-height: var(--m-touch);
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0.4375rem 0.75rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.control-view .realtime-input-settings > button:active:not(:disabled) {
+  background: var(--chrome-action-hover);
+}
+
+.control-view .realtime-input-settings [role='status'] {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+}
+
+/* ── Pet companion ─────────────────────────────────────────────── */
+.pet-capability-note {
+  gap: 0.25rem;
+  margin: 0.5rem 0 !important;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: var(--ui-widget-surface-background, transparent);
+  padding: 0.625rem 0.75rem;
+}
+
+.pet-capability-note strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.pet-capability-note small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  line-height: 1.5;
+}
+
+.control-view .pet-speech-settings,
+.control-view .pet-commentary-settings {
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.25rem 0;
+}
+
+.control-view .pet-speech-settings > label,
+.control-view .pet-custom-voice > label,
+.control-view .pet-commentary-settings > label,
+.control-view .pet-aux-settings > label {
+  padding: 0.5rem 0;
+}
+
+.control-view .pet-custom-voice {
+  gap: 0;
+}
+
+.control-view .pet-voice-summary {
+  margin: 0.25rem 0;
+  border-left: 2px solid var(--ui-stroke-secondary);
+  padding: 0.125rem 0 0.125rem 0.625rem;
+}
+
+.control-view .pet-voice-summary strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.control-view .pet-voice-summary small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.control-view .pet-personality-editor {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.control-view .pet-personality-editor > summary {
+  min-height: 3rem;
+  padding: 0.5rem 0;
+}
+
+.control-view .pet-personality-editor > summary strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.control-view .pet-personality-editor > summary small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+.control-view .pet-personality-editor-body {
+  gap: 0.5rem;
+  border-top: 0;
+  border-left: 1px solid var(--ui-stroke-tertiary);
+  margin-bottom: 0.5rem;
+  padding: 0 0 0.25rem 0.75rem;
+}
+
+.control-view .pet-aux-settings {
+  gap: 0.25rem;
+  margin-top: 0;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding-top: 0.75rem;
+}
+
+.control-view .pet-aux-settings > div strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+}
+
+.control-view .pet-aux-settings > div small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+/* Petdex shell (contents belong to the pet skin): a disclosure row. */
+.control-view .petdex-panel {
+  border: 0;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  border-radius: 0;
+  background: transparent;
+}
+
+.control-view .petdex-panel > summary {
+  min-height: 3rem;
+  padding: 0.5rem 0;
+}
+
+.control-view .petdex-panel > summary strong {
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+}
+
+.control-view .petdex-panel > summary small {
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+}
+
+/* ── Connection sheet status pill → Desktop badge ──────────────── */
+.mini-status {
+  border: 0;
+  border-radius: var(--m-radius-control);
+  background: var(--ui-bg-quaternary);
+  padding: 0.125rem 0.375rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-micro);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.mini-status.online {
+  border: 0;
+  background: color-mix(in srgb, var(--dt-primary) 14%, transparent);
+  color: var(--dt-primary);
+}
+
+/* ── Keyboard open: drop the hero copy, keep refresh ───────────── */
+html[data-keyboard='open'] .control-panel {
+  padding-top: 0.5rem;
+}
+
+html[data-keyboard='open'] .control-hero {
+  align-items: center;
+  padding-bottom: 0.5rem;
+}
+
+html[data-keyboard='open'] .control-hero .eyebrow,
+html[data-keyboard='open'] .control-hero p:last-child {
+  display: none;
+}
+
+/* ── Narrow phones: stack label over select ────────────────────── */
+@media (max-width: 359px) {
+  .control-body > label:has(> select),
+  .control-view .setting-grid > label:has(> select) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.375rem;
+  }
+}
+
+/* ── Landscape: the rail takes the left edge ───────────────────── */
+@media (orientation: landscape) and (min-width: 600px) and (max-height: 600px) {
+  .control-panel {
+    padding: 0.5rem 1rem 1rem;
+  }
+
+  .control-hero {
+    padding-bottom: 0.5rem;
+  }
+}

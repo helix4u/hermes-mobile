@@ -31,16 +31,21 @@ public class HermesConnectionService extends Service {
         "dev.hermes.mobile.action.RELEASE_REALTIME_VOICE";
     private static final String EXTRA_SOCKET_ID = "socket_id";
     private static final String EXTRA_VOICE_ID = "voice_id";
+    private static final String ACTION_RETAIN_PLAYBACK = "dev.hermes.mobile.action.RETAIN_PLAYBACK";
+    private static final String ACTION_RELEASE_PLAYBACK = "dev.hermes.mobile.action.RELEASE_PLAYBACK";
+    private static final String EXTRA_PLAYBACK_ID = "playback_id";
     private static final String CHANNEL_ID = "hermes_live_connection";
     private static final int NOTIFICATION_ID = 2201;
     private static final Set<String> requestedSocketIds =
         ConcurrentHashMap.newKeySet();
     private static final Set<String> requestedVoiceIds =
         ConcurrentHashMap.newKeySet();
+    private static final Set<String> requestedPlaybackIds = ConcurrentHashMap.newKeySet();
     private static volatile boolean serviceCreated = false;
 
     private final Set<String> socketIds = ConcurrentHashMap.newKeySet();
     private final Set<String> voiceIds = ConcurrentHashMap.newKeySet();
+    private final Set<String> playbackIds = ConcurrentHashMap.newKeySet();
     private PowerManager.WakeLock wakeLock;
 
     public static void retain(Context context, String socketId) {
@@ -110,6 +115,33 @@ public class HermesConnectionService extends Service {
         }
     }
 
+    public static void retainPlayback(Context context, String playbackId) {
+        boolean newlyRequested = requestedPlaybackIds.add(playbackId);
+        if (!newlyRequested && serviceCreated) return;
+        Intent intent = new Intent(context, HermesConnectionService.class);
+        intent.setAction(ACTION_RETAIN_PLAYBACK);
+        intent.putExtra(EXTRA_PLAYBACK_ID, playbackId);
+        try {
+            ContextCompat.startForegroundService(context, intent);
+        } catch (RuntimeException error) {
+            if (newlyRequested) requestedPlaybackIds.remove(playbackId);
+            throw error;
+        }
+    }
+
+    public static void releasePlayback(Context context, String playbackId) {
+        requestedPlaybackIds.remove(playbackId);
+        if (!serviceCreated) return;
+        Intent intent = new Intent(context, HermesConnectionService.class);
+        intent.setAction(ACTION_RELEASE_PLAYBACK);
+        intent.putExtra(EXTRA_PLAYBACK_ID, playbackId);
+        try {
+            context.startService(intent);
+        } catch (RuntimeException error) {
+            Log.w(LOG_TAG, "Playback lease release raced service teardown", error);
+        }
+    }
+
     private static Intent serviceIntent(
         Context context,
         String action,
@@ -160,7 +192,7 @@ public class HermesConnectionService extends Service {
         String voiceId =
             intent == null ? "" : intent.getStringExtra(EXTRA_VOICE_ID);
 
-        if (ACTION_RETAIN.equals(action) || ACTION_RETAIN_VOICE.equals(action)) {
+        if (ACTION_RETAIN.equals(action) || ACTION_RETAIN_VOICE.equals(action) || ACTION_RETAIN_PLAYBACK.equals(action)) {
             try {
                 // onCreate is not called when a new retain reaches a service
                 // instance that is still being torn down. Reassert foreground
@@ -178,6 +210,8 @@ public class HermesConnectionService extends Service {
                 }
                 socketIds.clear();
                 voiceIds.clear();
+                requestedPlaybackIds.clear();
+                playbackIds.clear();
                 releaseWakeLock();
                 Log.e(
                     LOG_TAG,
@@ -207,26 +241,27 @@ public class HermesConnectionService extends Service {
             voiceIds.addAll(requestedVoiceIds);
         }
 
+        playbackIds.clear();
+        playbackIds.addAll(requestedPlaybackIds);
+
         if (
-            ACTION_RELEASE_VOICE.equals(action) &&
-            voiceIds.isEmpty() &&
-            !socketIds.isEmpty()
+            (ACTION_RELEASE_VOICE.equals(action) || ACTION_RELEASE_PLAYBACK.equals(action)) &&
+            (!socketIds.isEmpty() || !voiceIds.isEmpty() || !playbackIds.isEmpty())
         ) {
             try {
-                // A normal gateway socket can keep the service alive after the
-                // user ends Live Voice, but it must no longer advertise or own
-                // the microphone foreground-service type.
-                promoteToForeground(false);
+                // Release only the completed activity's foreground type.
+                // Other sockets, speech queues or live voice keep their own lease.
+                promoteToForeground(!voiceIds.isEmpty());
             } catch (RuntimeException error) {
                 Log.w(
                     LOG_TAG,
-                    "Could not downgrade the Hermes connection notification after live voice",
+                    "Could not update the Hermes notification after audio release",
                     error
                 );
             }
         }
 
-        if (!socketIds.isEmpty() || !voiceIds.isEmpty()) {
+        if (!socketIds.isEmpty() || !voiceIds.isEmpty() || !playbackIds.isEmpty()) {
             try {
                 acquireWakeLock();
             } catch (RuntimeException error) {
@@ -234,6 +269,8 @@ public class HermesConnectionService extends Service {
                 requestedVoiceIds.removeAll(voiceIds);
                 socketIds.clear();
                 voiceIds.clear();
+                requestedPlaybackIds.removeAll(playbackIds);
+                playbackIds.clear();
                 releaseWakeLock();
                 Log.e(
                     LOG_TAG,
@@ -253,6 +290,7 @@ public class HermesConnectionService extends Service {
         serviceCreated = false;
         socketIds.clear();
         voiceIds.clear();
+        playbackIds.clear();
         releaseWakeLock();
         removeForegroundNotification();
         super.onDestroy();
@@ -270,16 +308,20 @@ public class HermesConnectionService extends Service {
             if (voiceActive) {
                 serviceTypes |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
             }
+            if (!requestedPlaybackIds.isEmpty()) {
+                serviceTypes |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK;
+            }
             startForeground(
                 NOTIFICATION_ID,
                 notification,
                 serviceTypes
             );
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && voiceActive) {
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && (voiceActive || !requestedPlaybackIds.isEmpty())) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                (voiceActive ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0) |
+                (!requestedPlaybackIds.isEmpty() ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK : 0)
             );
         } else {
             startForeground(NOTIFICATION_ID, notification);
@@ -300,12 +342,12 @@ public class HermesConnectionService extends Service {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_hermes)
             .setContentTitle(
-                voiceActive ? "Pet Live Voice active" : "Hermes Mobile connected"
+                voiceActive ? "Pet Live Voice active" : !requestedPlaybackIds.isEmpty() ? "Hermes speech playing" : "Hermes Mobile connected"
             )
             .setContentText(
                 voiceActive
                     ? "Listening and replying while Hermes Mobile is in the background"
-                    : "Keeping live Hermes sessions connected"
+                    : !requestedPlaybackIds.isEmpty() ? "Playback continues with the screen off" : "Keeping live Hermes sessions connected"
             )
             .setContentIntent(contentIntent)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -362,7 +404,9 @@ public class HermesConnectionService extends Service {
             !socketIds.isEmpty() ||
             !requestedSocketIds.isEmpty() ||
             !voiceIds.isEmpty() ||
-            !requestedVoiceIds.isEmpty()
+            !requestedVoiceIds.isEmpty() ||
+            !playbackIds.isEmpty() ||
+            !requestedPlaybackIds.isEmpty()
         ) {
             return;
         }

@@ -157,6 +157,15 @@ export interface SupportJob {
   status?: string
   message?: string
   activity_log?: unknown[]
+  request_id?: string | null
+  thread_id?: string | null
+  created_at?: string
+  started_at?: string | null
+  finished_at?: string | null
+  provenance?: Record<string, unknown>
+  error?: string | null
+  result?: unknown
+  cancel_requested?: boolean
 }
 
 export interface SupportSettings {

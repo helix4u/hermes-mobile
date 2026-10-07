@@ -115,6 +115,15 @@ export interface SessionOpenTarget {
 }
 
 interface HermesNativePlugin {
+  retainSpeechQueue(options: { leaseId: string }): Promise<void>
+  releaseSpeechQueue(options: { leaseId: string }): Promise<void>
+  startSpeech(options: { playbackId: string; dataUrl: string; rate: number }): Promise<void>
+  pauseSpeech(options: { playbackId: string }): Promise<void>
+  stopSpeech(options: { playbackId: string }): Promise<void>
+  addListener(
+    eventName: 'speechPlayback',
+    listener: (event: { playbackId: string; state: 'playing' | 'ended' | 'error'; durationMs?: number }) => void,
+  ): Promise<PluginListenerHandle>
   redeemPairing(options: { connectionId: string; baseUrl: string; code: string }): Promise<void>
   setCredential(options: { connectionId: string; token: string }): Promise<void>
   hasCredential(options: {
@@ -151,6 +160,11 @@ interface HermesNativePlugin {
   }): Promise<{ saved: boolean; filename?: string }>
   getPendingShare(): Promise<{ share?: SharedContent }>
   enableSessionNotifications(): Promise<{ enabled: boolean }>
+  /** Present in builds from the Desktop reskin onward; older APKs lack it. */
+  setSystemBarAppearance?(options: {
+    dark: boolean
+    background: string
+  }): Promise<void>
   showSessionResultNotification(options: {
     connectionId: string
     profile: string

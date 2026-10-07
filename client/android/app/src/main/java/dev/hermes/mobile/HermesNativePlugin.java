@@ -262,6 +262,9 @@ public class HermesNativePlugin extends Plugin {
     private final Object recorderLock = new Object();
     private final Object wakeWordLock = new Object();
     private RealtimeVoiceAudioRoute realtimeVoiceAudioRoute;
+    private SpeechPlayback speechPlayback;
+    private final Set<String> retainedSpeechQueueIds = ConcurrentHashMap.newKeySet();
+    private volatile boolean speechOwnerDestroyed;
     private MediaRecorder recorder;
     private File recordingFile;
     private long recordingStartedAt;
@@ -273,6 +276,16 @@ public class HermesNativePlugin extends Plugin {
     @Override
     public void load() {
         activeSharePlugin = new WeakReference<>(this);
+        speechPlayback = new SpeechPlayback(() -> new AndroidSpeechBackend(getContext()), (id, state, durationMs) -> {
+            JSObject event = new JSObject();
+            event.put("playbackId", id);
+            event.put("state", state);
+            event.put("durationMs", durationMs);
+            notifyListeners("speechPlayback", event);
+        }, active -> {
+            if (active) HermesConnectionService.retainPlayback(getContext(), "native-speech");
+            else HermesConnectionService.releasePlayback(getContext(), "native-speech");
+        });
         AudioManager audioManager =
             (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
         realtimeVoiceAudioRoute = new RealtimeVoiceAudioRoute(
@@ -281,6 +294,125 @@ public class HermesNativePlugin extends Plugin {
         cleanupOrphanedShares(getContext());
         publishPendingShare();
         publishPendingSessionOpen();
+    }
+
+    /**
+     * Match the system bars to the rendered Desktop theme: dark icons on light
+     * themes, light icons on dark ones, and the theme's chrome colour behind the
+     * WebView so keyboard and rotation resizes never flash a different colour.
+     */
+    @PluginMethod
+    public void setSystemBarAppearance(PluginCall call) {
+        boolean dark = Boolean.TRUE.equals(call.getBoolean("dark", true));
+        String background = call.getString("background", "");
+        Activity activity = getActivity();
+        if (activity == null) {
+            call.resolve();
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            try {
+                android.view.Window window = activity.getWindow();
+                androidx.core.view.WindowInsetsControllerCompat controller =
+                    androidx.core.view.WindowCompat.getInsetsController(window, window.getDecorView());
+                controller.setAppearanceLightStatusBars(!dark);
+                controller.setAppearanceLightNavigationBars(!dark);
+                if (background != null && background.matches("^#[0-9a-fA-F]{6}$")) {
+                    int color = Color.parseColor(background);
+                    window.getDecorView().setBackgroundColor(color);
+                    if (bridge != null && bridge.getWebView() != null) {
+                        bridge.getWebView().setBackgroundColor(color);
+                    }
+                }
+                call.resolve();
+            } catch (Exception error) {
+                call.reject("Could not update system bars", error);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void retainSpeechQueue(PluginCall call) {
+        String leaseId = call.getString("leaseId", "");
+        if (leaseId.isEmpty() || leaseId.length() > 128) {
+            call.reject("Invalid speech queue lease");
+            return;
+        }
+        mainHandler.post(() -> {
+            try {
+                if (speechOwnerDestroyed) throw new IllegalStateException("Speech owner was destroyed");
+                HermesConnectionService.retainPlayback(getContext(), leaseId);
+                retainedSpeechQueueIds.add(leaseId);
+                call.resolve();
+            } catch (RuntimeException error) {
+                call.reject("Could not retain background speech", error);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void releaseSpeechQueue(PluginCall call) {
+        String leaseId = call.getString("leaseId", "");
+        mainHandler.post(() -> {
+            HermesConnectionService.releasePlayback(getContext(), leaseId);
+            retainedSpeechQueueIds.remove(leaseId);
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void startSpeech(PluginCall call) {
+        String id = call.getString("playbackId", "");
+        String dataUrl = call.getString("dataUrl", "");
+        Double rate = call.getDouble("rate", 1.0);
+        // Only synthesized inline audio. Never load a URL with native network authority.
+        int comma = dataUrl.indexOf(',');
+        if (!dataUrl.startsWith("data:audio/") || comma < 0 ||
+            !dataUrl.substring(0, comma).endsWith(";base64") || dataUrl.length() > 32 * 1024 * 1024) {
+            call.reject("Invalid synthesized speech audio");
+            return;
+        }
+        ioExecutor.execute(() -> {
+            final byte[] audio;
+            try {
+                audio = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT);
+            } catch (IllegalArgumentException error) {
+                call.reject("Invalid speech encoding", error);
+                return;
+            }
+            mainHandler.post(() -> {
+                try {
+                    speechPlayback.play(id, audio, rate.floatValue());
+                    call.resolve();
+                } catch (Exception error) {
+                    call.reject("Could not start speech playback", error);
+                }
+            });
+        });
+    }
+
+    @PluginMethod
+    public void pauseSpeech(PluginCall call) {
+        mainHandler.post(() -> {
+            try {
+                speechPlayback.pause(call.getString("playbackId", ""));
+                call.resolve();
+            } catch (Exception error) {
+                call.reject("Could not pause speech playback", error);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void stopSpeech(PluginCall call) {
+        mainHandler.post(() -> {
+            try {
+                speechPlayback.stop(call.getString("playbackId", ""));
+                call.resolve();
+            } catch (RuntimeException error) {
+                call.reject("Could not stop speech playback", error);
+            }
+        });
     }
 
     private static void cleanupOrphanedShares(Context context) {
@@ -2555,6 +2687,19 @@ public class HermesNativePlugin extends Plugin {
         if (realtimeVoiceAudioRoute != null) {
             realtimeVoiceAudioRoute.releaseAll();
         }
+        speechOwnerDestroyed = true;
+        mainHandler.post(() -> {
+            try {
+                if (speechPlayback != null) speechPlayback.destroy();
+            } catch (RuntimeException error) {
+                android.util.Log.w("HermesSpeech", "Speech owner cleanup failed", error);
+            } finally {
+                for (String leaseId : retainedSpeechQueueIds.toArray(new String[0])) {
+                    HermesConnectionService.releasePlayback(getContext(), leaseId);
+                }
+                retainedSpeechQueueIds.clear();
+            }
+        });
         sockets.clear();
         retainedSocketIds.clear();
         retainedRealtimeVoiceIds.clear();

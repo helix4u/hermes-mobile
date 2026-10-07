@@ -33,7 +33,9 @@ describe('SupportOpsView', () => {
     )
 
     expect(html).toContain('Support Ops')
-    expect(html).toContain('Host plugin')
+    // Activity and Settings live in the overflow menu, not the pane bar.
+    expect(html).toContain('More support actions')
+    expect(html).not.toContain('Recent support receipts')
     expect(html).toContain('No automatic Discord posting')
     expect(html).toContain('Search support threads')
   })

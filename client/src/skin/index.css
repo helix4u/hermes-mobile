@@ -1,0 +1,12 @@
+/* Hermes Desktop look for Hermes Mobile.
+   Loaded after styles.css: each file restyles one area with Desktop tokens
+   (vendor/desktop/desktop-tokens.css) and Desktop component geometry. */
+@import './base.css';
+@import './shell.css';
+@import './chat.css';
+@import './sheets.css';
+@import './sessions.css';
+@import './control.css';
+@import './reader-files.css';
+@import './support.css';
+@import './pet-voice.css';

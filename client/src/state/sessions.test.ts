@@ -63,6 +63,24 @@ describe('project session projection', () => {
     expect(sessionMatches(row.session, 'unrelated', row)).toBe(false)
   })
 
+  it('matches trimmed case-insensitive local queries across every stored search field', () => {
+    const row = projectSessionRows(project)[0]
+    const session = { ...row.session, model: 'Synthetic Model', git_repo_root: 'F:\\roots\\workspace' }
+    for (const query of ['  FIX MOBILE  ', 'tool output', 'F:\\work', 'FEATURE/MOBILE', 'DESKTOP', 'synthetic model', 'roots', 'Hermes Mobile']) {
+      expect(sessionMatches(session, query, row)).toBe(true)
+    }
+    expect(sessionMatches(session, '   ', row)).toBe(true)
+    expect(sessionMatches(session, 'not present', row)).toBe(false)
+  })
+
+  it('handles null stored fields and absent project detail without inventing metadata', () => {
+    expect(projectSessionRows(null)).toEqual([])
+    const session = { ...project.repos[0].groups[0].sessions[0], title: null, preview: null, source: null, cwd: null, git_branch: null }
+    expect(sessionMatches(session, 'desktop')).toBe(false)
+    expect(sessionMatches(session, '')).toBe(true)
+    expect(groupSessionsByFolder([session])[0]).toMatchObject({ key: 'source:other', path: '', label: 'Other sessions' })
+  })
+
   it('groups recent sessions by cwd before rendering their rows', () => {
     const sessions = [
       project.repos[0].groups[0].sessions[0],

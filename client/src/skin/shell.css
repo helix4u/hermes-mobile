@@ -1,0 +1,706 @@
+/* shell: Hermes Desktop's window, folded onto a phone.
+   - Titlebar: one 40px row. Sidebar toggle, the pane title, pane actions.
+   - Sidebar: Desktop's left sidebar (host switcher, New session, nav rows,
+     Settings last). A drawer over the content in portrait, pinned in
+     landscape. It replaces the old bottom tab bar entirely.
+   - Notices sit in the flow under the titlebar, so they never cover a
+     control (they used to float over the first row of buttons). */
+
+/* ── Frame ────────────────────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  background: var(--ui-bg-editor);
+  /* The former bottom tab bar owned this inset. Every pane now shares it. */
+  padding-bottom: var(--safe-inset-bottom, 0px);
+}
+
+.mobile-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── Titlebar ─────────────────────────────────────────────────── */
+.topbar {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.25rem;
+  min-height: calc(2.5rem + var(--safe-top, 0px));
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  background: var(--ui-bg-chrome, var(--ui-bg-editor));
+  padding: var(--safe-top) 0.375rem 0;
+  backdrop-filter: none;
+}
+
+.topbar .icon-button {
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  flex: 0 0 2rem;
+  border-radius: 4px;
+  color: var(--ui-text-secondary);
+}
+
+.sidebar-toggle {
+  position: relative;
+}
+
+/* Connection state rides on the toggle: nothing when healthy. */
+.sidebar-toggle-dot {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  display: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+}
+
+.sidebar-toggle.state-connecting .sidebar-toggle-dot,
+.sidebar-toggle.state-degraded .sidebar-toggle-dot {
+  display: block;
+  background: var(--ui-yellow, var(--warning));
+}
+
+.sidebar-toggle.state-failed .sidebar-toggle-dot,
+.sidebar-toggle.state-disconnected .sidebar-toggle-dot {
+  display: block;
+  background: var(--dt-destructive);
+}
+
+.titlebar-title {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.4375rem;
+  padding-left: 0.125rem;
+}
+
+.titlebar-title h1 {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titlebar-session-state {
+  flex: 0 0 auto;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--ui-text-quaternary, var(--ui-text-tertiary));
+}
+
+.titlebar-session-state.live {
+  background: var(--dt-primary);
+}
+
+.titlebar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.titlebar-actions .live-voice-mic {
+  min-height: 2rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 0.5rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--m-text-xs);
+}
+
+.titlebar-actions .live-voice-mic[aria-pressed='true'] {
+  color: var(--dt-destructive);
+}
+
+.thread-actions {
+  position: static;
+  display: flex;
+  align-items: center;
+}
+
+.thread-actions-trigger {
+  position: relative;
+}
+
+.thread-actions-trigger[aria-expanded='true'] {
+  background: var(--ui-row-active-background, var(--chrome-action-hover));
+  color: var(--ui-text-primary);
+}
+
+.thread-actions-active-dot {
+  position: absolute;
+  top: 0.3125rem;
+  right: 0.3125rem;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--dt-primary);
+}
+
+/* Desktop DropdownMenu */
+.thread-actions-popover {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 0.25rem);
+  right: 0.375rem;
+  width: min(14rem, calc(100vw - 0.75rem));
+  max-height: min(26rem, calc(100dvh - 4rem));
+  overflow-y: auto;
+  border: 1px solid var(--m-stroke-popover);
+  border-radius: var(--m-radius-card);
+  background: var(--m-popover);
+  padding: 0.25rem;
+  box-shadow: var(--m-shadow-popover);
+  overscroll-behavior: contain;
+}
+
+.thread-menu-action {
+  display: flex;
+  width: 100%;
+  min-height: 1.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0.25rem 0.5rem;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-xs);
+  font-weight: 400;
+  line-height: 1rem;
+  text-align: left;
+}
+
+.thread-menu-action:active,
+.thread-menu-action.active {
+  background: var(--ui-row-active-background, var(--chrome-action-hover));
+}
+
+.thread-menu-action.danger {
+  color: var(--dt-destructive);
+}
+
+.thread-menu-action:disabled {
+  opacity: 0.5;
+}
+
+.pet-live-main-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  background: var(--ui-text-quaternary, var(--ui-text-tertiary));
+}
+
+.thread-menu-action.active .pet-live-main-dot {
+  background: var(--dt-primary);
+  box-shadow: none;
+}
+
+.stop-square {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+.session-voice-options {
+  margin-top: 0.25rem;
+  border-top: 1px solid var(--ui-stroke-tertiary);
+  padding: 0.25rem 0 0;
+}
+
+.session-voice-options h2 {
+  margin: 0.25rem 0.5rem;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+  font-weight: 500;
+}
+
+.thread-actions .voice-cycle-control {
+  min-height: 1.75rem;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--m-text-xs);
+}
+
+.voice-cycle-control span {
+  color: var(--ui-text-secondary);
+}
+
+.voice-cycle-control strong {
+  color: var(--ui-text-primary);
+  font-weight: 500;
+}
+
+.voice-cycle-control:active {
+  background: var(--ui-row-active-background, var(--chrome-action-hover));
+}
+
+/* ── Notices: in flow, under the titlebar ─────────────────────── */
+.toast,
+.toast-error,
+.toast-success {
+  position: relative;
+  inset: auto;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: auto;
+  max-width: none;
+  min-height: 2rem;
+  margin: 0;
+  transform: none;
+  border: 0;
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  border-radius: 0;
+  background: var(--ui-bg-chrome, var(--ui-bg-editor));
+  padding: 0.25rem 0.25rem 0.25rem 0.875rem;
+  color: var(--ui-text-secondary);
+  box-shadow: none;
+  font-size: var(--m-text-xs);
+  line-height: 1rem;
+  animation: notice-in 140ms ease-out;
+}
+
+.toast::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--ui-text-tertiary);
+}
+
+.toast-error::before {
+  position: static;
+  inset: auto;
+  border-radius: 50%;
+  background: var(--dt-destructive);
+}
+
+.toast-error {
+  color: var(--ui-text-primary);
+}
+
+.toast > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast button {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--ui-text-tertiary);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+@keyframes notice-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────── */
+.sidebar-current-copy {
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.sidebar-current-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+}
+
+.titlebar-actions .return-to-session {
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--m-text-sm);
+}
+
+.bottom-nav.app-sidebar,
+.bottom-nav.app-sidebar.support-enabled {
+  position: fixed;
+  z-index: 90;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  width: min(16rem, 82vw);
+  min-height: 0;
+  overflow-y: auto;
+  border: 0;
+  border-right: 1px solid var(--dt-sidebar-border, var(--ui-stroke-tertiary));
+  background: var(--ui-bg-sidebar, var(--ui-bg-chrome));
+  padding: calc(var(--safe-top, 0px) + 0.375rem) 0.375rem calc(var(--safe-bottom, 0px) + 0.5rem);
+  transform: translateX(-102%);
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  backdrop-filter: none;
+  box-shadow: none;
+  visibility: hidden;
+}
+
+.bottom-nav.app-sidebar[data-open='true'] {
+  transform: none;
+  box-shadow: var(--m-shadow-popover);
+  visibility: visible;
+}
+
+.sidebar-scrim {
+  position: fixed;
+  z-index: 89;
+  inset: 0;
+  border: 0;
+  background: color-mix(in srgb, #000 40%, transparent);
+  padding: 0;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.5rem;
+  margin-bottom: 0.25rem;
+  padding: 0 0.125rem;
+}
+
+.sidebar-header .brand-mark-shell {
+  flex: 0 0 auto;
+}
+
+.sidebar-header .brand-mark {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--ui-stroke-tertiary);
+  border-radius: var(--m-radius-card);
+  background: var(--ui-bg-quaternary);
+  box-shadow: none;
+}
+
+/* Desktop's profile/workspace switcher */
+.sidebar-header .host-pill {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  width: auto;
+  min-width: 0;
+  min-height: 2rem;
+  max-width: none;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.25rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0.125rem 0.375rem;
+  color: var(--ui-text-primary);
+  text-align: left;
+}
+
+.sidebar-header .host-pill:active {
+  background: var(--ui-row-hover-background, var(--chrome-action-hover));
+}
+
+.sidebar-header .host-pill-copy {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sidebar-header .host-pill-copy strong {
+  overflow: hidden;
+  color: var(--ui-text-primary);
+  font-size: var(--m-text-sm);
+  font-weight: 600;
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-header .host-pill-copy small {
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+  overflow: hidden;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-micro);
+  font-weight: 400;
+  line-height: 0.875rem;
+  white-space: nowrap;
+}
+
+.sidebar-header .host-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--ui-text-quaternary, var(--ui-text-tertiary));
+  box-shadow: none;
+}
+
+.sidebar-header .state-connected .host-dot {
+  background: var(--dt-primary);
+  box-shadow: none;
+}
+
+.sidebar-header .state-connecting .host-dot,
+.sidebar-header .state-degraded .host-dot {
+  background: var(--ui-yellow, var(--warning));
+  box-shadow: none;
+}
+
+.sidebar-header .state-failed .host-dot {
+  background: var(--dt-destructive);
+}
+
+.sidebar-header .host-chevron {
+  color: var(--ui-text-tertiary);
+}
+
+/* Sidebar rows: Desktop's 28px nav item. */
+.app-sidebar > button {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  min-height: 1.875rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 0.5rem;
+  color: var(--ui-text-secondary);
+  text-align: left;
+}
+
+.app-sidebar > button:active:not(:disabled) {
+  background: var(--ui-row-hover-background, var(--chrome-action-hover));
+}
+
+.app-sidebar > button.active {
+  background: var(--ui-row-active-background, var(--ui-bg-quaternary));
+  color: var(--ui-text-primary);
+}
+
+.app-sidebar > button:disabled {
+  opacity: 0.5;
+}
+
+.app-sidebar .nav-icon-shell {
+  display: grid;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+  place-items: center;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-tertiary);
+}
+
+.app-sidebar > button.active .nav-icon-shell {
+  color: var(--ui-text-primary);
+}
+
+.app-sidebar .nav-icon-shell svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+}
+
+.app-sidebar small {
+  font-size: var(--m-text-sm);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1rem;
+}
+
+.sidebar-new-session {
+  margin-bottom: 0.375rem;
+}
+
+.sidebar-new-session small {
+  color: var(--ui-text-primary);
+  font-weight: 500;
+}
+
+/* Settings sits at the foot of the sidebar, like Desktop. */
+.app-sidebar > button.nav-control {
+  margin-top: auto;
+}
+
+/* ── Landscape: the sidebar is pinned ─────────────────────────── */
+@media (orientation: landscape) and (min-width: 600px) and (max-height: 600px) {
+  :root {
+    --landscape-rail-width: clamp(11rem, 24vw, 14rem);
+  }
+
+  .app-shell {
+    display: grid;
+    grid-template-columns: var(--landscape-rail-width) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .topbar {
+    grid-column: 2;
+    grid-row: 1;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.25rem;
+    min-height: 2.5rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--ui-stroke-tertiary);
+    padding: 0 0.375rem 0 0.5rem;
+  }
+
+  .sidebar-toggle,
+  .sidebar-scrim {
+    display: none !important;
+  }
+
+  .toast,
+  .toast-error,
+  .toast-success {
+    grid-column: 2;
+    grid-row: 2;
+    top: auto;
+    left: auto;
+    width: auto;
+  }
+
+  .mobile-workspace {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .bottom-nav.app-sidebar,
+  .bottom-nav.app-sidebar.support-enabled {
+    position: static;
+    grid-column: 1;
+    grid-row: 1 / -1;
+    display: flex;
+    width: auto;
+    padding: 0.375rem;
+    transform: none;
+    box-shadow: none;
+    visibility: visible;
+    transition: none;
+  }
+
+  .app-sidebar > button {
+    min-height: 1.75rem;
+  }
+
+  .app-sidebar small,
+  .bottom-nav.support-enabled small {
+    font-size: var(--m-text-sm);
+  }
+
+  /* IME up in landscape (~200px left): titlebar drops to 32px and the
+     sidebar keeps scrolling on its own. */
+  :root[data-keyboard='open'] .topbar {
+    min-height: 2rem;
+  }
+
+  :root[data-keyboard='open'] .topbar .icon-button {
+    width: 1.75rem;
+    height: 1.75rem;
+    min-width: 1.75rem;
+    flex-basis: 1.75rem;
+  }
+
+  :root[data-keyboard='open'] .sidebar-header {
+    min-height: 2rem;
+  }
+}
+
+@media (orientation: landscape) and (min-width: 600px) and (max-height: 260px) {
+  .topbar {
+    min-height: 2rem;
+  }
+
+  .app-sidebar > button {
+    min-height: 1.625rem;
+  }
+}
+
+/* ── Pane toolbars ────────────────────────────────────────────────
+   The titlebar already names the pane (Sessions, Reader, Files,
+   Settings), so each view's own heading becomes Desktop's slim pane
+   toolbar: the context line on the left, the pane's actions on the right. */
+.sessions-view .page-heading,
+.reader-view .page-heading,
+.files-view .page-heading,
+.control-view .control-hero {
+  min-height: 2.5rem;
+  max-height: none;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  border-bottom: 1px solid var(--ui-stroke-tertiary);
+  background: var(--ui-bg-editor);
+  padding: 0.25rem 0.375rem 0.25rem 0.875rem;
+}
+
+.sessions-view .page-heading h1,
+.reader-view .page-heading h1,
+.files-view .page-heading h1,
+.control-view .control-hero h2,
+.control-view .control-hero > div > p:not(.eyebrow) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.sessions-view .page-heading .eyebrow,
+.reader-view .page-heading .eyebrow,
+.files-view .page-heading .eyebrow,
+.control-view .control-hero .eyebrow {
+  display: block;
+  margin: 0;
+  color: var(--ui-text-tertiary);
+  font-size: var(--m-text-xs);
+  font-weight: 400;
+  line-height: 1rem;
+}
+
+.sessions-view .page-heading .icon-button,
+.control-view .control-hero .icon-button {
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  flex: 0 0 2rem;
+}
