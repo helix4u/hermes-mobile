@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEmbedPreferences } from '../embeds'
 import type { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
 import type { VoiceSelection } from '../reader'
@@ -308,6 +308,15 @@ export function ControlPanel({
   const [model, setModel] = useState('')
   const [persistModel, setPersistModel] = useState(false)
   const [pendingModelConfirm, setPendingModelConfirm] = useState('')
+  const modelSelection = JSON.stringify([profile, provider, model, persistModel, runtimeSessionId])
+  const currentModelSelection = useRef(modelSelection)
+  const confirmedModelSelection = useRef('')
+  currentModelSelection.current = modelSelection
+
+  useEffect(() => {
+    confirmedModelSelection.current = ''
+    setPendingModelConfirm('')
+  }, [modelSelection])
   const [config, setConfig] = useState<ConfigValues>(emptyConfig)
   const [rawConfig, setRawConfig] = useState<unknown>(null)
   const [toolsets, setToolsets] = useState<ToolsetRow[]>([])
@@ -395,6 +404,8 @@ export function ControlPanel({
 
   async function applyModel(confirmExpensiveModel = false) {
     if (!provider || !model) return
+    const selection = currentModelSelection.current
+    if (confirmExpensiveModel && confirmedModelSelection.current !== selection) return
     setLoading(true)
     setError('')
     try {
@@ -414,7 +425,9 @@ export function ControlPanel({
           Boolean(runtimeSessionId),
         ),
       })
+      if (currentModelSelection.current !== selection) return
       if (result.confirm_required) {
+        confirmedModelSelection.current = selection
         setPendingModelConfirm(
           result.confirm_message ||
             result.warning ||
@@ -423,6 +436,7 @@ export function ControlPanel({
         return
       }
       setPendingModelConfirm('')
+      confirmedModelSelection.current = ''
       onNotice(`Model switched to ${result.value || model}`)
       await loadModels()
     } catch (modelError) {

@@ -5,10 +5,21 @@ param(
     [string]$TailnetHost = '',
     [string]$HermesHome = (Join-Path $env:LOCALAPPDATA 'hermes'),
     [string]$HermesExecutable = '',
-    [string]$DesktopExecutable = ''
+    [string]$DesktopExecutable = '',
+    [ValidateSet('legacy', 'shared-runtime')][string]$BackendOwner = 'legacy',
+    [string]$SharedRuntimeHome = '',
+    [string]$SharedRuntimeCodeRoot = '',
+    [string]$SharedRuntimeInterpreter = '',
+    [string]$SharedRuntimeLockDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
+
+. (Join-Path $PSScriptRoot 'mobile-backend-owner.ps1')
+if ($BackendOwner -eq 'shared-runtime' -and (
+    $DesktopExecutable -or -not $SharedRuntimeHome -or -not $SharedRuntimeCodeRoot -or
+    -not (Test-Path -LiteralPath $SharedRuntimeInterpreter -PathType Leaf)
+)) { throw 'SharedRuntime requires explicit home, code root and interpreter, without Desktop ownership' }
 
 if ($Port -lt 1024 -or $Port -gt 65535) {
     throw "Port must be between 1024 and 65535"
@@ -17,7 +28,7 @@ if ($Port -lt 1024 -or $Port -gt 65535) {
 if (-not $HermesExecutable) {
     $HermesExecutable = Join-Path $HermesHome 'hermes-agent\venv\Scripts\hermes.exe'
 }
-if (-not (Test-Path -LiteralPath $HermesExecutable)) {
+if ($BackendOwner -eq 'legacy' -and -not (Test-Path -LiteralPath $HermesExecutable)) {
     throw "Hermes executable not found: $HermesExecutable"
 }
 
@@ -40,7 +51,7 @@ $proxyStderrPath = Join-Path $stateDirectory 'proxy.stderr.log'
 $proxyScript = Join-Path $PSScriptRoot 'mobile_proxy.py'
 $desktopProcessScript = Join-Path $PSScriptRoot 'mobile-desktop-process.ps1'
 $desktopRouteScript = Join-Path $PSScriptRoot 'mobile-desktop-route.ps1'
-$pythonExecutable = Join-Path (Split-Path -Parent $HermesExecutable) 'python.exe'
+$pythonExecutable = if ($BackendOwner -eq 'shared-runtime') { $SharedRuntimeInterpreter } else { Join-Path (Split-Path -Parent $HermesExecutable) 'python.exe' }
 $lifecycleTraceId = [guid]::NewGuid().ToString('N')
 $serverWorkingDirectory = if (
     $env:USERPROFILE -and
@@ -88,6 +99,7 @@ function Write-MobileLifecycleEvent {
 }
 
 function Test-DesktopRunning {
+    if ($BackendOwner -eq 'shared-runtime') { return $true }
     if (-not $DesktopExecutable) {
         return $true
     }
@@ -154,6 +166,7 @@ function Test-ProcessStartMarker {
 }
 
 function Get-DesktopBackendEndpoint {
+    if ($BackendOwner -eq 'shared-runtime') { return Get-SharedRuntimeEndpoint }
     if (-not $DesktopExecutable) {
         return $null
     }
@@ -309,6 +322,15 @@ function Test-DesktopBackendApi {
 function Get-DesktopBackendStability {
     param($ExpectedBackend)
 
+    if ($BackendOwner -eq 'shared-runtime') {
+        $observed = Get-SharedRuntimeEndpoint -ExpectedIdentity ([string]$ExpectedBackend.IdentityKey)
+        return [pscustomobject]@{
+            Stable = (Test-HermesMobileBrokerIdentity -Expected $ExpectedBackend -Observed $observed)
+            Transient = $false
+            Reason = 'broker-generation-changed'
+        }
+    }
+
     if (-not $ExpectedBackend) {
         return [pscustomobject]@{ Stable = $true; Transient = $false; Reason = '' }
     }
@@ -352,6 +374,14 @@ function Get-DesktopBackendStability {
     }
 }
 
+function Get-SharedRuntimeEndpoint {
+    param([string]$ExpectedIdentity = '')
+    # Read-only adapter. No worker launch, adoption, locking or cleanup.
+    $proof = & $SharedRuntimeInterpreter -B (Join-Path $PSScriptRoot 'mobile_shared_runtime.py') --home $SharedRuntimeHome --code-root $SharedRuntimeCodeRoot --expected-identity $ExpectedIdentity --lock-directory $SharedRuntimeLockDirectory
+    if ($LASTEXITCODE -ne 0) { return $null }
+    try { return ($proof | ConvertFrom-Json) } catch { return $null }
+}
+
 if (-not (Test-Path -LiteralPath $proxyScript)) {
     throw "Mobile reverse proxy not found: $proxyScript"
 }
@@ -359,6 +389,18 @@ if (-not (Test-Path -LiteralPath $pythonExecutable)) {
     throw "Hermes Python executable not found: $pythonExecutable"
 }
 
+if ($BackendOwner -eq 'shared-runtime') {
+    # Do not create/read a credential through any redirected ancestor.
+    $stateCheck = [System.IO.Path]::GetFullPath($tokenPath)
+    while ($stateCheck) {
+        $stateItem = Get-Item -LiteralPath $stateCheck -Force -ErrorAction SilentlyContinue
+        if ($stateItem -and ($stateItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            throw 'SharedRuntime Mobile credential path is redirected'
+        }
+        $stateParent = [System.IO.Directory]::GetParent($stateCheck)
+        $stateCheck = if ($stateParent) { $stateParent.FullName } else { $null }
+    }
+}
 [System.IO.Directory]::CreateDirectory($stateDirectory) | Out-Null
 
 if (-not (Test-Path -LiteralPath $tokenPath)) {
@@ -371,9 +413,21 @@ if (-not (Test-Path -LiteralPath $tokenPath)) {
         [System.Text.UTF8Encoding]::new($false)
     )
 
-    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+}
+
+# Existing pairing credentials also need the private ACL. Older installations
+# inherited broad grants. Preserve the bytes and refuse another user's file.
+$tokenItem = Get-Item -LiteralPath $tokenPath
+if ($tokenItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw 'Linked Mobile credential refused' }
+$tokenIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$tokenAccess = Get-Acl -LiteralPath $tokenPath
+$tokenOwner = $tokenAccess.GetOwner([System.Security.Principal.SecurityIdentifier])
+if ($tokenOwner.Value -ne $tokenIdentity.User.Value) { throw 'Mobile credential belongs to another user' }
+if (-not $tokenAccess.AreAccessRulesProtected -or @($tokenAccess.Access | Where-Object { $_.IdentityReference.Value -ne $tokenIdentity.Name }).Count -gt 0) {
+    $identity = $tokenIdentity.Name
     $acl = [System.Security.AccessControl.FileSecurity]::new()
     $acl.SetAccessRuleProtection($true, $false)
+    $acl.SetOwner($tokenIdentity.User)
     $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
         $identity,
         [System.Security.AccessControl.FileSystemRights]::FullControl,
@@ -383,9 +437,11 @@ if (-not (Test-Path -LiteralPath $tokenPath)) {
     Set-Acl -LiteralPath $tokenPath -AclObject $acl
 }
 
-$token = [System.IO.File]::ReadAllText($tokenPath).Trim()
-if ($token.Length -lt 43) {
-    throw "The mobile server credential is missing or too short"
+if ($BackendOwner -ne 'shared-runtime') {
+    $token = [System.IO.File]::ReadAllText($tokenPath).Trim()
+    if ($token.Length -lt 43) {
+        throw "The mobile server credential is missing or too short"
+    }
 }
 
 $mutex = [System.Threading.Mutex]::new(
@@ -421,7 +477,8 @@ try {
         }
 
         $desktopBackend = Get-DesktopBackendEndpoint
-        if ($DesktopExecutable -and -not $desktopBackend) {
+        $ownerPlan = Get-HermesMobileOwnerPlan -BackendOwner $BackendOwner -DesktopBound ([bool]$DesktopExecutable) -DesktopPresent (Test-DesktopRunning) -Endpoint $desktopBackend
+        if ($ownerPlan.Action -eq 'wait') {
             if ($null -eq $backendWaitStartedAt) {
                 $backendWaitStartedAt = [DateTimeOffset]::Now
                 $backendWaitPolls = 0
@@ -455,30 +512,26 @@ try {
                 profile = if ($desktopBackend) { [string]$desktopBackend.Profile } else { 'standalone' }
             }
         $launcherMessage = if ($desktopBackend) {
-            "[$([DateTimeOffset]::Now.ToString('O'))] attaching Mobile bridges on 127.0.0.1:$Port and 127.0.0.1:$ProxyPort to the Desktop backend`r`n"
+            "[$([DateTimeOffset]::Now.ToString('O'))] attaching Mobile bridges to the verified $BackendOwner owner`r`n"
         } else {
             "[$([DateTimeOffset]::Now.ToString('O'))] starting Hermes Mobile server on 127.0.0.1:$Port with proxy 127.0.0.1:$ProxyPort for $TailnetHost`r`n"
         }
         [System.IO.File]::AppendAllText($launcherLog, $launcherMessage)
 
         if ($desktopBackend) {
+            $bridgeArguments = @(
+                $proxyScript, '--host', '127.0.0.1', '--port', $Port.ToString(),
+                '--upstream', $upstream, '--allowed-host', $TailnetHost,
+                '--credential-file', $tokenPath, '--upstream-credential-file', [string]$desktopBackend.AccessTokenFile
+            )
+            if ($BackendOwner -eq 'shared-runtime') {
+                $pythonExecutable = $SharedRuntimeInterpreter
+                $bridgeArguments += @('--shared-runtime-home', "`"$SharedRuntimeHome`"", '--shared-runtime-code-root', "`"$SharedRuntimeCodeRoot`"", '--shared-runtime-identity', "`"$($desktopBackend.IdentityKey)`"")
+                if ($SharedRuntimeLockDirectory) { $bridgeArguments += @('--shared-runtime-lock-directory', "`"$SharedRuntimeLockDirectory`"") }
+            }
             $server = Start-Process `
                 -FilePath $pythonExecutable `
-                -ArgumentList @(
-                    $proxyScript,
-                    '--host',
-                    '127.0.0.1',
-                    '--port',
-                    $Port.ToString(),
-                    '--upstream',
-                    $upstream,
-                    '--allowed-host',
-                    $TailnetHost,
-                    '--credential-file',
-                    $tokenPath,
-                    '--upstream-credential-file',
-                    [string]$desktopBackend.AccessTokenFile
-                ) `
+                -ArgumentList $bridgeArguments `
                 -WorkingDirectory $PSScriptRoot `
                 -WindowStyle Hidden `
                 -RedirectStandardOutput $stdoutPath `
@@ -520,6 +573,10 @@ try {
                 '--upstream-credential-file',
                 [string]$desktopBackend.AccessTokenFile
             )
+            if ($BackendOwner -eq 'shared-runtime') {
+                $proxyArguments += @('--shared-runtime-home', "`"$SharedRuntimeHome`"", '--shared-runtime-code-root', "`"$SharedRuntimeCodeRoot`"", '--shared-runtime-identity', "`"$($desktopBackend.IdentityKey)`"")
+                if ($SharedRuntimeLockDirectory) { $proxyArguments += @('--shared-runtime-lock-directory', "`"$SharedRuntimeLockDirectory`"") }
+            }
         }
 
         $proxy = Start-Process `

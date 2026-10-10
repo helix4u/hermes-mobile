@@ -69,6 +69,10 @@ try {
   await check('context-occupancy-and-compression-boundary', async () => {
     await page.goto(`${origin}/qa/mobile-polish.html?surface=context`)
     await page.getByLabel('Context 45% used. 55,000 tokens remaining.').waitFor()
+    const percent = await page.locator('.context-meter-percent').boundingBox()
+    const composer = await page.locator('.composer-meta').boundingBox()
+    if (!percent || !composer || percent.x < composer.x || percent.x + percent.width > composer.x + composer.width)
+      throw Error('Context percentage is clipped by workspace and connection metadata')
     await page.locator('.context-meter > summary').click()
     await page.getByText('Compression at 60,000 tokens (60%)', { exact: true }).waitFor()
     await page.evaluate(() => window.compressContext())

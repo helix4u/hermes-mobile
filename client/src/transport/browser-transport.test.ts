@@ -12,6 +12,7 @@ describe('core gateway compatibility', () => {
     const gateway = {
       connect,
       disconnect: vi.fn(),
+      expectProtocol: vi.fn(),
     } as unknown as JsonRpcGatewayClient
     const responses = [
       new Response('{}', { status: 404 }),
@@ -51,6 +52,7 @@ describe('core gateway compatibility', () => {
     const gateway = {
       connect,
       disconnect: vi.fn(),
+      expectProtocol: vi.fn(),
     } as unknown as JsonRpcGatewayClient
     const responses = [
       new Response('{}', { status: 404 }),
@@ -168,6 +170,7 @@ describe('authenticated JSON requests', () => {
     const gateway = {
       connect: vi.fn(),
       disconnect: vi.fn(),
+      expectProtocol: vi.fn(),
     } as unknown as JsonRpcGatewayClient
     const responses = [
       new Response('{}', { status: 404 }),

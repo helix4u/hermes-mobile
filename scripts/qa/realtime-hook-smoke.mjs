@@ -62,6 +62,43 @@ try {
     await page.evaluate(() => window.qa.realtime.start())
     await page.waitForFunction(() => window.qa.realtime.snapshot.status === 'listening')
   }
+  for (const engine of ['realtime', 'live']) {
+    await check(`HOOK-EFFECTS-${engine.toUpperCase()}`, 'Live output preferences change without restarting either provider, and unsupported DSP remains visible without killing the call.', async () => {
+      await page.goto(`${url}/qa/realtime.html?voicePage`, { timeout: 30000 })
+      await page.waitForFunction(() => Boolean(window.qa))
+      const savedSettings = await page.evaluate(() => window.qa.realtime.settings)
+      try {
+        await page.evaluate(async engine => {
+          const q = window.qa
+          q.realtime.setSettings({ ...q.realtime.settings, engine })
+          await q.realtime.start()
+          q.peers.at(-1).ontrack({ streams: [new MediaStream()] })
+        }, engine)
+        const before = await page.evaluate(() => ({ peers: window.qa.peers.length, requests: window.qa.sessionRequests }))
+        await page.evaluate(engine => {
+          const q = window.qa
+          q.realtime.setSettings({ ...q.realtime.settings, engine: engine === 'live' ? 'realtime' : 'live',
+            effects: { enabled: true, pitch: -4, bass: 2, treble: 0, radio: false } })
+        }, engine)
+        await page.waitForFunction(() => Boolean(window.qa.realtime.snapshot.effectsWarning))
+        if (!await page.locator('.voice-effects-warning').isVisible()) throw new Error('Effects failure was hidden behind collapsed settings')
+        const after = await page.evaluate(() => ({ peers: window.qa.peers.length, requests: window.qa.sessionRequests,
+          engine: window.qa.realtime.settings.engine, pitch: window.qa.realtime.settings.effects.pitch,
+          error: window.qa.realtime.snapshot.error }))
+        if (after.peers !== before.peers || after.requests !== before.requests || after.engine !== engine || after.pitch !== -4 || after.error) {
+          throw new Error('Effects changed provider ownership or stopped the call')
+        }
+        await page.evaluate(() => window.qa.realtime.setSettings({ ...window.qa.realtime.settings,
+          effects: { enabled: false, pitch: 0, bass: 0, treble: 0, radio: false } }))
+        await page.waitForFunction(() => !window.qa.realtime.snapshot.effectsWarning)
+      } finally {
+        await page.evaluate(saved => {
+          window.qa.realtime.stop()
+          window.qa.realtime.setSettings(saved)
+        }, savedSettings)
+      }
+    })
+  }
   await check('HOOK-ONSET-INTERRUPTION', 'Speech onset stops audio before ASR, fences old packets and defers an earlier transcript response while a newer utterance is pending.', async () => {
     await fresh()
     await page.evaluate(() => {

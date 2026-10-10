@@ -3,6 +3,8 @@ export interface RealtimePlaybackProbe {
   sample: () => Promise<number | null>
   /** Reattach the same remote stream without creating a second audio owner. */
   rebind: () => void
+  /** A DSP owner can silence direct playback while keeping the receiver sink alive. */
+  restoreOutput?: () => void
   /** Injectable so the watchdog is deterministic in tests. */
   settle?: () => Promise<void>
 }
@@ -97,8 +99,8 @@ export function watchRealtimePlayback(
       }
       rebound = true
       probe.rebind()
-      audio.muted = false
-      audio.volume = 1
+      if (probe.restoreOutput) probe.restoreOutput()
+      else { audio.muted = false; audio.volume = 1 }
       await play()
       baseline = await probe.sample() ?? next
     }
@@ -109,8 +111,8 @@ export function watchRealtimePlayback(
   return {
     begin() {
       pauseRecoveries = 0
-      audio.muted = false
-      audio.volume = 1
+      if (probe?.restoreOutput) probe.restoreOutput()
+      else { audio.muted = false; audio.volume = 1 }
       const generation = ++probeGeneration
       void play()
       void monitor(generation)

@@ -26,6 +26,7 @@ import {
 import type { HermesTransport } from './transport/hermes-transport'
 import { HermesNative } from './transport/native-bridge'
 import { SpeechBackgroundLease } from './speech-background'
+import { VoiceCaptureLease, type VoiceCapturePhase } from './voice-capture-lease'
 
 export type VoicePhase =
   'idle' | 'recording' | 'transcribing' | 'synthesizing' | 'speaking'
@@ -835,7 +836,10 @@ export function useVoice({
   onError,
   onTranscript,
 }: UseVoiceOptions) {
-  const [phase, setPhase] = useState<VoicePhase>('idle')
+  const [speechPhase, setSpeechPhase] = useState<'idle' | 'synthesizing' | 'speaking'>('idle')
+  const [capturePhase, setCapturePhase] = useState<VoiceCapturePhase>('idle')
+  const phase: VoicePhase = capturePhase === 'starting' || capturePhase === 'recording'
+    ? 'recording' : capturePhase === 'transcribing' ? 'transcribing' : speechPhase
   const [activeSpeechId, setActiveSpeechId] = useState('')
   const [playbackPaused, setPlaybackPaused] = useState(false)
   const activeSpeechIdRef = useRef('')
@@ -854,6 +858,16 @@ export function useVoice({
     new Set<PreparedSpeechStream<SynthesizedSpeech>>(),
   )
   const mountedRef = useRef(true)
+  const connectionIdRef = useRef(connectionId)
+  connectionIdRef.current = connectionId
+  const captureConnectionRef = useRef(connectionId)
+  const nativeCaptureReadyRef = useRef(false)
+  const captureLeaseRef = useRef<VoiceCaptureLease | null>(null)
+  if (!captureLeaseRef.current) {
+    captureLeaseRef.current = new VoiceCaptureLease(next => {
+      if (mountedRef.current) setCapturePhase(next)
+    })
+  }
   const speechBackgroundRef = useRef<SpeechBackgroundLease | null>(null)
   if (nativeClient && !speechBackgroundRef.current) {
     speechBackgroundRef.current = new SpeechBackgroundLease(HermesNative, () => {
@@ -900,7 +914,7 @@ export function useVoice({
     finishAudio?.()
     updatePlaybackPaused(false)
     updateActiveSpeechId('')
-    setPhase(current =>
+    setSpeechPhase(current =>
       current === 'speaking' || current === 'synthesizing' ? 'idle' : current,
     )
   }, [updateActiveSpeechId, updatePlaybackPaused])
@@ -921,18 +935,25 @@ export function useVoice({
   }, [updatePlaybackPaused])
 
   const resumePlayback = useCallback(() => {
+    if (captureLeaseRef.current!.phase !== 'idle') return
     if (!activeSpeechIdRef.current) return
     updatePlaybackPaused(false)
     beginAudioPlaybackRef.current?.()
   }, [updatePlaybackPaused])
 
   const startRecording = useCallback(async () => {
+    const lease = captureLeaseRef.current!
+    const owner = lease.begin()
+    if (owner === null) return
+    captureConnectionRef.current = connectionIdRef.current
     if (activeSpeechIdRef.current === 'reader') pausePlayback()
     else stopPlayback()
     onError('')
+    let startingStream: MediaStream | null = null
     try {
       if (nativeClient) {
         await HermesNative.startRecording()
+        nativeCaptureReadyRef.current = true
       } else {
         if (
           typeof MediaRecorder === 'undefined' ||
@@ -942,7 +963,7 @@ export function useVoice({
             'Microphone recording is not supported in this browser',
           )
         }
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const stream = startingStream = await navigator.mediaDevices.getUserMedia({
           audio: true,
         })
         const mimeType = preferredRecordingMimeType()
@@ -959,25 +980,34 @@ export function useVoice({
         recorder.addEventListener('dataavailable', event => {
           if (event.data.size > 0) recording.chunks.push(event.data)
         })
-        recorder.start()
         browserRecordingRef.current = recording
+        recorder.start()
       }
-      if (!mountedRef.current) return
-      setPhase('recording')
+      if (!mountedRef.current || !lease.owns(owner)) {
+        if (nativeCaptureReadyRef.current) {
+          nativeCaptureReadyRef.current = false
+          await HermesNative.stopRecording().catch(() => undefined)
+        }
+        stopBrowserTracks(browserRecordingRef.current)
+        browserRecordingRef.current = null
+        lease.finish(owner)
+        return
+      }
+      lease.recording(owner)
       clearRecordingTimer()
       recordingTimerRef.current = window.setTimeout(
         () => void stopAndTranscribeRef.current(),
         MAX_RECORDING_MS,
       )
+      if (lease.shouldStop(owner)) await stopAndTranscribeRef.current()
     } catch (error) {
+      if (!browserRecordingRef.current) {
+        for (const track of startingStream?.getTracks() ?? []) track.stop()
+      }
       stopBrowserTracks(browserRecordingRef.current)
       browserRecordingRef.current = null
-      setPhase(
-        activeSpeechIdRef.current === 'reader' && playbackPausedRef.current
-          ? 'speaking'
-          : 'idle',
-      )
-      onError(error instanceof Error ? error.message : String(error))
+      lease.finish(owner)
+      if (mountedRef.current) onError(error instanceof Error ? error.message : String(error))
     }
   }, [
     clearRecordingTimer,
@@ -1019,14 +1049,20 @@ export function useVoice({
     }, [])
 
   const stopAndTranscribe = useCallback(async () => {
-    if (phase !== 'recording') return
+    const lease = captureLeaseRef.current!
+    const owner = lease.requestStop()
+    if (owner === null) return
+    const captureConnection = captureConnectionRef.current
     clearRecordingTimer()
-    setPhase('transcribing')
     onError('')
     try {
-      const capture = nativeClient
-        ? await HermesNative.stopRecording()
-        : await captureBrowserRecording()
+      let capture: CapturedAudio
+      if (nativeClient) {
+        // Native stop releases the recorder even if reading the captured file fails.
+        nativeCaptureReadyRef.current = false
+        capture = await HermesNative.stopRecording()
+      } else capture = await captureBrowserRecording()
+      if (!mountedRef.current || captureConnection !== connectionIdRef.current) return
       const transport = getTransport()
       if (!transport) throw new Error('Connect to Hermes before transcribing')
       const result = await transport.requestJson<TranscriptionResponse>(
@@ -1038,17 +1074,13 @@ export function useVoice({
       )
       const text = String(result.transcript ?? '').trim()
       if (!text) throw new Error('Hermes did not detect any speech')
-      if (mountedRef.current) onTranscript(text)
+      if (mountedRef.current && lease.owns(owner) && captureConnection === connectionIdRef.current) onTranscript(text)
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
-    } finally {
-      if (mountedRef.current) {
-        setPhase(
-          activeSpeechIdRef.current === 'reader' && playbackPausedRef.current
-            ? 'speaking'
-            : 'idle',
-        )
+      if (mountedRef.current && captureConnection === connectionIdRef.current) {
+        onError(error instanceof Error ? error.message : String(error))
       }
+    } finally {
+      lease.finish(owner)
     }
   }, [
     captureBrowserRecording,
@@ -1057,7 +1089,6 @@ export function useVoice({
     nativeClient,
     onError,
     onTranscript,
-    phase,
   ])
   stopAndTranscribeRef.current = stopAndTranscribe
 
@@ -1070,6 +1101,8 @@ export function useVoice({
       onPlaybackStart?: () => void,
       onPlaybackEnd?: () => void,
     ): Promise<void> => {
+      await captureLeaseRef.current!.waitUntilIdle()
+      if (!mountedRef.current) return
       if (generation !== speechGenerationRef.current) return
       const audio = createSpeechAudio(dataUrl, nativeClient)
       const releasePlaybackRate = maintainSpeechPlaybackRate(audio, playbackRate)
@@ -1079,10 +1112,10 @@ export function useVoice({
         let started = false
         let durationRecorded = false
         const releasePlaybackStart = observeSpeechPlaybackStart(audio,
-          () => !settled && !playbackPausedRef.current && generation === speechGenerationRef.current,
+          () => !settled && !playbackPausedRef.current && captureLeaseRef.current!.phase === 'idle' && generation === speechGenerationRef.current,
           () => {
             started = true
-            setPhase('speaking')
+            setSpeechPhase('speaking')
             onPlaybackStart?.()
           })
         const recordDuration = () => {
@@ -1124,6 +1157,7 @@ export function useVoice({
           if (
             settled ||
             playbackPausedRef.current ||
+            captureLeaseRef.current!.phase !== 'idle' ||
             generation !== speechGenerationRef.current
           ) {
             return
@@ -1172,7 +1206,7 @@ export function useVoice({
               if (generation !== speechGenerationRef.current) return
               updatePlaybackPaused(false)
               updateActiveSpeechId(id)
-              setPhase('synthesizing')
+              setSpeechPhase('synthesizing')
               try {
                 for (;;) {
                   const prepared = await buffer.next()
@@ -1205,17 +1239,17 @@ export function useVoice({
                     },
                   )
                   if (generation === speechGenerationRef.current) {
-                    setPhase('synthesizing')
+                    setSpeechPhase('synthesizing')
                   }
                 }
                 if (generation === speechGenerationRef.current) {
                   updateActiveSpeechId('')
-                  setPhase('idle')
+                  setSpeechPhase('idle')
                 }
               } catch (error) {
                 if (generation === speechGenerationRef.current) {
                   updateActiveSpeechId('')
-                  setPhase('idle')
+                  setSpeechPhase('idle')
                   onError(error instanceof Error ? error.message : String(error))
                 }
               } finally {
@@ -1453,7 +1487,7 @@ export function useVoice({
         const generation = speechGenerationRef.current
         updatePlaybackPaused(false)
         updateActiveSpeechId(options.speechId || queue[0].id)
-        setPhase('synthesizing')
+        setSpeechPhase('synthesizing')
         try {
           const transport = getTransport()
           if (!transport)
@@ -1477,7 +1511,7 @@ export function useVoice({
               isCurrent: () => generation === speechGenerationRef.current,
               onActive: itemId => {
                 options.onActive?.(itemId)
-                if (itemId) setPhase('synthesizing')
+                if (itemId) setSpeechPhase('synthesizing')
               },
               synthesize: async item => {
                 if (generation !== speechGenerationRef.current) {
@@ -1526,7 +1560,7 @@ export function useVoice({
           )
           if (!completed || generation !== speechGenerationRef.current) return
           updateActiveSpeechId('')
-          setPhase('idle')
+          setSpeechPhase('idle')
         } catch (error) {
           if (generation !== speechGenerationRef.current) return
           options.onActive?.(null)
@@ -1535,7 +1569,7 @@ export function useVoice({
           audioRef.current = null
           updatePlaybackPaused(false)
           updateActiveSpeechId('')
-          setPhase('idle')
+          setSpeechPhase('idle')
           onError(error instanceof Error ? error.message : String(error))
         }
       }
@@ -1686,7 +1720,7 @@ export function useVoice({
                 }
                 updatePlaybackPaused(false)
                 updateActiveSpeechId(options.speechId || speechId)
-                setPhase('synthesizing')
+                setSpeechPhase('synthesizing')
                 try {
                   for (;;) {
                     const prepared = await buffer.next()
@@ -1719,17 +1753,17 @@ export function useVoice({
                       () => options.onPlaybackEnd?.(speechId),
                     )
                     if (generation === speechGenerationRef.current) {
-                      setPhase('synthesizing')
+                      setSpeechPhase('synthesizing')
                     }
                   }
                   if (generation === speechGenerationRef.current) {
                     updateActiveSpeechId('')
-                    setPhase('idle')
+                    setSpeechPhase('idle')
                   }
                 } catch (error) {
                   if (generation === speechGenerationRef.current) {
                     updateActiveSpeechId('')
-                    setPhase('idle')
+                    setSpeechPhase('idle')
                     onError(
                       error instanceof Error ? error.message : String(error),
                     )
@@ -1829,7 +1863,7 @@ export function useVoice({
         const generation = speechGenerationRef.current
         updatePlaybackPaused(false)
         updateActiveSpeechId(queueKey)
-        setPhase('synthesizing')
+        setSpeechPhase('synthesizing')
         try {
           await playAudio(
             speech.dataUrl,
@@ -1851,7 +1885,7 @@ export function useVoice({
           )
           if (generation !== speechGenerationRef.current) return
           updateActiveSpeechId('')
-          setPhase('idle')
+          setSpeechPhase('idle')
         } catch (error) {
           if (generation !== speechGenerationRef.current) return
           finishAudioRef.current = null
@@ -1859,7 +1893,7 @@ export function useVoice({
           audioRef.current = null
           updatePlaybackPaused(false)
           updateActiveSpeechId('')
-          setPhase('idle')
+          setSpeechPhase('idle')
           onError(error instanceof Error ? error.message : String(error))
         }
       }
@@ -1911,16 +1945,14 @@ export function useVoice({
   )
 
   const toggleRecording = useCallback(() => {
-    if (phase === 'recording') {
+    const capture = captureLeaseRef.current!.phase
+    if (capture === 'starting' || capture === 'recording') {
       void stopAndTranscribe()
       return
     }
-    if (!canToggleVoiceRecording(phase, activeSpeechId, playbackPaused)) return
+    if (capture !== 'idle') return
     void startRecording()
   }, [
-    activeSpeechId,
-    phase,
-    playbackPaused,
     startRecording,
     stopAndTranscribe,
   ])
@@ -1941,6 +1973,11 @@ export function useVoice({
       clearRecordingTimer()
       stopBrowserTracks(browserRecordingRef.current)
       browserRecordingRef.current = null
+      captureLeaseRef.current?.retire()
+      if (nativeCaptureReadyRef.current) {
+        nativeCaptureReadyRef.current = false
+        void HermesNative.stopRecording().catch(() => undefined)
+      }
       const audio = audioRef.current
       finishAudioRef.current?.()
       finishAudioRef.current = null

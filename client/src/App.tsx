@@ -9,6 +9,8 @@ import {
   useState,
 } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
+import { submissionFailureDisposition, submitWithExecutionTruth } from './submission-recovery'
+import { isSubmissionDeliveryUncertain } from './protocol/json-rpc-client'
 import { pollSupportAvailability } from './support-availability-poller'
 import { sendRequestResponse } from './request-response'
 import { hostConnectionPresentation } from './connection-presentation'
@@ -716,14 +718,16 @@ export function App() {
     ),
     ensureSession: () => ensureSession(),
     gateway: transportRef.current?.gateway ?? null,
-    onAskHermes: async ({ displayText, promptText, sessionId, maxWorkers }) => {
+    onAskHermes: async ({ requestId, revision, displayText, promptText, sessionId, maxWorkers }) => {
       if (!sessionId || sessionId !== runtimeSessionIdRef.current) {
         throw new Error('The attached Hermes session changed. Reopen live voice and try again.')
       }
       setActiveTab('chat')
       transcriptFollowRef.current = true
       beginIncrementalSpeechTurn()
-      const handoffId = `pet-handoff-${Date.now()}`
+      const handoffId = `pet-handoff-${requestId}-${revision}`
+      const handoffEpoch = sessionSelectionEpochRef.current
+      const handoffTransport = transportRef.current
       setTranscript(current => [
         ...current,
         {
@@ -739,9 +743,14 @@ export function App() {
           reject_if_busy: true,
           surface: 'app',
         })
-        setNotice('Pet request sent to Hermes in this session.')
+        if (handoffTransport === transportRef.current && handoffEpoch === sessionSelectionEpochRef.current) {
+          setNotice('Pet request sent to Hermes in this session.')
+        }
       } catch (handoffError) {
-        setTranscript(current => current.filter(item => item.id !== handoffId))
+        if (submissionFailureDisposition(handoffError, handoffTransport === transportRef.current &&
+            handoffEpoch === sessionSelectionEpochRef.current).removeOptimistic) {
+          setTranscript(current => current.filter(item => item.id !== handoffId))
+        }
         throw handoffError
       }
     },
@@ -2206,21 +2215,26 @@ export function App() {
     text: string,
     sessionId: string,
     extra: Record<string, unknown> = {},
+    expectedTransport = transportRef.current,
   ) {
-    const transport = transportRef.current
+    const transport = expectedTransport
     if (!transport) throw new Error('Connect to Hermes first')
-    commitTurnActive(true)
-    try {
-      await transport.gateway.request('prompt.submit', {
+    if (transportRef.current !== transport || runtimeSessionIdRef.current !== sessionId) {
+      throw new Error('The selected target changed. No prompt was sent.')
+    }
+    const selectionEpoch = sessionSelectionEpochRef.current
+    await submitWithExecutionTruth(
+      () => transport.gateway.request('prompt.submit', {
         busy_mode: activeTurnInputMode,
         ...extra,
         session_id: sessionId,
         text,
-      })
-    } catch (submitError) {
-      commitTurnActive(false)
-      throw submitError
-    }
+      }),
+      () => commitTurnActive(true),
+      () => commitTurnActive(false),
+      () => transportRef.current === transport && runtimeSessionIdRef.current === sessionId &&
+        sessionSelectionEpochRef.current === selectionEpoch,
+    )
     void refreshSessions(transport)
   }
 
@@ -2318,6 +2332,7 @@ export function App() {
       if (await handleCommandDirective(result, command, sessionId, depth))
         return
     } catch (error) {
+      if (isSubmissionDeliveryUncertain(error)) throw error
       slashError = error
     }
 
@@ -2338,6 +2353,7 @@ export function App() {
   async function sendTextToHermes(text: string): Promise<boolean> {
     const transport = transportRef.current
     if (!text || !transport) return false
+    const selectionEpoch = sessionSelectionEpochRef.current
 
     setBusy(true)
     setError('')
@@ -2350,6 +2366,9 @@ export function App() {
         await runSlash(text)
       } else {
         const sessionId = await ensureSession(text)
+        if (transportRef.current !== transport || sessionSelectionEpochRef.current !== selectionEpoch) {
+          throw new Error('The selected target changed. No prompt was sent.')
+        }
         setTranscript((current) => [
           ...current,
           {
@@ -2358,25 +2377,30 @@ export function App() {
             text,
           },
         ])
-        await submitPrompt(text, sessionId)
+        await submitPrompt(text, sessionId, {}, transport)
       }
       return true
     } catch (submitError) {
-      setDraft(text)
-      setError(
+      const current = transportRef.current === transport && sessionSelectionEpochRef.current === selectionEpoch
+      if (submissionFailureDisposition(submitError, current).restoreDraft) setDraft(text)
+      if (current) setError(
         submitError instanceof Error
           ? submitError.message
           : String(submitError),
       )
       return false
     } finally {
-      setBusy(false)
+      if (transportRef.current === transport && sessionSelectionEpochRef.current === selectionEpoch) setBusy(false)
     }
   }
 
   async function sendWakeTranscript(text: string): Promise<void> {
+    const transport = transportRef.current
+    const selectionEpoch = sessionSelectionEpochRef.current
     const sent = await sendTextToHermes(text.trim())
-    if (sent) setNotice('Wake request sent to Hermes.')
+    if (sent && transportRef.current === transport && sessionSelectionEpochRef.current === selectionEpoch) {
+      setNotice('Wake request sent to Hermes.')
+    }
   }
 
   async function submit(event: FormEvent) {
@@ -2802,6 +2826,7 @@ export function App() {
     if (destination.connectionId !== connectionRef.current.id) {
       throw new Error('The selected Hermes target is not active')
     }
+    let selectionEpoch = sessionSelectionEpochRef.current
 
     setBusy(true)
     setError('')
@@ -2871,12 +2896,16 @@ export function App() {
           text: displayText,
         },
       ])
-      await submitPrompt(promptText, sessionId)
+      if (transportRef.current !== transport || connectionRef.current.id !== destination.connectionId ||
+          runtimeSessionIdRef.current !== sessionId) throw new Error('The selected share target changed. No prompt was sent.')
+      selectionEpoch = sessionSelectionEpochRef.current
+      await submitPrompt(promptText, sessionId, {}, transport)
+      if (transportRef.current !== transport || sessionSelectionEpochRef.current !== selectionEpoch) return
       setActiveTab('chat')
       setNotice(`Sent to ${connectionRef.current.name || 'Hermes'}`)
       await discardPendingShare()
     } finally {
-      setBusy(false)
+      if (transportRef.current === transport && sessionSelectionEpochRef.current === selectionEpoch) setBusy(false)
     }
   }
 
@@ -3126,10 +3155,12 @@ export function App() {
           </div>
         </header>
         {petRealtime.snapshot.webpageUrl && <VoiceWebpageNotice url={petRealtime.snapshot.webpageUrl} onClose={petRealtime.dismissWebpage} />}
-        {['pending', 'error', 'submitting'].includes(petRealtime.snapshot.hermesDraftStatus) && <HermesVoiceReview
-          text={petRealtime.snapshot.hermesDraft} busy={petRealtime.snapshot.hermesDraftStatus === 'submitting'}
-          target={petRealtime.snapshot.attachedContextTitle} error={petRealtime.snapshot.error}
-          onEdit={petRealtime.updateHermesDraft} onApprove={petRealtime.approveHermesDraft} onCancel={petRealtime.cancelHermesDraft} />}
+        {petRealtime.snapshot.hermesRequests?.some(request => request.status !== 'sent') && <HermesVoiceReview
+          requests={petRealtime.snapshot.hermesRequests}
+          selectedRequestId={petRealtime.snapshot.selectedHermesRequestId || ''}
+          onAdd={petRealtime.addHermesRequest} onSelect={petRealtime.selectHermesRequest}
+          onEditRequest={petRealtime.editHermesRequest} onApproveRequest={petRealtime.approveHermesRequest}
+          onCancelRequest={petRealtime.cancelHermesDraft} />}
 
         {(error || notice) && (
           <div className={`toast ${error ? 'toast-error' : 'toast-success'}`}>
@@ -3154,6 +3185,12 @@ export function App() {
               <div className="pet-sidechat-error" role="alert">
                 {petRealtime.snapshot.error}
                 <button type="button" className="quiet-button" onClick={() => setPetSidechatOpen(true)}>Voice settings</button>
+              </div>
+            )}
+            {petRealtime.snapshot.active && petRealtime.snapshot.effectsWarning && !petSidechatOpen && (
+              <div className="pet-realtime-input-warning" role="status">
+                {petRealtime.snapshot.effectsWarning}
+                <button type="button" className="quiet-button" onClick={openVoiceSettings}>Voice settings</button>
               </div>
             )}
             <TranscriptViewport

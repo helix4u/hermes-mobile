@@ -1,4 +1,6 @@
-/** Per-call Realtime controls. Keep aligned with the host's validated catalog. */
+import { normalizeVoiceEffects, type VoiceEffectsSettings } from './voice-effects-settings'
+
+/** Per-call provider controls and device-local playback effects. */
 export const REALTIME_MODELS = ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1', 'gpt-realtime-2', 'gpt-realtime-1.5'] as const
 export const REALTIME_EFFORTS = ['default', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
 export const VOICE_ENGINES = ['realtime', 'live'] as const
@@ -15,6 +17,7 @@ export interface RealtimeSettings {
   effort: (typeof REALTIME_EFFORTS)[number]
   diagnostics?: boolean
   microphoneId?: string
+  effects?: VoiceEffectsSettings
 }
 
 export const DEFAULT_REALTIME_SETTINGS: RealtimeSettings = { engine: 'realtime', model: 'gpt-realtime-2.1-mini', effort: 'default' }
@@ -31,6 +34,7 @@ export function normalizeRealtimeSettings(value: unknown): RealtimeSettings {
     : 'default'
   const engine = VOICE_ENGINES.find(candidate => candidate === record.engine) ?? DEFAULT_REALTIME_SETTINGS.engine
   return { engine, model, effort,
+    ...(record.effects === undefined ? {} : { effects: normalizeVoiceEffects(record.effects) }),
     ...(typeof record.maxWorkers === 'number' && Number.isInteger(record.maxWorkers) && record.maxWorkers >= 0 && record.maxWorkers <= 16 ? { maxWorkers: record.maxWorkers } : {}),
     ...(['pet', 'session'].includes(String(record.mode)) ? { mode: record.mode as RealtimeSettings['mode'] } : {}),
     ...(record.approval === undefined ? {} : { approval: 'on' as const }),

@@ -4,6 +4,8 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { LiveVoiceMicrophoneButton } from './LiveVoiceMicrophoneButton'
 import { RealtimeInputSettings } from './RealtimeInputSettings'
 import { RealtimeCostMeter } from './RealtimeCostMeter'
+import { VoiceEffectsControls } from './VoiceEffectsControls'
+import { HermesVoiceRequests } from './HermesVoiceReview'
 import {
   PET_REALTIME_VOICES,
   type PetRealtimeSnapshot,
@@ -97,8 +99,13 @@ interface PetSidechatSheetProps {
     setMicrophoneMuted?: (muted: boolean) => void
     settings?: RealtimeSettings
     setSettings?: (settings: RealtimeSettings) => void
+    setPitchBend?: (semitones: number) => void
     approveHermesDraft: () => Promise<boolean>
-    cancelHermesDraft: () => void
+    cancelHermesDraft: (requestId?: string) => void
+    addHermesRequest?: () => void
+    selectHermesRequest?: (requestId: string) => void
+    approveHermesRequest?: (requestId: string) => Promise<boolean>
+    editHermesRequest?: (requestId: string, message: string) => void
     snapshot: PetRealtimeSnapshot
     start: () => Promise<boolean>
     stop: () => void
@@ -141,7 +148,7 @@ export function PetSidechatSheet({
   const reviewRef = useRef<HTMLElement | null>(null)
   const handledSettingsRequest = useRef(0)
   const followRef = useRef(true)
-  const reviewPending = ['pending', 'submitting', 'error'].includes(realtime.snapshot.hermesDraftStatus)
+  const reviewPending = Boolean(realtime.snapshot.hermesRequests?.length) || ['pending', 'submitting', 'error', 'uncertain'].includes(realtime.snapshot.hermesDraftStatus)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
   useEffect(() => {
@@ -425,6 +432,9 @@ export function PetSidechatSheet({
           </label>
         {realtime.settings && realtime.setSettings && (
           <>
+            <VoiceEffectsControls value={realtime.settings.effects}
+              onBend={realtime.setPitchBend}
+              onChange={effects => realtime.setSettings?.({ ...realtime.settings!, effects })} />
             <label>Voice engine
               <select aria-label="Voice engine" disabled={realtimeActive} value={realtime.settings.engine ?? 'realtime'}
                 onChange={event => realtime.setSettings?.({ ...realtime.settings!, engine: event.target.value as RealtimeSettings['engine'] })}>
@@ -510,27 +520,36 @@ export function PetSidechatSheet({
           </div>
         )}
         {stats?.billing && <RealtimeCostMeter usage={stats.billing} />}
-        {!externalReview && ['pending', 'submitting', 'error'].includes(realtime.snapshot.hermesDraftStatus) && (
+        {!externalReview && Boolean(realtime.snapshot.hermesRequests?.length) && realtime.addHermesRequest && realtime.selectHermesRequest && realtime.editHermesRequest && realtime.approveHermesRequest ? (
+          <section className="pet-realtime-hermes-draft" aria-label="Review Hermes request" ref={reviewRef}>
+            <strong>Review Hermes request</strong>
+            <HermesVoiceRequests requests={realtime.snapshot.hermesRequests!}
+              selectedRequestId={realtime.snapshot.selectedHermesRequestId || ''}
+              onAdd={realtime.addHermesRequest} onSelect={realtime.selectHermesRequest}
+              onEditRequest={realtime.editHermesRequest} onApproveRequest={realtime.approveHermesRequest}
+              onCancelRequest={realtime.cancelHermesDraft} />
+          </section>
+        ) : !externalReview && ['pending', 'submitting', 'error', 'uncertain'].includes(realtime.snapshot.hermesDraftStatus) && (
           <section className="pet-realtime-hermes-draft" aria-label="Review Hermes request" ref={reviewRef}>
             {realtime.snapshot.workerTarget && <small>Steer worker: {realtime.snapshot.workerTarget}</small>}
             <header>
               <strong>Review Hermes request</strong>
               <small>
-                Nothing is sent until you approve it
+                {realtime.snapshot.hermesDraftStatus === 'uncertain' ? 'Delivery is unconfirmed. Check session status before sending again.' : 'Nothing is sent until you approve it'}
               </small>
             </header>
             <textarea
               aria-label="Hermes request draft"
               disabled={
                 realtime.snapshot.hermesDraftStatus === 'submitting' ||
-                realtime.snapshot.hermesDraftStatus === 'sent'
+                realtime.snapshot.hermesDraftStatus === 'sent' || realtime.snapshot.hermesDraftStatus === 'uncertain'
               }
               onChange={event => realtime.updateHermesDraft(event.target.value)}
               rows={3}
               value={realtime.snapshot.hermesDraft}
             />
             <div>
-              <button
+              {realtime.snapshot.hermesDraftStatus !== 'uncertain' && <button
                 disabled={
                   !realtime.snapshot.hermesDraft.trim() ||
                   realtime.snapshot.hermesDraftStatus === 'submitting'
@@ -541,9 +560,9 @@ export function PetSidechatSheet({
                 {realtime.snapshot.hermesDraftStatus === 'submitting'
                   ? 'Sending…'
                   : 'Send to Hermes'}
-              </button>
-              <button onClick={realtime.cancelHermesDraft} type="button">
-                Cancel
+              </button>}
+              <button disabled={realtime.snapshot.hermesDraftStatus === 'submitting'} onClick={() => realtime.cancelHermesDraft()} type="button">
+                {realtime.snapshot.hermesDraftStatus === 'uncertain' ? 'Dismiss review' : 'Cancel'}
               </button>
             </div>
           </section>
@@ -595,6 +614,7 @@ export function PetSidechatSheet({
         {realtime.snapshot.error && (
           <p className="pet-sidechat-error" role="alert">{realtime.snapshot.error}</p>
         )}
+        {realtimeActive && realtime.snapshot.effectsWarning && <p className="voice-effects-warning" role="status">{realtime.snapshot.effectsWarning}</p>}
         {error && <p className="pet-sidechat-error">{error}</p>}
         {(busy || transcribing) && (
           <div className="pet-sidechat-status" role="status">

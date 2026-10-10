@@ -7,6 +7,7 @@ import { ChevronDownIcon } from '../src/components/UiIcons'
 import { PetSidechatSheet } from '../src/components/PetSidechatSheet'
 import type { PetSidechatMessage } from '../src/pet'
 import { usePetRealtime } from '../src/usePetRealtime'
+import { JsonRpcGatewayError, SUBMISSION_UNCERTAIN_MESSAGE } from '../src/protocol/json-rpc-client'
 import { supportVoiceContext, supportReviewSnapshot, type SupportVoiceReview } from '../src/support-voice'
 import '../src/styles.css'
 
@@ -20,6 +21,8 @@ let holdContext = false
 let contextRequests = 0
 let sessionContext: Record<string, unknown> = { context: [] }
 const approved: any[] = []
+let holdApproval = false
+const pendingApprovals: Array<{ resolve: () => void; reject: (reason: Error) => void }> = []
 const histories: any[] = []
 const gatewayCalls: Array<{method:string;params:unknown}> = []
 let knowledgeResult: unknown = { records: [{ key: 'synthetic-note' }] }
@@ -125,13 +128,25 @@ function Fixture() {
   const [auto, setAuto] = useState(true)
   const [mode, setMode] = useState<'steer' | 'interrupt'>('steer')
   const [menu, setMenu] = useState(false)
+  const [runtimeSessionId, setRuntimeSessionId] = useState(() => {
+    const query = new URLSearchParams(location.search)
+    return query.has('pendingSession') || query.has('unbound') ? '' : 'synthetic-session'
+  })
   const realtime = usePetRealtime({ connectionId: 'synthetic-fixture', gateway: gateway as any,
     uiContext:view, sessionTitle:'Synthetic task',
-    context: [], ensureSession: async () => new URLSearchParams(location.search).has('pendingSession') ? new Promise<string>(resolve => { ensureResolve = resolve }) : 'synthetic-session', runtimeSessionId: new URLSearchParams(location.search).has('pendingSession') ? '' : 'synthetic-session',
-    onAskHermes: async request => { approved.push(request) }, onMessages: messages => { histories.push(messages); setMessages(messages) }, onMicrophoneOwnershipChange: owned => { microphoneOwners.push(owned) },
+    context: [], ensureSession: async () => new URLSearchParams(location.search).has('pendingSession') ? new Promise<string>(resolve => { ensureResolve = resolve }) : 'synthetic-session', runtimeSessionId,
+    onAskHermes: async request => {
+      approved.push(request)
+      if (holdApproval) await new Promise<void>((resolve, reject) => pendingApprovals.push({ resolve, reject }))
+    }, onMessages: messages => { histories.push(messages); setMessages(messages) }, onMicrophoneOwnershipChange: owned => { microphoneOwners.push(owned) },
     onReply: () => {}, personalityId: 'synthetic', personalityName: 'Companion', prompt: 'Synthetic test.' })
   ;(window as any).qa = { realtime, sent, tracks, peers, failPlayback: () => { playbackFails = true; peers.at(-1).ontrack({ streams: [new MediaStream()] }) }, disconnect: () => { const peer = peers.at(-1); peer.connectionState = 'disconnected'; peer.onconnectionstatechange() }, frame: (data: any) => channel.onmessage({ data: JSON.stringify(data) }) }
   Object.assign((window as any).qa, { constraints, get sessionRequests() { return sessionRequests }, get contextsClosed() { return contextsClosed },
+    setRuntimeSessionId,
+    holdApproval: () => { holdApproval = true },
+    releaseApproval: () => pendingApprovals.shift()?.resolve(),
+    rejectApproval: () => pendingApprovals.shift()?.reject(new JsonRpcGatewayError(SUBMISSION_UNCERTAIN_MESSAGE, -32052,
+      { reason: 'SUBMISSION_DELIVERY_UNCERTAIN', submission_id: 'synthetic-admission' })),
     microphoneOwners, releaseSession: () => ensureResolve?.('synthetic-session'),
     holdMemory: () => { holdMemory = true }, releaseMemory: (value: unknown) => { memoryResolve?.(value) },
     startLive: async () => { realtime.setSettings({ ...realtime.settings, engine: 'live' }); await realtime.start() },

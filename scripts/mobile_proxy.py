@@ -14,9 +14,11 @@ import asyncio
 from collections.abc import Iterable
 import hmac
 import json
+import os
 from pathlib import Path
 import re
-from urllib.parse import parse_qsl, urlencode
+import sys
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import httpx
 import uvicorn
@@ -155,6 +157,7 @@ def create_app(
     allowed_host: str,
     client_token: str | None = None,
     upstream_token: str | None = None,
+    broker_binding=None,
 ) -> FastAPI:
     if bool(client_token) != bool(upstream_token):
         raise ValueError("client_token and upstream_token must be configured together")
@@ -162,6 +165,7 @@ def create_app(
     client = httpx.AsyncClient(
         timeout=_request_timeout(""),
         follow_redirects=False,
+        **({"trust_env": False} if broker_binding is not None else {}),
     )
     upstream_http = upstream.rstrip("/")
     upstream_ws = upstream_http.replace("http://", "ws://", 1).replace(
@@ -177,12 +181,85 @@ def create_app(
     from mobile_pairing import install_pairing_routes
     install_pairing_routes(app, client_token, host_allowed)
 
+    if broker_binding is not None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server-plugin"))
+        from mobile_server.broker_gateway import relay_gateway
+        from mobile_server.tickets import TicketStore, TTL_SECONDS
+        if not client_token or upstream != broker_binding.origin or upstream_token != broker_binding.credential:
+            raise ValueError("Broker binding does not match configured upstream")
+        tickets = TicketStore(broker_binding.scope)
+
+        def origin_allowed(value: str) -> bool:
+            if not value:
+                return True  # Native ticket-only upgrades have no browser Origin.
+            try:
+                origin = urlsplit(value)
+                return (not origin.username and not origin.password and not origin.query and not origin.fragment
+                        and origin.path in ("", "/") and host_allowed(origin.netloc)
+                        and (origin.scheme == "https" or (origin.scheme == "http" and
+                             origin.hostname in {"localhost", "127.0.0.1"})))
+            except ValueError:
+                return False
+
+        def phone_authenticated(request: Request) -> bool:
+            return (host_allowed(request.headers.get("host", ""))
+                    and origin_allowed(request.headers.get("origin", ""))
+                    and hmac.compare_digest(_presented_http_token(request), client_token))
+
+        @app.post("/api/auth/ws-ticket")
+        async def broker_core_ticket(request: Request):
+            # These clients prefer the core issuer. Its worker-local cookie
+            # ticket cannot authenticate the broker, so use the Mobile issuer.
+            if not phone_authenticated(request):
+                return JSONResponse({"detail": "Authentication required"}, status_code=401)
+            return JSONResponse({"detail": "Use the Mobile ticket endpoint"}, status_code=409)
+
+        @app.post("/api/plugins/hermes-mobile/v1/ws-ticket")
+        async def broker_mobile_ticket(request: Request):
+            if not phone_authenticated(request):
+                return JSONResponse({"detail": "Authentication required"}, status_code=401)
+            if not await asyncio.to_thread(broker_binding.verify_current):
+                return JSONResponse({"detail": "Broker identity changed"}, status_code=409)
+            profile = request.query_params.get('profile', 'default')
+            if getattr(broker_binding, 'protocol', None) == 'hermes-gateway-v1':
+                try:
+                    await asyncio.to_thread(broker_binding.for_profile, profile)
+                except (OSError, ValueError, RuntimeError):
+                    return JSONResponse({'detail': 'Selected gateway profile is unavailable'}, status_code=409)
+            try:
+                ticket = tickets.mint(client_token, profile=profile)
+            except ValueError:
+                return JSONResponse({"detail": "Ticket capacity reached"}, status_code=429)
+            return {"ticket": ticket, "ttl_seconds": TTL_SECONDS}
+
+        @app.websocket("/api/plugins/hermes-mobile/v1/gateway")
+        async def broker_mobile_gateway(ws: WebSocket):
+            if not host_allowed(ws.headers.get("host", "")) or not origin_allowed(ws.headers.get("origin", "")):
+                await ws.close(code=4403, reason="Invalid host")
+                return
+            consumed = tickets.consume_binding(ws.query_params.get("mobile_ticket", ""))
+            if consumed is None or not hmac.compare_digest(consumed[0], client_token):
+                await ws.close(code=4401, reason="Authentication required")
+                return
+            if getattr(broker_binding, 'protocol', None) == 'hermes-gateway-v1':
+                await relay_gateway(ws, broker_binding, profile=consumed[1] or 'default')
+            else:
+                await relay_gateway(ws, broker_binding)
+
+        @app.on_event("shutdown")
+        async def dispose_broker_tickets():
+            tickets.dispose()
+
     @app.on_event("shutdown")
     async def close_client() -> None:
         await client.aclose()
 
     @app.websocket("/{path:path}")
     async def proxy_websocket(websocket: WebSocket, path: str) -> None:
+        if broker_binding is not None:
+            # No permissive alias can bypass the Mobile ticket/compatibility path.
+            await websocket.close(code=4403, reason="Unsupported Mobile gateway path")
+            return
         if not host_allowed(websocket.headers.get("host", "")):
             await websocket.close(code=1008, reason="invalid host")
             return
@@ -257,12 +334,29 @@ def create_app(
         if not host_allowed(request.headers.get("host", "")):
             return JSONResponse({"detail": "Invalid proxy host"}, status_code=400)
         replacement_token = None
+        if broker_binding is not None and not await asyncio.to_thread(broker_binding.generation_current):
+            return JSONResponse({"detail": "Broker identity changed"}, status_code=409)
         if client_token:
             presented = _presented_http_token(request)
             if presented and not hmac.compare_digest(presented, client_token):
                 return JSONResponse({"detail": "Invalid session credential"}, status_code=401)
             if presented:
                 replacement_token = upstream_token
+
+        headers = _request_headers(request.scope.get('headers', []), upstream_authority, replacement_token=replacement_token)
+        if replacement_token and getattr(broker_binding, 'protocol', None) == 'hermes-gateway-v1':
+            if not origin_allowed(request.headers.get('origin', '')):
+                return JSONResponse({'detail': 'Invalid origin'}, status_code=403)
+            profile = request.query_params.get('profile', 'default')
+            segments = path.split('/')
+            if len(segments) > 2 and segments[:2] == ['api', 'profiles'] and segments[2] not in {'active', 'sessions', 'projects', 'import'}:
+                profile = segments[2]
+            headers = [(name, value) for name, value in headers if name.lower() not in {'authorization', 'origin', 'x-hermes-session-token', 'x-hermes-gateway-ticket'}]
+            try:
+                administrative = path == 'api/profiles' or path.startswith('api/profiles/')
+                headers.extend((await asyncio.to_thread(broker_binding.http_headers, profile, profile_admin=administrative)).items())
+            except (OSError, ValueError, RuntimeError):
+                return JSONResponse({'detail': 'Selected gateway profile is unavailable'}, status_code=409)
 
         target = f"{upstream_http}/{path}"
         if request.url.query:
@@ -271,11 +365,7 @@ def create_app(
             upstream_response = await client.request(
                 request.method,
                 target,
-                headers=_request_headers(
-                    request.scope.get("headers", []),
-                    upstream_authority,
-                    replacement_token=replacement_token,
-                ),
+                headers=headers,
                 content=await request.body(),
                 timeout=_request_timeout(path),
             )
@@ -291,6 +381,10 @@ def create_app(
             not in HOP_BY_HOP | {"content-length", "content-encoding"}
         }
         content = upstream_response.content
+        if path == 'api/plugins/hermes-mobile/v1/capabilities' and upstream_response.status_code == 200 and getattr(broker_binding, 'protocol', None) == 'hermes-gateway-v1':
+            payload = upstream_response.json()
+            payload['native_gateway_protocol'] = broker_binding.protocol
+            content = json.dumps(payload).encode('utf-8')
         content_type = upstream_response.headers.get("content-type", "").lower()
         if client_token and upstream_token and "text/html" in content_type:
             content = content.replace(upstream_token.encode(), client_token.encode())
@@ -312,10 +406,27 @@ def main() -> None:
     parser.add_argument("--allowed-host", required=True)
     parser.add_argument("--credential-file", default="")
     parser.add_argument("--upstream-credential-file", default="")
+    parser.add_argument("--shared-runtime-home", default="")
+    parser.add_argument("--shared-runtime-code-root", default="")
+    parser.add_argument("--shared-runtime-identity", default="")
+    parser.add_argument("--shared-runtime-lock-directory", default="")
     args = parser.parse_args()
     client_token = None
     upstream_token = None
-    if args.credential_file:
+    broker = None
+    if args.shared_runtime_home or args.shared_runtime_code_root:
+        if not args.shared_runtime_home or not args.shared_runtime_code_root or not args.credential_file:
+            raise ValueError("Explicit broker home, code root and Mobile credential are required")
+        from mobile_shared_runtime import resolve_binding
+        if args.shared_runtime_lock_directory:
+            os.environ["HERMES_GATEWAY_LOCK_DIR"] = str(Path(args.shared_runtime_lock_directory).resolve())
+        broker = resolve_binding(args.shared_runtime_home, args.shared_runtime_code_root)
+        if broker.public_metadata()["IdentityKey"] != args.shared_runtime_identity:
+            raise ValueError("Broker changed before bridge startup")
+        args.upstream = broker.origin
+        client_token = broker.read_mobile_credential(args.credential_file)
+        upstream_token = broker.credential
+    elif args.credential_file:
         client_token = _read_credential_file(args.credential_file, "mobile")
         upstream_token = (
             _read_credential_file(args.upstream_credential_file, "Desktop backend")
@@ -328,6 +439,7 @@ def main() -> None:
             allowed_host=args.allowed_host,
             client_token=client_token,
             upstream_token=upstream_token,
+            broker_binding=broker,
         ),
         host=args.host,
         port=args.port,

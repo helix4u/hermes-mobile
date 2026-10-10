@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
 
 /** Top-layer review preserves the current page and never starts a voice call. */
-export function VoiceReviewDialog({ children, label }: { children: ReactNode; label: string }) {
+export function VoiceReviewDialog({ children, label, summary }: { children: ReactNode; label: string; summary?: string }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const [later, setLater] = useState(false)
   useEffect(() => {
@@ -33,7 +33,7 @@ export function VoiceReviewDialog({ children, label }: { children: ReactNode; la
     }
   }, [later])
   return createPortal(later
-    ? <aside className="voice-review-notice" role="status"><span>{label}</span>
+    ? <aside className="voice-review-notice" role="status"><span>{summary || label}</span>
         <button type="button" onClick={() => setLater(false)}>Review request</button></aside>
     : <dialog ref={dialog} className="voice-review-dialog" aria-label={label}
         onCancel={event => { event.preventDefault(); setLater(true) }}>

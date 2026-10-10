@@ -1,4 +1,5 @@
 import { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
+import { gatewayProfileUrl } from './gateway-profile'
 import { assertHttpProfile, scopedHttpPath, scopedRpcParams, verifyProfileResult } from '../profiles'
 import type { MobileCapabilities } from '../protocol/types'
 import {
@@ -77,7 +78,9 @@ export class NativeHermesTransport implements HermesTransport {
     })
     if (response.status >= 200 && response.status < 300) {
       this.gatewayKind = 'plugin'
-      return JSON.parse(response.body) as MobileCapabilities
+      const capabilities = JSON.parse(response.body) as MobileCapabilities
+      this.gateway.expectProtocol(capabilities.native_gateway_protocol)
+      return capabilities
     }
     if (
       shouldAttemptCoreGatewayFallback(
@@ -93,6 +96,7 @@ export class NativeHermesTransport implements HermesTransport {
         })
         if (metadata.status >= 200 && metadata.status < 300) {
           this.gatewayKind = 'core'
+          this.gateway.expectProtocol(undefined)
           let metadataBody: Record<string, unknown> = {}
           try {
             metadataBody = JSON.parse(
@@ -118,8 +122,8 @@ export class NativeHermesTransport implements HermesTransport {
     await this.prepareCredential()
     await this.gateway.connect(
       this.gatewayKind === 'plugin'
-        ? buildPluginGatewayUrl(this.connection.baseUrl)
-        : buildCoreWsUrl(this.connection.baseUrl, ['ticket', 'native']),
+        ? gatewayProfileUrl(buildPluginGatewayUrl(this.connection.baseUrl), this.connection.profile)
+        : gatewayProfileUrl(buildCoreWsUrl(this.connection.baseUrl, ['ticket', 'native']), this.connection.profile),
     )
   }
 

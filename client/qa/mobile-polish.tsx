@@ -76,6 +76,8 @@ function Fixture() {
         onSession={async row => { setSelected(`stored:${row.id}`) }} onProject={async () => {}} onRefresh={async () => {}} />
         <output aria-label="Selected entry">{selected}</output></>
         : surface === 'context' ? <><div className="transcript" style={{ flex: 1 }} /><form className="composer"><div className="composer-meta">
+          <button className="session-workspace-button"><strong>C:\synthetic\long-workspace-name\project</strong></button>
+          <span className="composer-hint">Attached</span>
           <ContextMeter sessionId="context-session" gateway={contextGateway} active />
         </div></form></>
         : surface === 'support' ? <SupportOpsView active connected connectionId="synthetic" transport={transport} />

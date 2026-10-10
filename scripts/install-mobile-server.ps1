@@ -7,15 +7,31 @@ param(
     [string]$HermesHome = (Join-Path $env:LOCALAPPDATA 'hermes'),
     [string]$HermesExecutable = '',
     [ValidateSet('desktop', 'persistent', 'manual')]
-    [string]$StartupMode = 'persistent'
+    [string]$StartupMode = 'persistent',
+    [ValidateSet('legacy', 'shared-runtime')][string]$BackendOwner = 'legacy',
+    [string]$SharedRuntimeHome = '',
+    [string]$SharedRuntimeCodeRoot = '',
+    [string]$SharedRuntimeInterpreter = '',
+    [string]$SharedRuntimeLockDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
 
+if ($BackendOwner -eq 'shared-runtime') {
+    foreach ($scopePath in @($SharedRuntimeHome, $SharedRuntimeCodeRoot, $SharedRuntimeInterpreter, $SharedRuntimeLockDirectory)) {
+        if ($scopePath -match '["\r\n]') { throw 'SharedRuntime path contains invalid command argument characters' }
+    }
+}
+
+if ($BackendOwner -eq 'shared-runtime' -and (
+    $StartupMode -eq 'desktop' -or -not $SharedRuntimeHome -or -not $SharedRuntimeCodeRoot -or
+    -not (Test-Path -LiteralPath $SharedRuntimeInterpreter -PathType Leaf)
+)) { throw 'SharedRuntime requires explicit home/code/interpreter and persistent or manual startup' }
+
 if (-not $HermesExecutable) {
     $HermesExecutable = Join-Path $HermesHome 'hermes-agent\venv\Scripts\hermes.exe'
 }
-if (-not (Test-Path -LiteralPath $HermesExecutable)) {
+if ($BackendOwner -eq 'legacy' -and -not (Test-Path -LiteralPath $HermesExecutable)) {
     throw "Hermes executable not found: $HermesExecutable"
 }
 
@@ -46,7 +62,7 @@ if (Test-Path -LiteralPath $profilesRoot -PathType Container) {
             Select-Object -ExpandProperty Name
     )
 }
-foreach ($profileName in ($profiles | Sort-Object -Unique)) {
+foreach ($profileName in ($(if ($BackendOwner -eq 'shared-runtime') { @() } else { $profiles | Sort-Object -Unique }))) {
     & $profilePluginLinker `
         -Profile $profileName `
         -HermesHome $HermesHome `
@@ -90,6 +106,10 @@ if ($TailnetHost) {
 }
 if ($HermesExecutable) {
     $powerShellArguments = "$powerShellArguments -HermesExecutable `"$HermesExecutable`""
+}
+if ($BackendOwner -eq 'shared-runtime') {
+    $powerShellArguments = "$powerShellArguments -BackendOwner shared-runtime -SharedRuntimeHome `"$SharedRuntimeHome`" -SharedRuntimeCodeRoot `"$SharedRuntimeCodeRoot`" -SharedRuntimeInterpreter `"$SharedRuntimeInterpreter`""
+    if ($SharedRuntimeLockDirectory) { $powerShellArguments = "$powerShellArguments -SharedRuntimeLockDirectory `"$SharedRuntimeLockDirectory`"" }
 }
 $desktopIsRunning = $null
 if ($StartupMode -eq 'desktop') {
@@ -163,6 +183,11 @@ if ($triggers.Count -gt 0) {
 Register-ScheduledTask @register | Out-Null
 
 Start-ScheduledTask -TaskName $TaskName
+
+if ($BackendOwner -eq 'shared-runtime') {
+    Write-Host 'Mobile broker bridge registered. Waiting for the explicitly selected compatible broker if absent.'
+    return
+}
 
 if ($StartupMode -eq 'desktop' -and -not $desktopIsRunning) {
     Write-Host "Hermes Mobile server is registered and waiting for packaged Desktop (startup: $StartupMode)"

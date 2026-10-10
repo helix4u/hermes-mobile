@@ -7,6 +7,7 @@ import {
 } from '../state/share'
 import type { BrowserConnection } from '../transport/browser-transport'
 import type { SharedContent } from '../transport/native-bridge'
+import { isSubmissionDeliveryUncertain } from '../protocol/json-rpc-client'
 
 interface ShareSheetProps {
   activeConnection: BrowserConnection
@@ -58,7 +59,10 @@ export function ShareSheet({
   const [switching, setSwitching] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const [uncertain, setUncertain] = useState(false)
   const sendingRef = useRef(false)
+  const uncertainRef = useRef(false)
+  const sendOwnerRef = useRef<object | null>(null)
 
   useEffect(() => {
     if (!share) return
@@ -68,7 +72,10 @@ export function ShareSheet({
     setSwitching(false)
     setSending(false)
     sendingRef.current = false
+    uncertainRef.current = false
+    sendOwnerRef.current = null
     setError('')
+    setUncertain(false)
   }, [share?.id])
 
   if (!share) return null
@@ -110,19 +117,29 @@ export function ShareSheet({
   }
 
   async function send() {
-    if (sendingRef.current || !canSend) return
+    if (sendingRef.current || !canSend || uncertainRef.current) return
+    const owner = {}
+    sendOwnerRef.current = owner
     sendingRef.current = true
     setSending(true)
     setError('')
     try {
       await onSend(destination)
     } catch (sendError) {
+      if (sendOwnerRef.current !== owner) return
+      if (isSubmissionDeliveryUncertain(sendError)) {
+        uncertainRef.current = true
+        setUncertain(true)
+      }
       setError(
         sendError instanceof Error ? sendError.message : String(sendError),
       )
     } finally {
-      sendingRef.current = false
-      setSending(false)
+      if (sendOwnerRef.current === owner) {
+        sendOwnerRef.current = null
+        sendingRef.current = false
+        setSending(false)
+      }
     }
   }
 
@@ -253,13 +270,13 @@ export function ShareSheet({
           >
             Cancel
           </button>
-          <button
+          {!uncertain && <button
             className="primary-button"
             disabled={!canSend || sending}
             onClick={() => void send()}
           >
             {sending ? 'Sending…' : 'Send to Hermes'}
-          </button>
+          </button>}
         </div>
       </section>
     </div>

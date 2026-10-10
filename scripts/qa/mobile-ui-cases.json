@@ -3,6 +3,13 @@
   "voiceBatchReason": "2026-10-07: immediate VAD audio cutoff with transcript-owned meaning, held responses during newer speech, microphone reservation and visible/cancellable wake startup, complete frozen Hermes memory preload before Realtime/GPT-Live provider setup, and native timing phases compatible with the existing v1 host collector. Earlier preserve-playback-on-VAD checks are intentionally superseded, not draft safety checks.",
   "revisionReason": "DESKTOP-SKIN: Desktop design system reskin, sidebar shell, keyboard-aware layout and typing performance. Live captions are display data, not completed user turns or tool arguments. Drafts and exact revisions arrive through completed Responses function items. Visible card buttons own sending and cancellation. Atomic historical startup context and on-demand readers replace continuous backlog injection.",
   "fixtureCorrections": [
+    "CANONICAL-COMPRESSED-RESUME: a physical local continuation was resumed as a new legacy transcript, producing invalid_params or storage_unavailable. The same owning gateway now resolves the exact ID before adoption. Recovery preserves profile, socket identity and the original timeout. Genuine storage and permission failures do not authorize adoption. Four production-client regressions and full client tests pass.",
+    "VOICE-REVIEW-SEND-SETTLEMENT: a pre-send session-binding refusal and a same-target voice reconnect left the review Sending forever because delivery settlement was gated on the WebRTC generation. Admission now has its own review operation owner, scoped to connection/profile/session/worker. Definite refusals remain visible, reconnects preserve accepted/uncertain results, uncertain requests cannot be resent, and stop/target changes retire only the old review. Real-hook tests fail on old code and pass after the repair, including a late old receipt while a new target is submitting. No live request is resent during diagnosis.",
+    "VOICE-EFFECTS-ANDROID-SILENCE: the first build replaced WebRTC's receiver element with a generated stream, while QA sampled graph PCM and did not prove device output. Effects now retain the original receiver element at zero direct volume and render the DSP graph to AudioContext.destination. The playback watchdog respects that volume gate instead of restoring an audible dry path. A stalled render clock visibly falls back to original audio. Added real WebRTC loopback coverage plus old-code failing ownership/clock/watchdog tests. Physical S23 Bluetooth/speaker playback must be graded separately from these checks.",
+    "VOICE-PLAYBACK-EFFECTS: on-device output uses one shared worklet for Realtime and GPT-Live, with provider settings frozen during calls. Execute real PCM pitch/frequency, interruption buffer reset, stream ownership, late disposal, visible fallback and actual browser worklet/control checks. Effect preferences stay connection-scoped and out of provider parameters. Bend returns on pointer/key release, cancellation, blur and visibility loss. Effects default off. Physical phone audio and screen-off grading are separate.",
+    "MOBILE-VOICE-HANDOFF-APP: the shipped voice review payload explicitly names surface app. Canonical admission now normalizes that default surface without accepting hidden voice context. The real Mobile transport preserves reject_if_busy, handoff metadata, delegation limits and receipt identity instead of redirecting a running turn. Full client checks and an isolated real gateway/provider exercise normal send, reviewed send, retry, reconnect, voice record, queue cancellation and Stop. SUPPORT-VOICE-MENU: the rendered review regression enters More support actions then Live voice, matching the current menu rather than the removed Queue voice button. Existing review authority assertions are retained.",
+    "UNIFIED-MODEL-CONFIRM: the Mobile picker sends canonical session mutations, preserves the original revision and execution generation through read-only confirmation, and clears obsolete confirmation when model, provider, default scope or target changes. The adapter fixture uses the actual session-bound warning envelope. S9 replacement preserves signing and data. No live prompt is sent for grading.",
+    "MOBILE-CONTEXT-CLIP and MOBILE-PET-LANDSCAPE: the workspace, Attached hint and context meter share one composer row. The workspace now yields remaining flex space instead of reserving 75 percent and overflowing the percentage. Real context geometry includes all three production children. The fixed landscape navigation rail uses ordinary chrome elevation below the body-portaled pet. Portrait drawer and modal priorities remain unchanged. Device rotation and pet overlap still need installed-device observation.",
     "NATIVE-BOTTOM-INSET: removing the old tab bar left Settings and other scroll panes extending behind Android navigation. The shell now owns the raw native bottom inset once. In-pane composer, sticky Reader dock and pinned sidebar keep only their ordinary spacing, while fixed overlays retain their own native insets. Execute real ControlPanel scroll-end geometry plus shared transport geometry for portrait/gesture/landscape/IME viewports. A failed browser-import preflight is not regression evidence.",
     "TTS-MIXING: pet, reply, Reader and Support speech used HTMLAudioElement on Android, leaving WebView in charge of audio focus. Android synthesis now uses a native MediaPlayer with speech attributes and no focus request or communication-route mutation. Execute bridge selection, clip identity, pause during preparation, resume, late cancellation, error and destruction checks. Mixing with another app still requires physical-device acceptance after installing the replacement APK. Live microphone/WebRTC leases remain separate.",
     "MATH-FORMATTING: the shared Markdown renderer emitted raw LaTeX. Render inline/display math with bundled KaTeX fonts and untrusted commands disabled. Preserve code/link source and unfinished streaming expressions. Long display equations scroll within the message in portrait and landscape, never widening the page or hiding the composer.",
@@ -49,22 +56,84 @@
   ],
   "checks": [
     {
+      "id": "CAPTURE-PET-OWNERSHIP",
+      "name": "Dictation stays visible and single-flight while pet audio waits",
+      "reason": "The old hook shared one phase between capture and speech. Pet playback hid the stop control and left the native recorder active. Execute production useVoice with synthetic capture and pet speech. Capture and transcription dominate presentation, same-frame startup/Stop is single-flight, later recordings work, stale connection text is discarded and unmount releases ownership. Physical Android recording remains separate acceptance.",
+      "owners": [
+        "client/src/voice.ts",
+        "client/src/voice-capture-lease.ts",
+        "client/src/voice-capture-lease.test.ts",
+        "client/qa/voice-capture.tsx",
+        "scripts/qa/voice-capture-smoke.mjs"
+      ]
+    },
+    {
+      "id": "MULTI-HERMES-REQUESTS",
+      "name": "Multiple independent reviewed messages to a full Hermes agent",
+      "reason": "Use stable IDs, revisions and frozen target/status per message. Add/select/edit/cancel must not replace another review or steal its receipt. Actual host-advertised message/expectedDraft arguments revise only one unique exact-text match. Duplicate/stale/cross-target edits fail closed. Only visible Send dispatches the exact request. Later preserves unsent messages without claiming backend FIFO admission. Execute both voice engines, accepted/uncertain reconnect and in-flight transport failure, including keyboard-height layout.",
+      "owners": [
+        "client/src/hermes-request-reviews.ts",
+        "client/src/hermes-request-reviews.test.ts",
+        "client/src/usePetRealtime.ts",
+        "client/src/voice-session-evidence.ts",
+        "client/src/App.tsx",
+        "client/src/components/HermesVoiceReview.tsx",
+        "client/src/components/VoiceReviewDialog.tsx",
+        "client/src/components/PetSidechatSheet.tsx",
+        "scripts/qa/hermes-requests-smoke.mjs"
+      ]
+    },
+    {
+      "id": "EFFECTS-SPATIAL-PCM",
+      "name": "HRTF position and distance affect real stereo PCM behind the mute gate",
+      "reason": "Test real WebRTC loopback and rendered spatial controls. Left/right reverses channel dominance, distance attenuates without rebuilding the graph, and both channels are silent at interruption. The synthetic monitor taps only the final destination-connected output, not every dry/wet GainNode. Preferences default off and never enter provider params. Physical phone/headset routing remains separate acceptance.",
+      "owners": [
+        "client/src/voice-effects-settings.ts",
+        "client/src/voice-effects-playback.ts",
+        "client/src/components/VoiceEffectsControls.tsx",
+        "client/qa/voice-effects.tsx",
+        "scripts/qa/voice-effects-smoke.mjs"
+      ]
+    },
+    {
       "id": "MOBILE-SUPPORT-UX-002",
       "name": "Support queue prioritizes tickets and keeps troubleshooting separate",
       "reason": "Operator rejected compressed Support controls and background records ahead of tickets. Test real SupportOpsView with long titles and40 synthetic tasks in portrait, landscape, light and dark. Queue contains search, filters and tickets, not task history, settings or overview statistics. Activity is explicitly opened, with recent history and technical details collapsed. This replaces the old pixel-shrink check while preserving safe queueing and cancellation.",
-      "owners": ["client/src/components/SupportOpsView.tsx", "client/src/components/SupportActivityView.tsx", "client/src/components/SupportQueueReceipts.test.tsx", "client/src/skin/support.css", "client/qa/support-layout.tsx", "scripts/qa/support-layout.mjs"]
+      "owners": [
+        "client/src/components/SupportOpsView.tsx",
+        "client/src/components/SupportActivityView.tsx",
+        "client/src/components/SupportQueueReceipts.test.tsx",
+        "client/src/skin/support.css",
+        "client/qa/support-layout.tsx",
+        "scripts/qa/support-layout.mjs"
+      ]
     },
     {
       "id": "MOBILE-POLISH-20261006",
       "name": "Sessions search, sort, live target and compact support with safe capability controls",
       "reason": "Run scripts/qa/mobile-polish.mjs with synthetic components and production Desktop tokens. Keep existing session, capability and context checks. Operator rejected the Support-only cramped density and intrusive activity. Its check now requires readable titles/controls, tickets near the top and no task activity in Queue. Other component checks are unchanged.",
-      "owners": ["client/src/components/SessionsView.tsx", "client/src/components/CapabilitiesPanel.tsx", "client/src/capabilities.ts", "client/src/skin/support.css", "client/qa/mobile-polish.tsx", "scripts/qa/mobile-polish.mjs"]
+      "owners": [
+        "client/src/components/SessionsView.tsx",
+        "client/src/components/CapabilitiesPanel.tsx",
+        "client/src/capabilities.ts",
+        "client/src/skin/support.css",
+        "client/qa/mobile-polish.tsx",
+        "scripts/qa/mobile-polish.mjs"
+      ]
     },
     {
       "id": "MOBILE-SCREENOFF-001",
       "name": "Bounded background audio ownership and connection recovery",
       "reason": "Shared speech queue retains mediaPlayback across synthesis and clip gaps. Native clip lease follows preparation, pause, resume and completion, including failure and teardown. MediaPlayer uses playback-scoped wake mode and never requests TTS focus. Native active playback may reconnect while locked, but idle UI does not. Synthetic ownership tests are not physical lock-screen proof.",
-      "owners": ["client/src/speech-background.ts", "client/src/speech-background.test.ts", "client/src/transport/app-activity.ts", "client/src/transport/app-activity.test.ts", "client/android/app/src/main/java/dev/hermes/mobile/SpeechPlayback.java", "client/android/app/src/test/java/dev/hermes/mobile/SpeechPlaybackTest.java", "client/android/app/src/main/java/dev/hermes/mobile/HermesConnectionService.java"]
+      "owners": [
+        "client/src/speech-background.ts",
+        "client/src/speech-background.test.ts",
+        "client/src/transport/app-activity.ts",
+        "client/src/transport/app-activity.test.ts",
+        "client/android/app/src/main/java/dev/hermes/mobile/SpeechPlayback.java",
+        "client/android/app/src/test/java/dev/hermes/mobile/SpeechPlaybackTest.java",
+        "client/android/app/src/main/java/dev/hermes/mobile/HermesConnectionService.java"
+      ]
     },
     {
       "id": "NATIVE-BOTTOM-INSET",
@@ -519,7 +588,8 @@
     "client/src/state/theme.test.ts",
     "client/src/state/keyboard.test.ts",
     "client/src/components/ReaderView.compatibility.test.tsx",
-    "client/src/components/ControlPanel.test.tsx"
+    "client/src/components/ControlPanel.test.tsx",
+    "client/src/protocol/canonical-client.test.ts"
   ],
   "manual": [
     {

@@ -473,6 +473,8 @@ def install_windows(
     hermes_home: Path,
     hermes_executable: Path,
     startup_mode: str,
+    *, backend_owner: str = "legacy", shared_runtime_home: str = "",
+    shared_runtime_code_root: str = "", shared_runtime_interpreter: str = "", shared_runtime_lock_directory: str = "",
 ) -> None:
     powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
     if not powershell:
@@ -491,6 +493,11 @@ def install_windows(
             hermes_executable,
             "-StartupMode",
             startup_mode,
+            "-BackendOwner", backend_owner,
+            "-SharedRuntimeHome", shared_runtime_home,
+            "-SharedRuntimeCodeRoot", shared_runtime_code_root,
+            "-SharedRuntimeInterpreter", shared_runtime_interpreter,
+            "-SharedRuntimeLockDirectory", shared_runtime_lock_directory,
         ],
     )
 
@@ -557,6 +564,8 @@ def windows_service_state(metadata: dict[str, Any]) -> str:
     if state != "running":
         return state
     if not metadata.get("BackendListening"):
+        if metadata.get("BackendOwner") == "shared-runtime":
+            return "waiting-for-shared-runtime"
         if metadata.get("StartupMode") == "desktop":
             return "waiting-for-local-backend" if metadata.get("DesktopRunning") else "waiting-for-desktop"
         return "bridge-unavailable"
@@ -615,6 +624,7 @@ def inspect_host(hermes_home: Path, tailscale: Path) -> dict[str, Any]:
     return {
         "service": service_state(),
         "startup_mode": windows_metadata.get("StartupMode", "persistent"),
+        "backend_owner": windows_metadata.get("BackendOwner", "legacy"),
         "backend": f"127.0.0.1:{BACKEND_PORT}",
         "backend_listening": backend_listening,
         "proxy": f"127.0.0.1:{PROXY_PORT}",
@@ -760,18 +770,30 @@ def uninstall_service() -> None:
 
 
 def install(args: argparse.Namespace) -> None:
+    shared = args.backend_owner == "shared-runtime"
+    if shared and (os.name != "nt" or args.startup == "desktop" or not all((
+        args.shared_runtime_home, args.shared_runtime_code_root, args.shared_runtime_interpreter
+    ))):
+        raise HostInstallError("SharedRuntime requires Windows persistent/manual startup and explicit home/code/interpreter")
     hermes_home = Path(args.hermes_home).expanduser().resolve()
-    hermes_executable = locate_hermes(hermes_home, args.hermes_executable)
+    hermes_executable = (Path(args.shared_runtime_interpreter).resolve() if shared
+                         else locate_hermes(hermes_home, args.hermes_executable))
     tailscale = locate_tailscale()
     tailnet_host, _ip_address = tailscale_identity(tailscale)
-    ensure_plugin_link(hermes_home, hermes_executable)
+    if not shared:
+        ensure_plugin_link(hermes_home, hermes_executable)
 
     if os.name == "nt":
         # The PowerShell runner creates the token with a Windows
         # current-user-only ACL. Do not pre-create it through the generic path,
         # or the runner would correctly preserve the file but never get the
         # chance to apply its ACL.
-        install_windows(hermes_home, hermes_executable, args.startup)
+        install_windows(hermes_home, hermes_executable, args.startup,
+                        backend_owner=args.backend_owner,
+                        shared_runtime_home=args.shared_runtime_home,
+                        shared_runtime_code_root=args.shared_runtime_code_root,
+                        shared_runtime_interpreter=args.shared_runtime_interpreter,
+                        shared_runtime_lock_directory=args.shared_runtime_lock_directory)
     elif sys.platform == "darwin":
         if args.startup != "persistent":
             raise HostInstallError("--startup is currently configurable only on Windows")
@@ -796,7 +818,7 @@ def install(args: argparse.Namespace) -> None:
         raise HostInstallError(f"Unsupported platform: {sys.platform}")
 
     windows_metadata = manage_windows("Status") if os.name == "nt" else {}
-    if not (
+    if not shared and not (
         args.startup == "desktop"
         and windows_metadata.get("DesktopRunning") is False
     ):
@@ -863,6 +885,11 @@ def build_parser() -> argparse.ArgumentParser:
             "or require explicit start"
         ),
     )
+    install_parser.add_argument("--backend-owner", choices=("legacy", "shared-runtime"), default="legacy")
+    install_parser.add_argument("--shared-runtime-home", default="")
+    install_parser.add_argument("--shared-runtime-code-root", default="")
+    install_parser.add_argument("--shared-runtime-interpreter", default="")
+    install_parser.add_argument("--shared-runtime-lock-directory", default="")
 
     run_parser = subparsers.add_parser("run", help="Run the supervised loopback services")
     add_common(run_parser)

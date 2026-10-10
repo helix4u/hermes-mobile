@@ -177,6 +177,7 @@ function Get-HermesMobileStatus {
     } else {
         'not-installed'
     }
+    $backendOwner = if ($arguments -match '(?i)-BackendOwner\s+shared-runtime(?:\s|$)') { 'shared-runtime' } else { 'legacy' }
     $desktopRunning = $null
     if ($startupMode -eq 'desktop') {
         $desktopExecutable = if ($arguments -match '(?i)-DesktopExecutable\s+"([^"]+)"') {
@@ -208,7 +209,7 @@ function Get-HermesMobileStatus {
     $desktopBackendPort = $null
     if ($backend.Count -gt 0) {
         $backendCommand = [string]$backend[0].CommandLine
-        $sharedDesktopBackend =
+        $sharedDesktopBackend = $backendOwner -ne 'shared-runtime' -and
             $backendCommand.Contains((Join-Path $PSScriptRoot 'mobile_proxy.py'), [StringComparison]::OrdinalIgnoreCase) -and
             $backendCommand -match '(?i)--credential-file(?:\s|$)'
         if ($sharedDesktopBackend -and $backendCommand -match '(?i)--upstream\s+http://127\.0\.0\.1:(\d+)(?:\s|$)') {
@@ -220,6 +221,8 @@ function Get-HermesMobileStatus {
         Installed = [bool]$task
         TaskState = if ($task) { [string]$task.State } else { 'NotInstalled' }
         StartupMode = $startupMode
+        BackendOwner = $backendOwner
+        SharedRuntimeBackend = $backendOwner -eq 'shared-runtime'
         DesktopRunning = $desktopRunning
         BackendListening = $backend.Count -gt 0
         BackendPid = if ($backend.Count -gt 0) { $backend[0].ProcessId } else { $null }

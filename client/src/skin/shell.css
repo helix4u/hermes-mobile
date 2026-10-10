@@ -606,6 +606,7 @@
   .bottom-nav.app-sidebar,
   .bottom-nav.app-sidebar.support-enabled {
     position: static;
+    z-index: 60;
     grid-column: 1;
     grid-row: 1 / -1;
     display: flex;

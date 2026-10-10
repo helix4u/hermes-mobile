@@ -4,6 +4,8 @@ import type {
   GatewayEventFrame,
   JsonRpcResponse,
 } from './types'
+import { CanonicalClientProtocol } from '../vendor/gateway/canonical-protocol'
+import { NATIVE_GATEWAY_PROTOCOL, prepareCanonicalRequest, projectCanonicalResult } from './canonical-gateway'
 
 export interface WebSocketLike {
   readonly readyState: number
@@ -41,11 +43,29 @@ export interface JsonRpcRequestOptions {
 
 const OPEN = 1
 
+export class JsonRpcGatewayError extends Error {
+  constructor(message: string, readonly code: number, readonly data?: unknown) {
+    super(message)
+    this.name = 'JsonRpcGatewayError'
+  }
+}
+
+export function isSubmissionDeliveryUncertain(error: unknown): error is JsonRpcGatewayError {
+  return error instanceof JsonRpcGatewayError && Boolean(error.data && typeof error.data === 'object' &&
+    (error.data as Record<string, unknown>).reason === 'SUBMISSION_DELIVERY_UNCERTAIN')
+}
+
+export const SUBMISSION_UNCERTAIN_MESSAGE = "Delivery not confirmed. The request may already have been accepted. Reconnect and check this session's status before sending it again."
+
 export class JsonRpcGatewayClient {
   private socket: WebSocketLike | null = null
   private connectingSocket: ConnectingSocket | null = null
   private activeSocket: SocketBinding | null = null
   private nextId = 1
+  private sharedRuntime = false
+  private canonical = false
+  private expectedCanonical = false
+  private protocol = new CanonicalClientProtocol('mobile')
   private readonly pending = new Map<string, PendingRequest>()
   private readonly eventListeners = new Set<GatewayEventListener>()
   private readonly stateListeners = new Set<GatewayStateListener>()
@@ -62,7 +82,18 @@ export class JsonRpcGatewayClient {
     return this.socket?.readyState === OPEN
   }
 
+  get isSharedRuntime(): boolean {
+    return this.sharedRuntime
+  }
+
+  expectProtocol(protocol: string | undefined): void {
+    this.expectedCanonical = protocol === NATIVE_GATEWAY_PROTOCOL
+  }
+
   async connect(url: string): Promise<void> {
+    this.canonical = this.expectedCanonical
+    this.sharedRuntime = this.expectedCanonical
+    this.protocol = new CanonicalClientProtocol('mobile')
     this.teardownSocket(
       new Error('Gateway connection replaced'),
       false,
@@ -131,6 +162,7 @@ export class JsonRpcGatewayClient {
   }
 
   private teardownSocket(error: Error, publishDisconnected: boolean): void {
+    this.sharedRuntime = false
     const socket = this.socket
     this.socket = null
 
@@ -168,36 +200,110 @@ export class JsonRpcGatewayClient {
     }
 
     const id = String(this.nextId++)
-    const frame = JSON.stringify({
+    const canonical = this.canonical
+    const protocol = this.protocol
+    const brokerSubmission = method === 'prompt.submit' && this.sharedRuntime
+    const mappedParams = { ...(this.mapParams ? this.mapParams(params) : params) }
+    if (canonical && method === 'prompt.submit' && typeof mappedParams.submission_id === 'string' &&
+      protocol.runningGeneration(mappedParams.session_id, mappedParams.profile) !== undefined && mappedParams.busy_mode !== 'queue') {
+      const found = await this.request<{ receipt: unknown }>('prompt.lookup', {
+        session_id: mappedParams.session_id, input_id: mappedParams.submission_id,
+      }, options)
+      if (this.socket !== socket) throw Error('Gateway connection changed before submission')
+      if (found.receipt) mappedParams.busy_mode = 'queue'
+    }
+    const prepared = canonical ? prepareCanonicalRequest(protocol, method, mappedParams) : { method, params: mappedParams }
+    const wireParams = prepared.params
+    let frame = JSON.stringify({
       jsonrpc: '2.0',
       id,
-      method,
-      params: this.mapParams ? this.mapParams(params) : params,
+      method: prepared.method,
+      params: wireParams,
     })
+    let submissionId = wireParams.submission_id
+    if (brokerSubmission) {
+      // Validate/snapshot mapping and serialization before allocating a key.
+      // A pre-send scope/encoding failure is a definite local refusal.
+      const encoded = JSON.parse(frame)
+      if (!encoded.params || typeof encoded.params !== 'object' || Array.isArray(encoded.params)) {
+        throw new Error('Prompt parameters must be an object')
+      }
+      if (prepared.method === 'prompt.submit' && encoded.params.submission_id === undefined) {
+        encoded.params.submission_id = globalThis.crypto.randomUUID()
+        frame = JSON.stringify(encoded)
+      }
+      submissionId = encoded.params.submission_id
+      if (prepared.method === 'prompt.submit') wireParams.submission_id = submissionId
+    }
     const timeoutMs = options.timeoutMs ?? this.requestTimeoutMs
+    const deadline = Date.now() + timeoutMs
 
     return new Promise<T>((resolve, reject) => {
+      let sendAttempted = false
+      const rejectDelivery = (error: Error) => {
+        reject(brokerSubmission && sendAttempted && !(error instanceof JsonRpcGatewayError)
+          ? new JsonRpcGatewayError(SUBMISSION_UNCERTAIN_MESSAGE, -32052, {
+            reason: 'SUBMISSION_DELIVERY_UNCERTAIN', submission_id: submissionId,
+          }) : error)
+      }
       const timeout = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`${method} timed out after ${timeoutMs}ms`))
+        rejectDelivery(new Error(`${method} timed out after ${timeoutMs}ms`))
       }, timeoutMs)
 
       this.pending.set(id, {
         resolve: value => {
-          try { resolve((this.mapResult ? this.mapResult(method, value) : value) as T) }
-          catch (error) { reject(error instanceof Error ? error : new Error(String(error))) }
+          const complete = async () => {
+            if (this.socket !== socket) throw Error('Gateway connection changed before the receipt was applied')
+            if (canonical || this.canonical) {
+              value = projectCanonicalResult(protocol, method, prepared.method, wireParams, value)
+              value = await protocol.settle(method, wireParams, value, (nextMethod, nextParams) => {
+                if (this.socket !== socket) throw Error('Gateway connection changed during session refresh')
+                return this.request(nextMethod, nextParams)
+              })
+            }
+            if (this.socket !== socket) throw Error('Gateway connection changed before the receipt was applied')
+            resolve((this.mapResult ? this.mapResult(method, value) : value) as T)
+          }
+          void complete().catch(error => rejectDelivery(error instanceof Error ? error : new Error(String(error))))
         },
-        reject,
+        reject: rejectDelivery,
         timeout,
       })
 
       try {
+        sendAttempted = true
         socket.send(frame)
       } catch (error) {
         clearTimeout(timeout)
         this.pending.delete(id)
-        reject(error instanceof Error ? error : new Error(String(error)))
+        rejectDelivery(error instanceof Error ? error : new Error(String(error)))
       }
+    }).catch(async error => {
+      const reason = error instanceof JsonRpcGatewayError && error.data && typeof error.data === 'object'
+        ? (error.data as Record<string, unknown>).reason : undefined
+      if (!canonical || !['session.resume', 'session.activate'].includes(method) ||
+        typeof wireParams.session_id !== 'string' || wireParams.title !== undefined ||
+        !['not_found', 'storage_unavailable'].includes(String(reason))) throw error
+      const retryOptions = () => {
+        if (this.socket !== socket) throw Error('Gateway connection changed during session recovery')
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) throw Error(`${method} timed out during session recovery`)
+        return { ...options, timeoutMs: remaining }
+      }
+      try {
+        return await this.request<T>('session.resume', { ...wireParams, title: wireParams.session_id }, retryOptions())
+      } catch (resolutionError) {
+        if (!(resolutionError instanceof JsonRpcGatewayError) || !resolutionError.data ||
+          (resolutionError.data as Record<string, unknown>).reason !== 'not_found') throw resolutionError
+      }
+      // A storage refusal is never permission to adopt a different transcript.
+      if (reason === 'storage_unavailable') throw error
+      const adopted = await this.request<unknown>('session.adopt',
+        protocol.adoptionParams(wireParams.session_id, wireParams.profile), retryOptions())
+      if (this.socket !== socket) throw Error('Gateway connection changed during session recovery')
+      const projected = projectCanonicalResult(protocol, method, prepared.method, wireParams, adopted)
+      return (this.mapResult ? this.mapResult(method, projected) : projected) as T
     })
   }
 
@@ -227,6 +333,11 @@ export class JsonRpcGatewayClient {
       }
 
       if ('method' in frame && frame.method === 'event') {
+        if (frame.params.type === 'gateway.ready') {
+          this.canonical = frame.params.payload?.native_gateway_protocol === NATIVE_GATEWAY_PROTOCOL
+          this.sharedRuntime = this.canonical || frame.params.payload?.shared_runtime === true
+        }
+        if (this.canonical) this.protocol.event({ ...frame.params, profile: frame.params.profile ?? this.mapParams?.({}).profile as string | undefined })
         for (const listener of this.eventListeners) {
           listener(frame.params)
         }
@@ -243,8 +354,10 @@ export class JsonRpcGatewayClient {
 
       if (response.error) {
         pending.reject(
-          new Error(
+          new JsonRpcGatewayError(
             `Hermes RPC ${response.error.code}: ${response.error.message}`,
+            response.error.code,
+            response.error.data,
           ),
         )
       } else {
@@ -263,6 +376,8 @@ export class JsonRpcGatewayClient {
       binding.remove()
       this.activeSocket = null
       this.socket = null
+      this.sharedRuntime = false
+      this.canonical = false
       this.rejectPending(new Error('Gateway connection closed'))
       this.publishState('disconnected')
     }

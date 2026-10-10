@@ -3104,10 +3104,12 @@ public class HermesNativePlugin extends Plugin {
             throw new IllegalArgumentException("unexpected gateway path");
         }
         String prefix = path.substring(0, marker);
+        String profile = gatewayUrl.queryParameter("profile");
 
         HttpUrl coreTicketUrl = gatewayUrl.newBuilder()
             .encodedPath(prefix + "/api/auth/ws-ticket")
             .query(null)
+            .addQueryParameter("profile", profile == null ? "default" : profile)
             .build();
         String ticket = requestTicket(coreTicketUrl, credential);
         if (ticket != null) {
@@ -3119,6 +3121,7 @@ public class HermesNativePlugin extends Plugin {
                 prefix + "/api/plugins/hermes-mobile/v1/ws-ticket"
             )
             .query(null)
+            .addQueryParameter("profile", profile == null ? "default" : profile)
             .build();
         ticket = requestTicket(mobileTicketUrl, credential);
         if (ticket != null) {

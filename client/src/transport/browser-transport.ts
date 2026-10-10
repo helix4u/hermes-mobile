@@ -1,4 +1,5 @@
 import { JsonRpcGatewayClient } from '../protocol/json-rpc-client'
+import { gatewayProfileUrl } from './gateway-profile'
 import { assertHttpProfile, scopedHttpPath, scopedRpcParams, verifyProfileResult } from '../profiles'
 import type { MobileCapabilities } from '../protocol/types'
 import {
@@ -61,6 +62,7 @@ export class BrowserHermesTransport {
         '/api/plugins/hermes-mobile/v1/capabilities',
       )
       this.gatewayKind = 'plugin'
+      this.gateway.expectProtocol(capabilities.native_gateway_protocol)
       return capabilities
     } catch (error) {
       const status = error instanceof HermesHttpError ? error.status : undefined
@@ -78,6 +80,7 @@ export class BrowserHermesTransport {
           const metadata =
             await this.fetchJson<Record<string, unknown>>(path)
           this.gatewayKind = 'core'
+          this.gateway.expectProtocol(undefined)
           return coreGatewayCapabilities(metadata)
         } catch (metadataError) {
           failures.push(
@@ -97,8 +100,8 @@ export class BrowserHermesTransport {
     const auth = await this.resolveWsAuth()
     await this.gateway.connect(
       this.gatewayKind === 'plugin'
-        ? buildPluginWsUrl(this.connection.baseUrl, auth)
-        : buildCoreWsUrl(this.connection.baseUrl, auth),
+        ? gatewayProfileUrl(buildPluginWsUrl(this.connection.baseUrl, auth), this.connection.profile)
+        : gatewayProfileUrl(buildCoreWsUrl(this.connection.baseUrl, auth), this.connection.profile),
     )
   }
 

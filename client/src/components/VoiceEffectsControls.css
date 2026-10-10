@@ -1,0 +1,14 @@
+.voice-effects-controls { display: grid; gap: 12px; min-width: 0; }
+.voice-effects-controls > summary { cursor: pointer; }
+.voice-effects-controls[open] > summary { margin-bottom: 12px; }
+.voice-effects-controls label { display: grid; gap: 6px; margin: 12px 0; }
+.voice-effects-controls label > span { display: flex; justify-content: space-between; gap: 12px; }
+.voice-effects-controls input[type="range"] { width: 100%; min-height: 36px; accent-color: var(--text-primary, currentColor); touch-action: pan-y; }
+.voice-effects-controls .voice-effects-toggle { display: flex; align-items: center; gap: 10px; }
+.voice-effects-controls input[type="checkbox"] { width: 20px; height: 20px; }
+.voice-effects-presets { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.voice-effects-controls output { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.voice-effects-warning { color: var(--text-secondary, currentColor); }
+.voice-effects-spatial { min-width: 0; margin: 12px 0; padding: 8px 12px; border: 1px solid var(--border, currentColor); border-radius: 8px; }
+.voice-effects-spatial legend { padding: 0 4px; }
+.voice-effects-spatial small { display: block; overflow-wrap: anywhere; }

@@ -22,7 +22,8 @@ beforeEach(async () => {
   page.setDefaultTimeout(5000)
   await page.goto(`${url}/qa/support-voice-review.html`, { timeout: 30000 })
   await page.waitForFunction(() => Boolean(window.supportReviewQA))
-  await page.getByRole('button', { name: 'Queue voice', exact: true }).click()
+  await page.getByRole('button', { name: 'More support actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Live voice', exact: true }).click()
   await page.waitForFunction(() => Boolean(window.supportReviewQA.target))
 })
 afterEach(async () => { await context?.close() })
@@ -124,7 +125,11 @@ for (const failure of ['refresh', 'receipt']) test(`accepted action stays accept
   assert.equal((await approvals()).length, 1)
   assert.equal(await sendButton().count(), 0)
   if (failure === 'receipt') assert.match(await page.locator('.support-ops-screen').innerText(), /action was submitted, but the Support view could not refresh/)
-  else assert.ok(await page.evaluate(() => window.supportReviewQA.errors.includes('Synthetic refresh unavailable')))
+  else {
+    const failure = page.locator('.support-inline-error')
+    await failure.waitFor({ state: 'visible' })
+    assert.match(await failure.innerText(), /Support view refresh failed\. Accepted job receipts are retained\. Synthetic refresh unavailable/)
+  }
 })
 
 test('unconfirmed request failure preserves the exact card without automatically resubmitting', async () => {

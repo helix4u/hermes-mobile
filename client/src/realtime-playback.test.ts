@@ -1,6 +1,20 @@
 import { expect, it, vi } from 'vitest'
 import { sampleInboundAudio, watchRealtimePlayback } from './realtime-playback'
 
+it('preserves the effects owner volume gate when beginning or recovering playback', async () => {
+  const audio = Object.assign(new EventTarget(), { muted: true, volume: 0, play: vi.fn(async () => {}) })
+  const restoreOutput = vi.fn(() => { audio.muted = false; audio.volume = 0 })
+  let allowed = true
+  const owner = watchRealtimePlayback(audio as unknown as HTMLAudioElement, () => allowed, vi.fn(), vi.fn(), {
+    sample: async () => 10, rebind: vi.fn(), restoreOutput, settle: async () => undefined,
+  })
+  owner.begin()
+  for (let i = 0; i < 12; i++) await Promise.resolve()
+  expect(restoreOutput).toHaveBeenCalled()
+  expect(audio.volume).toBe(0)
+  allowed = false; owner.dispose()
+})
+
 function fixture() {
   const audio = Object.assign(new EventTarget(), { paused: true, play: vi.fn(async () => { audio.paused = false }) })
   let allowed = true

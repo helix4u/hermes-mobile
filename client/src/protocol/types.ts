@@ -14,6 +14,7 @@ export interface MobileFeatureSet {
 }
 
 export interface MobileCapabilities {
+  native_gateway_protocol?: string
   contract_version: number
   plugin_version: string
   hermes_version: string
@@ -137,6 +138,10 @@ export interface GatewayEvent<T = Record<string, unknown>> {
   type: string
   session_id?: string
   payload: T
+  profile?: string
+  execution_generation?: number
+  authority_epoch?: number
+  admission_id?: string
 }
 
 export type GatewayConnectionState =
